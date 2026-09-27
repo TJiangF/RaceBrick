@@ -37,6 +37,7 @@
   <script src="js/input.js"></script>
   <script src="js/track.js"></script>
   <script src="js/gnss.js"></script>
+  <script src="js/imu.js"></script>
   <script src="js/map.js"></script>
   <script src="js/screens.js"></script>
   <script src="js/app.js"></script>
@@ -59,13 +60,18 @@
     app.sessionTrack = tr;
 
     if (hash === 'gnss') { app.gnss.t = 7; app.gnss.update(0.02); app.go('GNSS_TEST'); return; }
+    if (hash === 'calib') {
+      app.go('IMU_CALIB');
+      if (app.current) { for (var c = 0; c < 60; c++) app.current.update(0.03); }
+      return;
+    }
 
     if (hash === 'racing' || hash === 'recorded' || hash === 'timer' || hash === 'dash' || hash === 'sector' || hash === 'build') {
       var rec = hash === 'recorded';
       if (rec) tr.best = 11.842;
       tr.sections = [0.25, 0.6, 0.85];
       app.sessionSections = [0.25, 0.6, 0.85];
-      var e = new RC.RaceEngine(tr, { histBest: tr.best });
+      var e = new RC.RaceEngine(tr, { histBest: tr.best, sensor: app.imu });
       app.engine = e;
       var nsteps = hash === 'build' ? 260 : 1600;
       for (var i = 0; i < nsteps; i++) e.update(0.02);
@@ -79,7 +85,7 @@
       return;
     }
     if (hash === 'confirm') {
-      var e3 = new RC.RaceEngine(tr);
+      var e3 = new RC.RaceEngine(tr, { sensor: app.imu });
       app.engine = e3;
       for (var m = 0; m < 1600; m++) e3.update(0.02);
       app.go('RACING');
@@ -87,7 +93,7 @@
       return;
     }
     if (hash === 'laps' || hash === 'section' || hash === 'vehicle' || hash === 'naming') {
-      var e2 = new RC.RaceEngine(tr);
+      var e2 = new RC.RaceEngine(tr, { sensor: app.imu });
       app.engine = e2;
       for (var j = 0; j < 1600; j++) e2.update(0.02);
       if (hash === 'laps') { app.go('LAP_SELECT'); return; }

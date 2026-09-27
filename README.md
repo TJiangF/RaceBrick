@@ -24,9 +24,13 @@ python3 -m http.server 8000
 
 ## 截图
 
-| 主页面 | 模式选择 |
+| 开机 IMU 水平校准 | 主页面 |
 |---|---|
-| ![home](docs/01-home.png) | ![mode](docs/02-mode-select.png) |
+| ![calib](docs/00-imu-calibration.png) | ![home](docs/01-home.png) |
+
+| 模式选择 | — |
+|---|---|
+| ![mode](docs/02-mode-select.png) | |
 
 | 标记起始线（未知赛道，仅 GPS 点） | New Track 绘制中（视角跟随） |
 |---|---|
@@ -70,8 +74,9 @@ RaceBrick/
 │   ├── config.js       全局配置：屏幕尺寸 / 按键时序 / 调色板 / GPIO 映射
 │   ├── dom.js          DOM / Canvas 小工具与时间格式化
 │   ├── input.js        输入层：键盘 / 屏幕按钮 / GPIO 轮询，长按与连发判定
-│   ├── track.js        赛道几何 + RaceEngine（圈判定 / 圈速 / Diff / 遥测）
+│   ├── track.js        赛道几何 + RaceEngine（圈判定 / 圈速 / Diff / 遥测 / 传感器融合）
 │   ├── gnss.js         NEO-M9N 模拟器（搜星序列 / 天空视图 / 定位解）
+│   ├── imu.js          MPU6050 模拟器（零偏 / 噪声）+ GPS/IMU 卡尔曼融合
 │   ├── map.js          像素轨迹图渲染 + 车辆图标 / 赛道缩略图
 │   ├── screens.js      全部页面与状态机（每个页面一个 class）
 │   └── app.js          应用外壳：主循环 / 页面切换动画 / 弹窗 / 状态栏 / 调试
@@ -103,6 +108,7 @@ RaceBrick/
 ### 2. 页面状态机
 
 ```
+IMU_CALIB(开机) ──稳定2.5s/Ok/Push/Back──▶ HOME
 HOME ──Ok──▶ MODE_SELECT
  │              ├─ New Track ──▶ NEW_TRACK_MARK_START ──Push──▶ RACING(New)
  │              │                    └─ Back长按 ──▶ CONFIRM「用此次记录新建赛道?」
@@ -132,7 +138,7 @@ HOME ──Ok──▶ MODE_SELECT
 |---|---|
 | **TRACK** | 轨迹图 + 大字当前圈速 + 圈速列表（最快圈紫底、Recorded 历史最快金底） |
 | **TIMER** | 全屏巨号当前圈速 + 与最快圈差值（红慢 / 绿快）+ LAP / BEST / LAST |
-| **DASH** | 大字车速 (km/h) + 速度条 + 里程；SATS / HDOP / HDG / ALT / G-LAT / FIX |
+| **DASH** | 大字车速 (km/h) + 速度条 + 里程；**G 值表**（g-g 图，带轨迹尾迹）；SATS / HDOP / FIX / KF-σ / HDG / ALT |
 | **SECTOR** | 各 Section 区间 + 与最快圈的分段差值，当前所在段高亮 |
 
 右下角有面板指示点，状态栏显示 `TRACK 1/4` 等。`Back` 长按结束比赛。
@@ -160,7 +166,29 @@ HOME ──Ok──▶ MODE_SELECT
 - **Ok 无候选时**：询问“当前位置→终点作为最后段 / 余下到终点作为最后段”，确认即生成最后一段并进入下一步——不会因为残留候选而卡住
 - 候选离上一段太近时自动取消并直接弹出结束确认；光标 ≥98.5% 确认会自动结束
 
-### 8. GNSS 雷达测试（NEO-M9N）
+### 8. 开机 IMU 水平校准（MPU6050）
+
+每次开机进入 `IMU_CALIB`：把设备**水平静置**，屏幕左侧是气泡水平仪（气泡 = 实测水平加速度，越居中越水平），右侧显示三轴加速度/角速度、稳定性状态与进度条。
+
+- 判定：对最近的采样窗口求加速度/角速度标准差，低于阈值即 `STABLE`，稳定累计 **2.5s** 自动完成
+- 完成后把平均读数写入零偏（`Mpu6050.applyCalibration`），并保存
+- **Ok** 立即完成、**Push** 重新采样、**Back** 跳过（沿用上次校准）
+- 也可从 `Settings ▸ IMU 水平校准` 重做
+
+### 9. GPS + IMU 卡尔曼融合（轨迹求解）
+
+赛道轨迹由 GPS 与 MPU6050 融合得到，而非直接用原始 GPS：
+
+- **状态** `[x, y, vx, vy]`（本地米制坐标），一步预测 = 用陀螺 yaw 旋转速度向量 + 沿航向叠加纵向加速度，再乘 dt
+- **量测** = GPS 定位（带 ~3 m 噪声、8 Hz、偶发丢星），用卡尔曼增益（稳态 alpha-beta 形式）修正位置
+- **航向**：陀螺积分，并用 GPS 航向缓慢校正；丢星时纯惯导递推（dead-reckoning）
+- **侧向加速度**按轮胎抓地上限 2g 截断，并做低通，供 G 值表使用
+- 效果：融合轨迹比原始 GPS 更平滑，实测 RMS 误差约 **2.2 m vs 原始 2.7 m**，且能穿过短暂丢星段；地图上原始 GPS 点以暗色显示、融合轨迹以亮色显示
+- 建图（采样-平均法）使用的就是融合后的轨迹
+
+> 参数集中在 `js/config.js` 的 `IMU` 段（校准时长、噪声、GPS 频率、丢星比例）。
+
+### 10. GNSS 雷达测试（NEO-M9N）
 
 `Settings ▸ GNSS 雷达测试`：
 
@@ -177,6 +205,8 @@ HOME ──Ok──▶ MODE_SELECT
 | `.screen` + `div` 页面 | `lv_obj` 页面 + `lv_scr_load_anim()` 滑入/淡入 |
 | `js/screens.js` 状态机 | 同一套状态机（C 结构体 / 函数表） |
 | `js/map.js` Canvas 像素绘制 | `lv_canvas` 或 `lv_obj` 点阵 |
+| `RC.Mpu6050`（`js/imu.js`） | MPU6050 I2C 读寄存器 + 零偏校准 |
+| `RC.KalmanFusion` | 同一融合算法（C 实现），吃 UBX fix + IMU 采样 |
 | LED Diff 条（10 个 `.led`） | 10 个 `lv_obj` 方块 + 颜色样式 |
 | `RC.Input`（键盘/屏幕/GPIO 轮询） | GPIO 中断 + 消抖，实现同一 `getButtonState()` |
 
@@ -224,6 +254,7 @@ input.attachGPIO({
 - [x] 横屏 360×240、像素风格、面板切换
 - [x] New Track 轨迹渐进绘制与相机跟随
 - [x] GNSS（NEO-M9N）雷达测试页
+- [x] MPU6050 开机水平校准 + GPS/IMU 卡尔曼融合 + DASH G 值表
 - [ ] 亮度/亮灯颜色设置真正作用到画面与背光
 - [ ] 真实 GPS/IMU 轨迹导入回放
-- [ ] 移植到 ESP32-S3 + LVGL，接入真实 GPIO 与 UBX
+- [ ] 移植到 ESP32-S3 + LVGL，接入真实 GPIO / UBX / MPU6050

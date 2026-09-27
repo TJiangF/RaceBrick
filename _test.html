@@ -51,6 +51,7 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
   <script src="js/input.js"></script>
   <script src="js/track.js"></script>
   <script src="js/gnss.js"></script>
+  <script src="js/imu.js"></script>
   <script src="js/map.js"></script>
   <script src="js/screens.js"></script>
   <script src="js/app.js"></script>
@@ -72,6 +73,7 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
     function press(btn) { app.buttonDown(btn); app.buttonUp(btn); }
 
     var steps = [
+      { fn: function () { press('Back'); }, pump: 480 },          // skip IMU calib -> HOME
       { fn: function () { tap('Ok'); }, pump: 480 },              // HOME -> MODE_SELECT
       { fn: function () { tap('Ok'); }, pump: 480 },              // -> NEW_TRACK_MARK_START
       { fn: function () { tap('Push'); }, pump: 1440 },           // mark -> RACING
@@ -119,9 +121,20 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Down'); }, pump: 80 },             // select track
       { fn: function () { tap('Back'); }, pump: 160 },            // exit entered
       { fn: function () { tap('Back'); }, pump: 320 },            // HOME
+      /* IMU calibration page */
+      { fn: function () { tap('Up'); }, pump: 320 },              // SETTINGS
+      { fn: function () { tap('Ok'); }, pump: 160 },              // enter
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },             // sel = IMU row
+      { fn: function () { tap('Ok'); }, pump: 300 },              // IMU_CALIB
+      { fn: function () { tap('Push'); }, pump: 160 },            // restart sampling
+      { fn: function () { tap('Ok'); }, pump: 1200 },             // complete -> HOME
       /* GNSS test page */
       { fn: function () { tap('Up'); }, pump: 320 },              // SETTINGS
       { fn: function () { tap('Ok'); }, pump: 160 },              // enter
+      { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },

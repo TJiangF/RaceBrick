@@ -289,7 +289,61 @@
     }
   }
 
+  /* ---------- G-force meter (g-g diagram) ---------- */
+  function drawGmeter(ctx, W, H, lat, long, trail, maxG) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = C.COLORS.stage;
+    ctx.fillRect(0, 0, W, H);
+    const cx = W / 2;
+    const cy = H / 2;
+    const R = Math.min(W, H) / 2 - 6;
+    const mx = maxG || 2;
+    /* rings */
+    ctx.strokeStyle = '#20202a';
+    ctx.lineWidth = 1;
+    for (let g = 0.5; g <= mx; g += 0.5) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, (g / mx) * R, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(cx - R, cy);
+    ctx.lineTo(cx + R, cy);
+    ctx.moveTo(cx, cy - R);
+    ctx.lineTo(cx, cy + R);
+    ctx.stroke();
+    const toXY = (l, n) => ({
+      x: cx + (l / mx) * R,
+      y: cy - (n / mx) * R,
+    });
+    /* trail */
+    if (trail) {
+      ctx.fillStyle = '#2b4a44';
+      for (const t of trail) {
+        const q = toXY(t.l, t.n);
+        ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
+      }
+    }
+    /* current */
+    const q = toXY(lat, long);
+    const mag = Math.hypot(lat, long);
+    const col = mag >= 1 ? C.COLORS.red : mag >= 0.5 ? C.COLORS.yellow : C.COLORS.green;
+    ctx.fillStyle = col;
+    ctx.fillRect(Math.round(q.x) - 2, Math.round(q.y) - 2, 4, 4);
+    ctx.fillStyle = '#101014';
+    ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
+    /* center dot */
+    ctx.fillStyle = '#2b2b33';
+    ctx.fillRect(cx - 1, cy - 1, 2, 2);
+    /* labels */
+    ctx.fillStyle = C.COLORS.dim;
+    ctx.font = "7px 'Press Start 2P', monospace";
+    ctx.fillText('LAT', cx - R, cy - R + 8);
+    ctx.fillText('LONG', cx + R - 26, cy + R + 0);
+  }
+
   RC.TrackMap = TrackMap;
   RC.drawVehicleIcon = drawVehicleIcon;
   RC.drawThumb = drawThumb;
+  RC.drawGmeter = drawGmeter;
 })();

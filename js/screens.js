@@ -181,6 +181,7 @@
         ['亮灯颜色', this.ledColors[s.ledColor]],
         ['WiFi', s.wifi ? '开' : '关'],
         ['蓝牙', s.bluetooth ? '开' : '关'],
+        ['IMU 水平校准', '>'],
         ['GNSS 雷达测试', '>'],
       ];
     }
@@ -215,7 +216,7 @@
       }
       const d = navDir(ev);
       if (d) {
-        this.sel = (this.sel + d + 5) % 5;
+        this.sel = (this.sel + d + 6) % 6;
         this.render();
         return;
       }
@@ -226,7 +227,8 @@
         else if (this.sel === 1) s.ledColor = (s.ledColor + 1) % this.ledColors.length;
         else if (this.sel === 2) s.wifi = !s.wifi;
         else if (this.sel === 3) s.bluetooth = !s.bluetooth;
-        else if (this.sel === 4) this.app.go('GNSS_TEST', 'left');
+        else if (this.sel === 4) this.app.go('IMU_CALIB', 'left');
+        else if (this.sel === 5) this.app.go('GNSS_TEST', 'left');
         this.render();
       } else if (ev.button === 'Back') {
         this.entered = false;
@@ -321,6 +323,7 @@
         if (this.postTimer <= 0) {
           this.app.engine = new RC.RaceEngine(this.sessionTrack, {
             speedMul: this.app.simSpeed,
+            sensor: this.app.imu,
           });
           this.app.go('RACING', 'left');
         }
@@ -439,15 +442,23 @@
       left.appendChild(this.dDist);
       wrap.appendChild(left);
 
+      const mid = D.div('dash-mid');
+      this.gcv = D.canvas(104, 104);
+      this.gctx = this.gcv.getContext('2d');
+      mid.appendChild(this.gcv);
+      this.gval = D.div('dash-gval', '0.00 g');
+      mid.appendChild(this.gval);
+      wrap.appendChild(mid);
+
       const right = D.div('dash-right');
       this.dGrid = {};
       [
         ['SATS', 'dSats'],
         ['HDOP', 'dHdop'],
+        ['FIX', 'dFix'],
+        ['KF-σ', 'dKf'],
         ['HDG', 'dHdg'],
         ['ALT', 'dAlt'],
-        ['G-LAT', 'dG'],
-        ['FIX', 'dFix'],
       ].forEach((it) => {
         const row = D.div('dash-row');
         row.appendChild(D.div('dash-k', it[0]));
@@ -511,6 +522,9 @@
         this.map.fitEngine(e, 0.28);
         this.map.smooth(dt || 0.016, 4);
       }
+      /* raw GPS fixes (noisy) faint, then the fused (Kalman) trajectory */
+      for (const lap of e.laps) if (lap.gpsTrace) this.map.trace(lap.gpsTrace, '#3a2e33', 2);
+      this.map.trace(e.gpsLapTrace, '#4a3540', 2);
       this.map.trail(e);
       if (rec) {
         this.map.startLine(0, C.COLORS.white);
@@ -568,14 +582,22 @@
       this.dSpeed.textContent = Math.round(sp);
       this.dFill.style.width = Math.min(100, (sp / e.track.maxSpeed) * 100) + '%';
       this.dDist.textContent = Math.round(e.distM()) + ' m';
+      /* G meter */
+      RC.drawGmeter(this.gctx, this.gcv.width, this.gcv.height, e.gLat, e.gLong, e.gTrail, 2);
+      this.gval.textContent =
+        'G ' + Math.hypot(e.gLat, e.gLong).toFixed(2) +
+        '  (' + e.gLat.toFixed(1) + ',' + e.gLong.toFixed(1) + ')';
+      /* telemetry grid */
       const g = this.app.gnss;
       this.dGrid.dSats.textContent = g ? g.used + '/' + g.visible : '-';
       this.dGrid.dHdop.textContent = g ? g.hdop.toFixed(1) : '-';
       this.dGrid.dHdg.textContent = Math.round(e.headingDeg()) + '°';
       this.dGrid.dAlt.textContent = e.altM().toFixed(1) + ' m';
-      this.dGrid.dG.textContent = e.latG().toFixed(2) + ' g';
-      this.dGrid.dFix.textContent = g ? g.fix : '-';
+      this.dGrid.dFix.textContent = g ? g.fix.replace(' FIX', '') : '-';
       this.dGrid.dFix.className = 'dash-v ' + (g && g.fix !== 'NO FIX' ? 'good' : 'bad');
+      const f = e.fusion;
+      this.dGrid.dKf.textContent = f ? f.sigma.toFixed(4) : '-';
+      this.dGrid.dKf.className = 'dash-v ' + (e.gpsFix ? 'good' : 'bad');
     }
 
     updateSector(e) {
@@ -1058,6 +1080,7 @@
         this.app.engine = new RC.RaceEngine(t, {
           speedMul: this.app.simSpeed,
           histBest: t.best,
+          sensor: this.app.imu,
         });
         this.app.go('RACING_RECORDED', 'left');
       } else if (ev.button === 'Back') {
@@ -1189,6 +1212,206 @@
     }
   }
 
+  /* ================= IMU LEVEL CALIBRATION (MPU6050) ================= */
+  class ImuCalibScreen extends Screen {
+    build() {
+      this.phase = 'idle'; // idle -> sampling -> done
+      this.samples = [];
+      this.progress = 0;
+      this.stable = false;
+      this.doneTimer = 0;
+      this.mean = null;
+
+      const r = D.div('screen-inner race-layout');
+      const left = D.div('map-col');
+      this.cv = D.canvas(200, 200);
+      this.ctx = this.cv.getContext('2d');
+      this.ctx.imageSmoothingEnabled = false;
+      left.appendChild(this.cv);
+      r.appendChild(left);
+
+      const right = D.div('side-col');
+      right.appendChild(title('IMU CALIB'));
+      right.appendChild(D.div('imu-sub', 'MPU6050 · 6-AXIS'));
+      this.stateEl = D.div('imu-state', 'PLACE FLAT');
+      right.appendChild(this.stateEl);
+      this.valsEl = D.div('imu-vals', '');
+      right.appendChild(this.valsEl);
+      const bar = D.div('imu-bar');
+      this.barFill = D.div('imu-bar-fill');
+      bar.appendChild(this.barFill);
+      right.appendChild(bar);
+      this.pctEl = D.div('imu-pct', '0%');
+      right.appendChild(this.pctEl);
+      right.appendChild(hint('OK 立即完成 · PUSH 重采'));
+      right.appendChild(hint('BACK 跳过（用上次校准）'));
+      this.hintEl = hint('将设备水平静置');
+      right.appendChild(this.hintEl);
+      r.appendChild(right);
+      return r;
+    }
+
+    onMount() {
+      this.phase = 'sampling';
+      this.app.imu.clearCalibration();
+    }
+
+    _std(arr, key) {
+      if (arr.length < 8) return 0;
+      let m = 0;
+      for (const s of arr) m += s[key];
+      m /= arr.length;
+      let v = 0;
+      for (const s of arr) v += (s[key] - m) * (s[key] - m);
+      return Math.sqrt(v / arr.length);
+    }
+
+    update(dt) {
+      super.update(dt);
+      const sensor = this.app.imu;
+      if (this.phase === 'sampling') {
+        this.samples.push(sensor.sampleStatic());
+        if (this.samples.length > 100) this.samples.shift();
+        const stA = Math.max(
+          this._std(this.samples, 'ax'),
+          this._std(this.samples, 'ay'),
+          this._std(this.samples, 'az')
+        );
+        const stG = Math.max(
+          this._std(this.samples, 'gx'),
+          this._std(this.samples, 'gy'),
+          this._std(this.samples, 'gz')
+        );
+        this.stable = stA < C.IMU.STABLE_TILT && stG < C.IMU.STABLE_GYRO;
+        this.progress = D.clamp(
+          this.progress + (this.stable ? dt * 1000 : -dt * 600),
+          0,
+          C.IMU.CALIB_MS
+        );
+        if (this.progress >= C.IMU.CALIB_MS) this.complete();
+      } else if (this.phase === 'done') {
+        this.doneTimer -= dt;
+        if (this.doneTimer <= 0) this.app.goHomeTo(0);
+      }
+      this.draw();
+      this.drawInfo();
+      this.setStatus(
+        this.phase === 'done'
+          ? 'IMU 校准完成'
+          : 'IMU CALIB · ' + (this.stable ? 'STABLE' : 'MOVING') + ' · ' +
+            Math.round((this.progress / C.IMU.CALIB_MS) * 100) + '%',
+        this.stable ? C.COLORS.green : C.COLORS.yellow
+      );
+    }
+
+    draw() {
+      const c = this.ctx;
+      const W = this.cv.width;
+      const H = this.cv.height;
+      c.fillStyle = C.COLORS.stage;
+      c.fillRect(0, 0, W, H);
+      const cx = W / 2;
+      const cy = H / 2;
+      const R = Math.min(W, H) / 2 - 18;
+      const scale = R / 0.15; // full radius = 0.15 g
+      /* rings + cross */
+      c.strokeStyle = '#23232b';
+      c.lineWidth = 1;
+      [0.05, 0.1, 0.15].forEach((g) => {
+        c.beginPath();
+        c.arc(cx, cy, g * scale, 0, Math.PI * 2);
+        c.stroke();
+      });
+      c.beginPath();
+      c.moveTo(cx - R, cy);
+      c.lineTo(cx + R, cy);
+      c.moveTo(cx, cy - R);
+      c.lineTo(cx, cy + R);
+      c.stroke();
+      /* horizon cross target */
+      c.fillStyle = '#2b2b33';
+      c.fillRect(cx - 6, cy - 1, 12, 2);
+      c.fillRect(cx - 1, cy - 6, 2, 12);
+      /* bubble = measured horizontal accel */
+      const s = this.samples.length ? this.samples[this.samples.length - 1] : null;
+      if (s) {
+        const bx = cx + s.ax * scale;
+        const by = cy + s.ay * scale;
+        const off = Math.hypot(s.ax, s.ay);
+        c.fillStyle = off < 0.03 ? C.COLORS.green : off < 0.08 ? C.COLORS.yellow : C.COLORS.red;
+        c.fillRect(Math.round(bx) - 3, Math.round(by) - 3, 6, 6);
+        c.fillStyle = '#0b0b0d';
+        c.fillRect(Math.round(bx) - 1, Math.round(by) - 1, 2, 2);
+      }
+      /* progress arc */
+      c.strokeStyle = this.phase === 'done' ? C.COLORS.green : C.COLORS.cyan;
+      c.lineWidth = 3;
+      c.beginPath();
+      c.arc(
+        cx,
+        cy,
+        R + 6,
+        -Math.PI / 2,
+        -Math.PI / 2 + (this.progress / C.IMU.CALIB_MS) * Math.PI * 2
+      );
+      c.stroke();
+    }
+
+    drawInfo() {
+      const s = this.samples.length ? this.samples[this.samples.length - 1] : null;
+      if (s) {
+        this.valsEl.textContent =
+          'A ' + s.ax.toFixed(3) + ' ' + s.ay.toFixed(3) + ' ' + s.az.toFixed(3) + '\n' +
+          'G ' + s.gx.toFixed(1) + ' ' + s.gy.toFixed(1) + ' ' + s.gz.toFixed(1);
+      }
+      this.barFill.style.width =
+        Math.round((this.progress / C.IMU.CALIB_MS) * 100) + '%';
+      this.pctEl.textContent = Math.round((this.progress / C.IMU.CALIB_MS) * 100) + '%';
+      if (this.phase === 'done') {
+        this.stateEl.textContent = 'DONE';
+        this.stateEl.className = 'imu-state good';
+        this.hintEl.textContent = '已保存零偏，即将返回';
+      } else {
+        this.stateEl.textContent = this.stable ? 'STABLE' : 'MOVING';
+        this.stateEl.className = 'imu-state ' + (this.stable ? 'good' : 'bad');
+      }
+    }
+
+    complete() {
+      if (this.phase === 'done') return;
+      /* average the stable window */
+      const n = this.samples.length;
+      if (n) {
+        const m = { ax: 0, ay: 0, az: 0, gx: 0, gy: 0, gz: 0 };
+        for (const s of this.samples) {
+          for (const k in m) m[k] += s[k];
+        }
+        for (const k in m) m[k] /= n;
+        this.mean = m;
+        this.app.imu.applyCalibration(m);
+      }
+      this.phase = 'done';
+      this.doneTimer = 0.8;
+      this.progress = C.IMU.CALIB_MS;
+      this.app.toast('IMU 校准完成');
+    }
+
+    handle(ev) {
+      if (ev.type !== 'PRESS') return;
+      if (ev.button === 'Ok') {
+        this.complete();
+      } else if (ev.button === 'Push') {
+        this.samples = [];
+        this.progress = 0;
+        this.phase = 'sampling';
+        this.app.imu.clearCalibration();
+        this.app.toast('重新采样');
+      } else if (ev.button === 'Back') {
+        this.app.goHomeTo(0);
+      }
+    }
+  }
+
   /* ================= CONFIRM MODAL (overlay) ================= */
   class ConfirmModal extends Screen {
     constructor(app, opts) {
@@ -1251,6 +1474,7 @@
     TRACK_NAMING: TrackNamingScreen,
     TRACK_LIST: TrackListScreen,
     GNSS_TEST: GnssTestScreen,
+    IMU_CALIB: ImuCalibScreen,
     CONFIRM: ConfirmModal,
   };
 })();

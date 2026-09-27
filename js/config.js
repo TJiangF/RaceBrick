@@ -76,5 +76,17 @@
 
     LETTERS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
     SIM_SPEEDS: [0.5, 1, 2, 4],
+
+    /* ---- MPU6050 + GPS/IMU fusion ---- */
+    IMU: {
+      CALIB_MS: 2500, // required stable time during level calibration
+      STABLE_TILT: 0.02, // g, max accel std to consider "flat / still"
+      STABLE_GYRO: 2.5, // deg/s, max gyro std
+      ACC_NOISE: 0.012, // g
+      GYRO_NOISE: 0.35, // deg/s
+      GPS_NOISE: 0.017, // normalized map units (~3 m fix)
+      GPS_HZ: 8, // fix rate
+      GPS_DROPOUT: 0.06, // fraction of fixes dropped (multipath/outage)
+    },
   };
 })();

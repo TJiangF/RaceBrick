@@ -147,9 +147,10 @@
         this.cum.push(this.cum[i] + Math.hypot(b.x - a.x, b.y - a.y));
       }
       this.total = this.cum[N];
-      /* fake physical scale for the demo dashboard */
-      if (this.maxSpeed == null) this.maxSpeed = this.kart ? 62 : 78;
-      if (this.lengthM == null) this.lengthM = 1180;
+      /* physical scale: lap length in meters. Speed/accel are derived from
+       * geometry so GPS, IMU and the Kalman state share one metric frame. */
+      if (this.lengthM == null) this.lengthM = 180;
+      if (this.maxSpeed == null) this.maxSpeed = 90; // km/h, for the speed bar only
       return this;
     }
 
@@ -182,6 +183,10 @@
       this.traceEvery = opts.traceEvery || 3;
       this.speedMul = opts.speedMul || 1;
       this.histBest = opts.histBest != null ? opts.histBest : null;
+      /* MPU6050 + GPS/IMU Kalman fusion */
+      this.sensor = opts.sensor || new RC.Mpu6050();
+      this.fusion = opts.fusion || new RC.KalmanFusion();
+      this.useSensors = opts.useSensors !== false;
       this.reset();
     }
     reset() {
@@ -193,12 +198,105 @@
       this.time = 0;
       this.laps = [];
       this.currentTimes = new Array(this.N).fill(null);
-      this.lapTrace = [];
+      this.lapTrace = []; // fused trajectory (used to build the track)
+      this.gpsLapTrace = []; // raw GPS fixes (for the map, noisy)
       this.best = null;
       this.diff = 0;
       this.leds = new Array(C.LED_COUNT).fill('off');
       this.paused = false;
       this.running = true;
+      /* sensor / fusion state */
+      this.fusion.reset();
+      const p0 = this.track.pointAt(this.s / this.N);
+      this.fusion.seed(p0.x * this.track.lengthM, p0.y * this.track.lengthM);
+      this._ph = null;
+      this._ps = null;
+      this._gpsTimer = 0;
+      this._gTick = 0;
+      this.gpsLapTrace.push({ x: p0.x, y: p0.y });
+      this.gLat = 0;
+      this.gLong = 0;
+      this.gTrail = [];
+      this.gpsFix = false;
+      this.imuRaw = { ax: 0, ay: 0, az: 1, gx: 0, gy: 0, gz: 0 };
+      this.imuCorr = this.imuRaw;
+    }
+
+    /* generate MPU6050 + GPS readings and run one Kalman predict/correct step */
+    runFusion(dt) {
+      if (!this.useSensors) {
+        const p = this.track.pointAt(this.s / this.N);
+        this.fusion.seed(p.x, p.y);
+        return;
+      }
+      const t = this.track;
+      const prog = this.s / this.N;
+      const p = t.pointAt(prog);
+      const tan = t.tangentAt(prog);
+      const heading = Math.atan2(tan.x, -tan.y);
+      const hMath = Math.atan2(tan.y, tan.x); /* math angle, matches fusion */
+      let yaw = 0;
+      if (this._ph != null) {
+        let d = hMath - this._ph;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        yaw = d / Math.max(dt, 1e-4);
+      }
+      this._ph = hMath;
+      const speedMs = (this.v / this.N) * t.lengthM; /* geometric, meters/s */
+      const longA = (speedMs - (this._ps != null ? this._ps : speedMs)) / Math.max(dt, 1e-4);
+      this._ps = speedMs;
+      /* signed centripetal accel: a_lat = v * yaw, limited by tire grip (2 g) */
+      const GRIP = 2.0 * 9.80665;
+      let latA = speedMs * yaw;
+      latA = Math.max(-GRIP, Math.min(GRIP, latA));
+      let lonA = Math.max(-GRIP, Math.min(GRIP, longA));
+      const axBody = lonA / 9.80665;
+      const ayBody = latA / 9.80665;
+
+      const raw = this.sensor.sample(
+        { ax: axBody, ay: ayBody, az: 1 },
+        { gx: 0, gy: 0, gz: (yaw * 180) / Math.PI }
+      );
+      this.imuRaw = raw;
+      const corr = this.sensor.corrected(raw);
+      this.imuCorr = corr;
+
+      /* GPS fix at GPS_HZ, with occasional dropout */
+      this._gpsTimer += dt;
+      let gps = null;
+      const hz = C.IMU.GPS_HZ || 8;
+      if (this._gpsTimer >= 1 / hz) {
+        this._gpsTimer = 0;
+        if (Math.random() > (C.IMU.GPS_DROPOUT || 0)) {
+          const n = C.IMU.GPS_NOISE;
+          const gx = p.x + (Math.random() * 2 - 1) * n;
+          const gy = p.y + (Math.random() * 2 - 1) * n;
+          const sm = n * this.track.lengthM; /* fix sigma in meters */
+          gps = { x: gx * this.track.lengthM, y: gy * this.track.lengthM, r: sm * sm };
+          this.rawGps = { x: gx, y: gy };
+          this.gpsLapTrace.push({ x: gx, y: gy });
+          this.gpsFix = true;
+        } else {
+          this.gpsFix = false; /* dead-reckon through the outage */
+        }
+      }
+
+      this.fusion.update(dt, corr.ax, corr.ay, (corr.gz * Math.PI) / 180, gps);
+
+      /* G meter: low-pass like a real accelerometer (tau ~0.12 s) */
+      const k = 0.12;
+      this.gLat = this.gLat * (1 - k) + ayBody * k;
+      this.gLong = this.gLong * (1 - k) + axBody * k;
+      if ((this._gTick = (this._gTick + 1) % 2) === 0) {
+        this.gTrail.push({ l: this.gLat, n: this.gLong });
+        if (this.gTrail.length > 70) this.gTrail.shift();
+      }
+    }
+
+    get fused() {
+      const L = this.track.lengthM;
+      return { x: this.fusion.px / L, y: this.fusion.py / L };
     }
 
     update(dtSec) {
@@ -218,6 +316,8 @@
 
     step(dt) {
       const N = this.N;
+      /* sensors + fusion run on the current pose */
+      this.runFusion(dt);
       const idx = Math.floor(this.s) % N;
       const target = this.track.speedFactor[idx] * this.track.vTop;
       const rate = target > this.v ? this.track.accel : this.track.brake;
@@ -228,12 +328,12 @@
       const from = Math.floor(prevS);
       const to = Math.floor(this.s);
       if (to > from) {
+        const fp = this.fused; /* fused (Kalman) position, not ground truth */
         for (let j = from + 1; j <= to; j++) {
           const jj = ((j % N) + N) % N;
           this.currentTimes[jj] = this.elapsed;
           if (jj % this.traceEvery === 0) {
-            const p = this.track.points[jj];
-            this.lapTrace.push({ x: p.x, y: p.y });
+            this.lapTrace.push({ x: fp.x, y: fp.y });
           }
         }
       }
@@ -267,6 +367,7 @@
         time: lapTime,
         times: this.currentTimes.slice(),
         trace: this.lapTrace.slice(),
+        gpsTrace: this.gpsLapTrace.slice(),
         valid: lapTime > 1,
       };
       this.laps.push(lap);
@@ -275,6 +376,7 @@
       this.lap++;
       this.currentTimes = new Array(this.N).fill(null);
       this.lapTrace = [];
+      this.gpsLapTrace = [];
     }
 
     computeDiff() {
@@ -306,7 +408,7 @@
 
     /* ---------- dashboard telemetry (simulated from the car model) ---------- */
     speedKmh() {
-      return (this.v / this.track.vTop) * this.track.maxSpeed;
+      return (this.v / this.N) * this.track.lengthM * 3.6;
     }
     headingDeg() {
       const t = this.track.tangentAt(this.progress);

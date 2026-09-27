@@ -34,6 +34,7 @@
       this.homeIndex = 0;
       this.engine = null;
       this.gnss = new RC.Gnss();
+      this.imu = new RC.Mpu6050();
       this.simSpeed = 1;
       this.tracks = this.seedTracks();
       this.sessionTrack = null;
@@ -43,7 +44,8 @@
       this.logLines = [];
       this._debugT = 0;
 
-      this.go('HOME');
+      /* each power-on asks the user to level-calibrate the MPU6050 */
+      this.go('IMU_CALIB');
 
       this.last = performance.now();
       this.loop = this.loop.bind(this);

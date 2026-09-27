@@ -315,7 +315,7 @@ body {
 }
 
 .set-row {
-  padding: 8px;
+  padding: 6px 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1031,4 +1031,67 @@ body {
   color: var(--text);
   width: 18px;
   text-align: right;
+}
+
+/* ---------------- IMU calibration ---------------- */
+.imu-sub {
+  font-size: 6px;
+  color: var(--dim);
+  text-align: center;
+  letter-spacing: 1px;
+}
+.imu-state {
+  font-size: 12px;
+  text-align: center;
+  color: var(--yellow);
+  margin: 4px 0;
+}
+.imu-state.good {
+  color: var(--green);
+}
+.imu-state.bad {
+  color: var(--yellow);
+}
+.imu-vals {
+  font-size: 6px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-line;
+  padding: 2px 0;
+}
+.imu-bar {
+  height: 8px;
+  background: #1a1a22;
+  border: 1px solid #2b2b33;
+  margin: 4px 0;
+}
+.imu-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+}
+.imu-pct {
+  font-size: 7px;
+  color: var(--cyan);
+  text-align: center;
+}
+
+/* ---------------- DASH middle (G meter) ---------------- */
+.dash-mid {
+  width: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.dash-gval {
+  font-size: 6px;
+  color: var(--text);
+}
+.dash-left {
+  width: 116px;
+}
+.dash-right {
+  padding: 8px 10px;
 }
