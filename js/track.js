@@ -187,7 +187,21 @@
       this.sensor = opts.sensor || new RC.Mpu6050();
       this.fusion = opts.fusion || new RC.KalmanFusion();
       this.useSensors = opts.useSensors !== false;
+      this.mount = 'chassis';
+      this.steerAngle = 0;
       this.reset();
+    }
+
+    /* pick the fusion weighting for the chosen mounting */
+    setProfile(name) {
+      const P = (C.FUSION_PROFILES && C.FUSION_PROFILES[name]) ||
+        C.FUSION_PROFILES.chassis;
+      this.mount = name;
+      if (this.fusion) {
+        this.fusion.alpha = P.alpha;
+        this.fusion.beta = P.beta;
+        this.fusion.accelWeight = P.accelWeight;
+      }
     }
     reset() {
       this.track = this.track;
@@ -262,6 +276,20 @@
       const corr = this.sensor.corrected(raw);
       this.imuCorr = corr;
 
+      /* steering-wheel mount: the unit turns with the wheel, so the gyro
+       * picks up the steering rate and gravity leaks into the lateral axis */
+      let gzDeg = corr.gz;
+      let axUse = corr.ax;
+      let ayUse = corr.ay;
+      if (this.mount === 'steering') {
+        const tt = this.time;
+        this.steerAngle = 0.7 * Math.sin(tt * 1.6) + 0.3 * Math.sin(tt * 4.1);
+        const ddelta =
+          0.7 * 1.6 * Math.cos(tt * 1.6) + 0.3 * 4.1 * Math.cos(tt * 4.1);
+        gzDeg += (ddelta * 180) / Math.PI;
+        ayUse += Math.sin(this.steerAngle);
+      }
+
       /* GPS fix at GPS_HZ, with occasional dropout */
       this._gpsTimer += dt;
       let gps = null;
@@ -282,7 +310,7 @@
         }
       }
 
-      this.fusion.update(dt, corr.ax, corr.ay, (corr.gz * Math.PI) / 180, gps);
+      this.fusion.update(dt, axUse, ayUse, (gzDeg * Math.PI) / 180, gps);
 
       /* G meter: low-pass like a real accelerometer (tau ~0.12 s) */
       const k = 0.12;

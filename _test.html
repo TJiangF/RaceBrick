@@ -76,7 +76,8 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { press('Back'); }, pump: 480 },          // skip IMU calib -> HOME
       { fn: function () { tap('Ok'); }, pump: 480 },              // HOME -> MODE_SELECT
       { fn: function () { tap('Ok'); }, pump: 480 },              // -> NEW_TRACK_MARK_START
-      { fn: function () { tap('Push'); }, pump: 1440 },           // mark -> RACING
+      { fn: function () { tap('Push'); }, pump: 1440 },           // mark -> MOUNT_SELECT
+      { fn: function () { tap('Ok'); }, pump: 400 },              // MOUNT_SELECT -> RACING
       { fn: function () { app.engine.completeLap(); }, pump: 80 },
       { fn: function () { app.engine.completeLap(); }, pump: 80 },
       { fn: function () { app.engine.completeLap(); }, pump: 80 },
@@ -101,7 +102,8 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Ok'); }, pump: 320 },              // MODE_SELECT
       { fn: function () { tap('Down'); }, pump: 320 },            // select recorded
       { fn: function () { tap('Ok'); }, pump: 320 },              // TRACK_LIST
-      { fn: function () { tap('Ok'); }, pump: 400 },              // RACING_RECORDED
+      { fn: function () { tap('Ok'); }, pump: 320 },              // -> MOUNT_SELECT
+      { fn: function () { tap('Ok'); }, pump: 400 },              // -> RACING_RECORDED
       { fn: function () { tap('Down'); }, pump: 120 },            // panel TIMER
       { fn: function () { tap('Down'); }, pump: 120 },            // panel DASH
       { fn: function () { tap('Up'); }, pump: 120 },              // panel TIMER
@@ -109,8 +111,17 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Down'); }, pump: 120 },            // panel SECTOR
       { fn: function () { press('Back'); }, pump: 320 },          // TRACK_LIST
       { fn: function () { press('Back'); }, pump: 320 },          // HOME
+      /* history page */
+      { fn: function () { tap('Down'); }, pump: 320 },            // HISTORY
+      { fn: function () { tap('Ok'); }, pump: 160 },              // enter list
+      { fn: function () { tap('Ok'); }, pump: 320 },              // HISTORY_DETAIL
+      { fn: function () { tap('Down'); }, pump: 120 },            // next lap
+      { fn: function () { press('Back'); }, pump: 320 },          // HISTORY
+      { fn: function () { press('Back'); }, pump: 160 },          // exit list
+      { fn: function () { press('Back'); }, pump: 320 },          // HOME
       /* home tab navigation + enter-gate */
-      { fn: function () { tap('Down'); }, pump: 320 },            // TRACK_EDIT (not entered)
+      { fn: function () { tap('Down'); }, pump: 320 },            // HISTORY
+      { fn: function () { tap('Down'); }, pump: 320 },            // TRACK_EDIT
       { fn: function () { tap('Down'); }, pump: 320 },            // SETTINGS (proves not trapped)
       { fn: function () { tap('Ok'); }, pump: 160 },              // enter settings
       { fn: function () { tap('Down'); }, pump: 80 },             // move row

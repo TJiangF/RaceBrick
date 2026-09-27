@@ -54,6 +54,19 @@
       return;
     }
     if (hash === 'mode') { app.go('MODE_SELECT'); return; }
+    if (hash === 'mount') { app.go('MOUNT_SELECT'); return; }
+    if (hash === 'history') {
+      app.go('HISTORY');
+      if (app.current) { app.current.entered = true; app.current.render(); }
+      return;
+    }
+    if (hash === 'historydetail') {
+      app.go('HISTORY');
+      if (app.current) { app.current.entered = true; app.current.render(); }
+      var sess = app.raceLog[app.raceLog.length - 1];
+      app.go('HISTORY_DETAIL', 'left', { session: sess });
+      return;
+    }
     if (hash === 'mark') { app.go('NEW_TRACK_MARK_START'); return; }
 
     var tr = new RC.Track(RC.TRACK_DEFS[0]);

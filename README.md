@@ -58,6 +58,10 @@ python3 -m http.server 8000
 |---|---|
 | ![list](docs/13-track-list.png) | ![confirm](docs/16-confirm-postrace.png) |
 
+| 开赛前选择安装方式 | 历史记录（Race Log） | 单场详情（圈速 / 分段最快） |
+|---|---|---|
+| ![mount](docs/17-mount-select.png) | ![history](docs/18-race-history.png) | ![hd](docs/19-history-detail.png) |
+
 | Settings | GNSS 雷达测试（NEO-M9N） |
 |---|---|
 | ![settings](docs/15-settings.png) | ![gnss](docs/14-gnss-neo-m9n.png) |
@@ -110,7 +114,7 @@ RaceBrick/
 ```
 IMU_CALIB(开机) ──稳定2.5s/Ok/Push/Back──▶ HOME
 HOME ──Ok──▶ MODE_SELECT
- │              ├─ New Track ──▶ NEW_TRACK_MARK_START ──Push──▶ RACING(New)
+ │              ├─ New Track ──▶ NEW_TRACK_MARK_START ──Push──▶ MOUNT_SELECT ──Ok──▶ RACING(New)
  │              │                    └─ Back长按 ──▶ CONFIRM「用此次记录新建赛道?」
  │              │                                      ├─ No  ─▶ HOME
  │              │                                      └─ Yes ─▶ LAP_SELECT(≥2圈)
@@ -120,11 +124,12 @@ HOME ──Ok──▶ MODE_SELECT
  │              │                                                                        └─ Ok ─▶ VEHICLE_SELECT
  │              │                                                                                   └─ Ok ─▶ TRACK_NAMING
  │              │                                                                                              └─ Ok ─▶ HOME
- │              └─ Recorded Track ──▶ TRACK_LIST ──Ok──▶ RACING(Recorded)
- │                                            ▲              │
- │                                            └─ Back短按 ───┘
- │                                                Back长按 ──▶ HOME
- └─ Up/Down ─▶ 在 HOME / TRACK_EDIT / SETTINGS 三页间切换
+ │              └─ Recorded Track ──▶ TRACK_LIST ──Ok──▶ MOUNT_SELECT ──Ok──▶ RACING(Recorded)
+ │                                                          ▲                    │
+ │                                                          └── Back短按 ────────┘
+ │                                                              Back长按 ──▶ HOME
+ └─ Up/Down ─▶ 在 HOME / HISTORY / TRACK_EDIT / SETTINGS 四页间切换
+HOME ▸ HISTORY ──Ok(进入)──▶ 记录列表 ──Ok──▶ 单场详情（圈速 + 分段最快 + 轨迹）
 ```
 
 ### 3. 主页面（HOME 三页轮播）
@@ -188,7 +193,29 @@ HOME ──Ok──▶ MODE_SELECT
 
 > 参数集中在 `js/config.js` 的 `IMU` 段（校准时长、噪声、GPS 频率、丢星比例）。
 
-### 10. GNSS 雷达测试（NEO-M9N）
+### 10. 安装方式与融合权重（开赛前选择）
+
+每次开始比赛（New Track 标记起始线后 / Recorded 选完赛道后）都会进入 `MOUNT_SELECT`：
+
+| 选择 | 含义 | 融合权重 |
+|---|---|---|
+| **固定安装（底盘）** | IMU 刚体固定在车体不动处 | 更信任 IMU：`alpha=0.45, beta=0.12, accelWeight=0.8` |
+| **非固定（方向盘/手持）** | 会随车把转动，测量坐标系在变 | 更信任 GPS、少用 IMU：`alpha=0.85, beta=0.35, accelWeight=0.05` |
+
+- 权重表在 `js/config.js` 的 `FUSION_PROFILES`，由 `engine.setProfile(name)` 应用
+- 选“非固定”时还会模拟真实劣化：陀螺混入**转向角速度 dδ/dt**、重力随转向角**泄漏进横向轴**，用来验证“少信 IMU”确实更稳
+- 实测（node）：底盘+信任IMU 融合 RMS ≈ **2.5 m**（原始 GPS 2.8 m）；方向盘+信任GPS 融合 ≈ 3.5 m 且不发散——选错权重（方向盘却信任IMU）峰值误差明显变大
+
+### 11. Race 记录（HISTORY 页）
+
+`HOME ▸ HISTORY` 保存每一场比赛：
+
+- 列表：赛道 / 圈数 / 用时 / 最快圈（如 “10 分钟跑 7 圈”），左侧叠加显示该场轨迹，最快圈紫色高亮
+- 详情：逐圈圈速列表（最快圈紫底、可上下翻看并对应该圈轨迹）、**每个 Section 的最快分段成绩及出现在第几圈**（`S1 00:03.10 @L3`）
+- 数据来源：比赛结束时 `app.recordRace(engine)` 记录该场（时长 = 仿真累计时间、圈速、逐段用时、融合轨迹）；开机时 `app.seedHistory()` 会预置几场演示记录
+- 交互同样带“进入门控”：在 HISTORY 页先按 Ok 进入列表，再用 Up/Down 选择，Back 退出
+
+### 12. GNSS 雷达测试（NEO-M9N）
 
 `Settings ▸ GNSS 雷达测试`：
 
@@ -255,6 +282,8 @@ input.attachGPIO({
 - [x] New Track 轨迹渐进绘制与相机跟随
 - [x] GNSS（NEO-M9N）雷达测试页
 - [x] MPU6050 开机水平校准 + GPS/IMU 卡尔曼融合 + DASH G 值表
+- [x] 开赛前安装方式选择（按安装方式调整 IMU/GPS 权重）
+- [x] Race 历史记录页（圈速 / 分段最快在第几圈 / 轨迹）
 - [ ] 亮度/亮灯颜色设置真正作用到画面与背光
 - [ ] 真实 GPS/IMU 轨迹导入回放
 - [ ] 移植到 ESP32-S3 + LVGL，接入真实 GPIO / UBX / MPU6050

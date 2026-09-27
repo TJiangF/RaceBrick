@@ -4,7 +4,7 @@
   const C = RC.CONFIG;
   const D = RC.DOM;
   const TRANSITION_MS = 220;
-  const HOME_PAGES = ['HOME', 'TRACK_EDIT', 'SETTINGS'];
+  const HOME_PAGES = ['HOME', 'HISTORY', 'TRACK_EDIT', 'SETTINGS'];
 
   class App {
     constructor() {
@@ -37,6 +37,10 @@
       this.imu = new RC.Mpu6050();
       this.simSpeed = 1;
       this.tracks = this.seedTracks();
+      this.raceLog = [];
+      this.fusionProfile = 'chassis';
+      this.raceMount = 'chassis';
+      this.raceTarget = 'RACING';
       this.sessionTrack = null;
       this.sessionSections = [];
       this.sessionVehicle = 0;
@@ -45,6 +49,9 @@
       this._debugT = 0;
 
       /* each power-on asks the user to level-calibrate the MPU6050 */
+      /* seed a few demo race sessions so the HISTORY page is populated */
+      this.seedHistory();
+
       this.go('IMU_CALIB');
 
       this.last = performance.now();
@@ -53,18 +60,85 @@
     }
 
     seedTracks() {
-      return RC.TRACK_DEFS.map((def) => new RC.Track(def));
+      const t = RC.TRACK_DEFS.map((def) => new RC.Track(def));
+      t[0].sections = [0.26, 0.55, 0.8];
+      t[1].sections = [0.4, 0.72];
+      t[2].sections = [0.33, 0.66];
+      return t;
+    }
+
+    /* build a race record from an engine that has been running */
+    makeRecord(engine, meta) {
+      const laps = engine.laps.map((l) => ({
+        index: l.index,
+        time: l.time,
+        times: l.times,
+        trace: l.trace,
+      }));
+      return {
+        date: meta.date,
+        trackName: meta.trackName || engine.track.name,
+        mode: meta.mode || 'chassis',
+        duration: meta.duration != null ? meta.duration : engine.time,
+        laps: laps,
+        lapCount: laps.length,
+        bestIndex: engine.best ? engine.best.index : null,
+        bestTime: engine.best ? engine.best.time : null,
+        sections: (engine.track.sections || []).slice(),
+      };
+    }
+
+    recordRace(engine, mode) {
+      if (!engine || engine._logged) return;
+      engine._logged = true;
+      if (!engine.laps.length) return;
+      this.raceLog.push(
+        this.makeRecord(engine, {
+          date: this._stamp(),
+          mode: mode,
+        })
+      );
+    }
+
+    _stamp() {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    seedHistory() {
+      const demo = [
+        { track: 0, laps: 7, dur: 600, date: '09-27 18:20' },
+        { track: 1, laps: 5, dur: 420, date: '09-27 17:05' },
+        { track: 2, laps: 4, dur: 300, date: '09-26 20:41' },
+      ];
+      for (const d of demo) {
+        const t = this.tracks[d.track];
+        if (!t) continue;
+        const e = new RC.RaceEngine(t, { sensor: this.imu });
+        e.setProfile('chassis');
+        e._logged = false;
+        let guard = 0;
+        while (e.laps.length < d.laps && guard++ < 400000) e.update(0.05);
+        this.raceLog.push(
+          this.makeRecord(e, {
+            date: d.date,
+            trackName: t.name,
+            duration: d.dur,
+          })
+        );
+      }
     }
 
     /* ---------------- navigation ---------------- */
-    go(name, dir) {
+    go(name, dir, opts) {
       dir = dir || 'left';
       const Cls = RC.SCREENS[name];
       if (!Cls) {
         console.warn('unknown screen', name);
         return;
       }
-      const scr = new Cls(this);
+      const scr = new Cls(this, opts);
       const container = D.div('screen');
       scr.mount(container);
       scr._container = container;

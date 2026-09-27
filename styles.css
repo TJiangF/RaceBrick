@@ -1095,3 +1095,46 @@ body {
 .dash-right {
   padding: 8px 10px;
 }
+
+/* ---------------- history / race log ---------------- */
+.history-row {
+  padding: 6px 8px;
+}
+.history-row.cursor {
+  border-color: var(--white);
+}
+.hd-sum {
+  font-size: 6px;
+  color: var(--cyan);
+  padding: 2px 0 4px;
+  line-height: 1.4;
+}
+.hd-sec-title {
+  font-size: 6px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  padding: 3px 0 2px;
+}
+.hd-secrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border-bottom: 1px dotted #23232b;
+}
+.hd-secname {
+  font-size: 6px;
+  color: var(--white);
+  width: 18px;
+}
+.hd-sectime {
+  font-size: 7px;
+  color: var(--green);
+  flex: 1;
+}
+.hd-seclap {
+  font-size: 6px;
+  color: var(--gold);
+  width: 24px;
+  text-align: right;
+}

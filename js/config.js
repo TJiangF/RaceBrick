@@ -77,6 +77,15 @@
     LETTERS: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
     SIM_SPEEDS: [0.5, 1, 2, 4],
 
+    /* ---- fusion weighting by mounting ----
+     * chassis: IMU is rigidly fixed to the kart -> trust it (model-heavy)
+     * steering: IMU turns with the wheel / is not rigid -> trust GPS, IMU lightly
+     */
+    FUSION_PROFILES: {
+      chassis: { alpha: 0.45, beta: 0.12, accelWeight: 0.8 },
+      steering: { alpha: 0.85, beta: 0.35, accelWeight: 0.05 },
+    },
+
     /* ---- MPU6050 + GPS/IMU fusion ---- */
     IMU: {
       CALIB_MS: 2500, // required stable time during level calibration

@@ -72,7 +72,7 @@
       r.appendChild(D.div('home-logo2', 'CHRONO'));
       r.appendChild(D.div('home-cta', 'START RACING'));
       const dots = D.div('dots');
-      for (let i = 0; i < 3; i++) dots.appendChild(D.div('dot' + (i === 0 ? ' on' : '')));
+      for (let i = 0; i < 4; i++) dots.appendChild(D.div('dot' + (i === 0 ? ' on' : '')));
       r.appendChild(dots);
       r.appendChild(hint('UP/DOWN  切换功能页'));
       r.appendChild(hint('OK  开始'));
@@ -283,6 +283,54 @@
     }
   }
 
+  /* ================= MOUNT SELECT (before racing) ================= */
+  class MountSelectScreen extends Screen {
+    build() {
+      this.sel = this.app.raceMount === 'steering' ? 1 : 0;
+      const r = D.div('screen-inner');
+      r.appendChild(title('MOUNTING'));
+      this.boxes = [];
+      [
+        ['固定安装 (底盘)', '刚体固定 · 更信任 IMU'],
+        ['非固定 (方向盘/手持)', '随车把转动 · 更信任 GPS'],
+      ].forEach((it) => {
+        const b = pxbox('mode-box');
+        b.appendChild(D.div('mode-name', it[0]));
+        b.appendChild(D.div('mode-sub', it[1]));
+        this.boxes.push(b);
+        r.appendChild(b);
+      });
+      r.appendChild(hint('UP/DOWN 选择 · OK 开始 · BACK 返回'));
+      this.render();
+      return r;
+    }
+    render() {
+      this.boxes.forEach((b, i) => b.classList.toggle('sel', i === this.sel));
+    }
+    handle(ev) {
+      const d = navDir(ev);
+      if (d) {
+        this.sel = (this.sel + d + 2) % 2;
+        this.render();
+        return;
+      }
+      if (ev.type !== 'PRESS') return;
+      if (ev.button === 'Ok') {
+        const name = this.sel === 0 ? 'chassis' : 'steering';
+        this.app.raceMount = name;
+        this.app.fusionProfile = name;
+        if (this.app.engine) this.app.engine.setProfile(name);
+        this.app.go(this.app.raceTarget || 'RACING', 'left');
+      } else if (ev.button === 'Back') {
+        this.app.go(this.app.raceBack || 'MODE_SELECT', 'right');
+      }
+    }
+    getChrome() {
+      this.setStatus('MOUNT · ' + (this.sel === 0 ? 'FIXED (trust IMU)' : 'NOT FIXED (trust GPS)'));
+      return this.chrome;
+    }
+  }
+
   /* ================= NEW TRACK · MARK START ================= */
   class NewTrackMarkStartScreen extends Screen {
     build() {
@@ -325,7 +373,9 @@
             speedMul: this.app.simSpeed,
             sensor: this.app.imu,
           });
-          this.app.go('RACING', 'left');
+          this.app.raceTarget = 'RACING';
+          this.app.raceBack = 'NEW_TRACK_MARK_START';
+          this.app.go('MOUNT_SELECT', 'left');
         }
       }
     }
@@ -359,6 +409,12 @@
       this.track = app.engine.track;
       this.panel = 0;
       this._lapCount = -1;
+    }
+    onMount() {
+      if (this.app.engine) {
+        this.app.engine.setProfile(this.app.fusionProfile || 'chassis');
+        this.app.engine._logged = false;
+      }
     }
     build() {
       this.root = D.div('screen-inner race-screen');
@@ -642,6 +698,7 @@
       }
       if (ev.button === 'Back' && ev.type === 'LONG') {
         this.app.engine.paused = true;
+        this.app.recordRace(this.app.engine, this.mode);
         if (this.mode === 'recorded') {
           this.app.go('HOME', 'right');
         } else {
@@ -667,6 +724,7 @@
     handle(ev) {
       if (ev.type === 'PRESS' && ev.button === 'Back') {
         this.app.engine.paused = true;
+        this.app.recordRace(this.app.engine, this.mode);
         this.app.go('TRACK_LIST', 'right');
         return;
       }
@@ -1082,13 +1140,231 @@
           histBest: t.best,
           sensor: this.app.imu,
         });
-        this.app.go('RACING_RECORDED', 'left');
+        this.app.raceTarget = 'RACING_RECORDED';
+        this.app.raceBack = 'TRACK_LIST';
+        this.app.go('MOUNT_SELECT', 'left');
       } else if (ev.button === 'Back') {
         this.app.go('HOME', 'right');
       }
     }
     getChrome() {
       this.setStatus('TRACK LIST · ' + this.app.tracks.length + ' 条');
+      return this.chrome;
+    }
+  }
+
+  /* ================= HISTORY · race log ================= */
+  class HistoryScreen extends Screen {
+    build() {
+      this.sel = 0;
+      this.entered = false;
+      this.K = 3;
+      this.log = this.app.raceLog.slice().reverse(); // newest first
+      const r = D.div('screen-inner race-layout');
+      const left = D.div('map-col');
+      this.map = new RC.TrackMap(D.canvas(200, 200));
+      left.appendChild(this.map.cv);
+      r.appendChild(left);
+
+      const right = D.div('side-col list-col');
+      right.appendChild(title('RACE LOG'));
+      this.list = D.div('list');
+      right.appendChild(this.list);
+      this.footHint = hint('');
+      right.appendChild(this.footHint);
+      r.appendChild(right);
+      this.render();
+      return r;
+    }
+    selected() {
+      return this.log[this.sel];
+    }
+    render() {
+      this.list.innerHTML = '';
+      if (!this.log.length) {
+        this.list.appendChild(hint('（暂无记录）'));
+        return;
+      }
+      const w = windowed(this.log.length, this.sel, this.K);
+      for (let i = w.start; i < w.end; i++) {
+        const rec = this.log[i];
+        const on = this.entered && i === this.sel;
+        const b = pxbox('history-row' + (on ? ' cursor' : ''));
+        b.appendChild(D.div('row-name', rec.trackName + '   ' + rec.lapCount + 'L'));
+        b.appendChild(D.div('row-sub', rec.date + '  ' + D.fmtTime(rec.duration) +
+          (rec.bestTime != null ? '  ↑' + D.fmtTime(rec.bestTime) : '')));
+        this.list.appendChild(b);
+      }
+      this.footHint.textContent = this.entered
+        ? 'UP/DOWN 选择 · OK 详情 · BACK 退出'
+        : 'UP/DOWN 换页 · OK 进入记录';
+    }
+    update(dt) {
+      super.update(dt);
+      const rec = this.selected();
+      this.map.begin();
+      if (rec) {
+        const pts = [];
+        for (const l of rec.laps) for (const p of l.trace) pts.push(p);
+        this.map.fitPoints(pts, 0.3);
+        for (const l of rec.laps) if (l.index !== rec.bestIndex)
+          this.map.trace(l.trace, '#2c3a3f', 2);
+        const bl = rec.laps.find((l) => l.index === rec.bestIndex);
+        if (bl) this.map.trace(bl.trace, C.COLORS.purple, 2);
+      }
+      this.setStatus('HISTORY · ' + this.log.length + ' 场 · 最快圈紫');
+    }
+    handle(ev) {
+      if (!this.entered) {
+        const d = navDir(ev);
+        if (d) {
+          this.app.goHome(d);
+          return;
+        }
+        if (ev.type !== 'PRESS') return;
+        if (ev.button === 'Ok') {
+          this.entered = true;
+          this.render();
+        } else if (ev.button === 'Back') {
+          this.app.goHomeTo(0);
+        }
+        return;
+      }
+      const d = navDir(ev);
+      if (d && this.log.length) {
+        this.sel = (this.sel + d + this.log.length) % this.log.length;
+        this.render();
+        return;
+      }
+      if (ev.type !== 'PRESS') return;
+      if (ev.button === 'Ok' && this.log.length) {
+        this.app.go('HISTORY_DETAIL', 'left', { session: this.selected() });
+      } else if (ev.button === 'Back') {
+        this.entered = false;
+        this.render();
+      }
+    }
+    getChrome() {
+      this.setStatus(this.entered ? 'HISTORY · 浏览中' : 'HISTORY · OK 进入');
+      return this.chrome;
+    }
+  }
+
+  class HistoryDetailScreen extends Screen {
+    build() {
+      this.rec = (this.opts && this.opts.session) || (this.app.raceLog[0] || null);
+      this.K = 4;
+      this.sel = 0;
+      if (this.rec && this.rec.bestIndex != null) {
+        const i = this.rec.laps.findIndex((l) => l.index === this.rec.bestIndex);
+        if (i >= 0) this.sel = i;
+      }
+      const r = D.div('screen-inner race-layout');
+      const left = D.div('map-col');
+      this.map = new RC.TrackMap(D.canvas(200, 200));
+      left.appendChild(this.map.cv);
+      r.appendChild(left);
+
+      const right = D.div('side-col list-col');
+      right.appendChild(title('RACE ' + (this.rec ? this.rec.trackName : '')));
+      this.sum = D.div('hd-sum', '');
+      right.appendChild(this.sum);
+      this.list = D.div('list');
+      right.appendChild(this.list);
+      right.appendChild(D.div('hd-sec-title', 'SECTION BEST'));
+      this.secEl = D.div('hd-sec', '');
+      right.appendChild(this.secEl);
+      r.appendChild(right);
+      this.render();
+      return r;
+    }
+    render() {
+      if (!this.rec) {
+        this.sum.textContent = '无记录';
+        return;
+      }
+      this.sum.textContent =
+        this.rec.lapCount + ' LAPS · ' + D.fmtTime(this.rec.duration) +
+        ' · BEST ' + (this.rec.bestTime != null ? D.fmtTime(this.rec.bestTime) : '--');
+      this.list.innerHTML = '';
+      const w = windowed(this.rec.laps.length, this.sel, this.K);
+      for (let i = w.start; i < w.end; i++) {
+        const l = this.rec.laps[i];
+        const best = l.index === this.rec.bestIndex;
+        const row = D.div('lap-row' + (best ? ' best' : '') + (i === this.sel ? ' cursor' : ''));
+        row.appendChild(D.div('lap-name', 'L' + l.index));
+        row.appendChild(D.div('lap-time', D.fmtTime(l.time)));
+        this.list.appendChild(row);
+      }
+      const sb = this.sectionBest();
+      this.secEl.innerHTML = '';
+      if (!sb.length) {
+        this.secEl.appendChild(D.div('lap-empty', '无 Section'));
+      } else {
+        sb.forEach((s, i) => {
+          const row = D.div('hd-secrow');
+          row.appendChild(D.div('hd-secname', 'S' + (i + 1)));
+          row.appendChild(D.div('hd-sectime', s.time != null ? D.fmtTime(s.time) : '--:--'));
+          row.appendChild(D.div('hd-seclap', s.lap != null ? 'L' + s.lap : ''));
+          this.secEl.appendChild(row);
+        });
+      }
+    }
+    sectionBest() {
+      const secs = (this.rec && this.rec.sections) || [];
+      if (!secs.length || !this.rec.laps.length) return [];
+      const N = 360;
+      const out = secs.map(() => ({ time: null, lap: null }));
+      for (const l of this.rec.laps) {
+        if (!l.times) continue;
+        let prev = 0;
+        secs.forEach((f, si) => {
+          const iEnd = Math.min(N - 1, Math.floor(f * N));
+          const iStart = prev === 0 ? 0 : Math.min(N - 1, Math.floor(prev * N));
+          const tE = l.times[iEnd];
+          const tS = prev === 0 ? 0 : l.times[iStart];
+          if (tE != null && tS != null) {
+            const t = tE - tS;
+            if (t >= 0 && (out[si].time == null || t < out[si].time)) {
+              out[si] = { time: t, lap: l.index };
+            }
+          }
+          prev = f;
+        });
+      }
+      return out;
+    }
+    update(dt) {
+      super.update(dt);
+      this.map.begin();
+      const l = this.rec && this.rec.laps[this.sel];
+      if (l) {
+        this.map.fitPoints(l.trace, 0.3);
+        this.map.trace(l.trace, C.COLORS.cyan, 2);
+        for (const f of (this.rec.sections || [])) {
+          const idx = Math.min(l.trace.length - 1, Math.floor(f * l.trace.length));
+          if (l.trace[idx]) this.map.markerAt(l.trace[idx], C.COLORS.orange, 4, true);
+        }
+      }
+      this.setStatus(
+        'LAP ' + (l ? l.index : '-') + ' · ' + ((this.rec && this.rec.sections) || []).length + ' SECTIONS'
+      );
+    }
+    handle(ev) {
+      if (!this.rec || !this.rec.laps.length) {
+        if (ev.type === 'PRESS' && ev.button === 'Back') this.app.go('HISTORY', 'right');
+        return;
+      }
+      const d = navDir(ev);
+      if (d) {
+        this.sel = (this.sel + d + this.rec.laps.length) % this.rec.laps.length;
+        this.render();
+        return;
+      }
+      if (ev.type !== 'PRESS') return;
+      if (ev.button === 'Back') this.app.go('HISTORY', 'right');
+    }
+    getChrome() {
       return this.chrome;
     }
   }
@@ -1465,6 +1741,9 @@
     TRACK_EDIT: TrackEditScreen,
     SETTINGS: SettingsScreen,
     MODE_SELECT: ModeSelectScreen,
+    MOUNT_SELECT: MountSelectScreen,
+    HISTORY: HistoryScreen,
+    HISTORY_DETAIL: HistoryDetailScreen,
     NEW_TRACK_MARK_START: NewTrackMarkStartScreen,
     RACING: RacingScreen,
     RACING_RECORDED: RacingRecordedScreen,
