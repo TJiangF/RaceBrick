@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>sec test</title>
+<script>
+window.__rafCb = null; window.__t = 1000;
+window.requestAnimationFrame = function (cb) { window.__rafCb = cb; return 1; };
+window.__errors = []; window.__log = [];
+window.addEventListener('error', function (e) { window.__errors.push(e.message); });
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="deviceWrap"><div id="deviceScaler"><div id="device">
+      <div id="ledBar"></div><div id="stage"></div><div id="statusBar"></div><div id="toastHost"></div>
+    </div></div></div>
+    <div id="panel"><div id="dbgState">-</div><div id="dbgHeld">-</div><div id="dbgRace">-</div><div id="dbgLog"></div></div>
+  </div>
+  <div id="testout">pending</div>
+  <script src="js/config.js"></script><script src="js/dom.js"></script><script src="js/input.js"></script>
+  <script src="js/track.js"></script><script src="js/gnss.js"></script><script src="js/map.js"></script>
+  <script src="js/screens.js"></script><script src="js/app.js"></script>
+  <script>
+  window.addEventListener('DOMContentLoaded', function () {
+    var app = window.RC.app;
+    function frame() { if (!window.__rafCb) return; var cb = window.__rafCb; window.__rafCb = null; window.__t += 16; cb(window.__t); }
+    function pump(n) { for (var i = 0; i < (n || 5); i++) frame(); }
+    var tr = new RC.Track(RC.TRACK_DEFS[0]);
+    tr.sections = [];
+    app.sessionTrack = tr;
+    app.sessionSections = [];
+    app.engine = new RC.RaceEngine(tr);
+    app.go('SECTION_MARKING');
+    pump(3);
+    var cur = app.current;
+    function H(btn) { cur.handle({ type: 'PRESS', button: btn }); pump(2); }
+    function note(s) { window.__log.push(s); }
+
+    function S() { return JSON.stringify((app.sessionSections || []).map(function (x) { return +x.toFixed(2); })); }
+    function reset() { app.sessionSections = []; app.go('SECTION_MARKING'); pump(3); cur = app.current; }
+
+    note('start markPos=' + cur.markPos.toFixed(2));
+    /* scenario 1: mark 2 sections then OK immediately (marker did NOT advance) */
+    cur.markPos = 0.25; H('Push'); H('Ok');
+    cur.markPos = 0.50; H('Push'); H('Ok');
+    var beforeOverlay = !!app.overlay;
+    H('Ok'); note('s1 Ok-right-after = overlay:' + (app.overlay ? 'YES' : 'NO') + ' (pre=' + beforeOverlay + ')');
+    if (app.overlay) { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); pump(10); }
+    note('s1 state=' + app.stateName + ' sections=' + S());
+
+    /* scenario 2: mark 1 section, advance to 0.70, OK -> adds 0.70 then 1.0 */
+    reset();
+    cur.markPos = 0.25; H('Push'); H('Ok');
+    cur.markPos = 0.70; H('Ok');
+    note('s2 overlay=' + (app.overlay ? 'YES' : 'NO'));
+    if (app.overlay) { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); pump(10); }
+    note('s2 state=' + app.stateName + ' sections=' + S());
+
+    /* scenario 3: push then push again cancels candidate, then OK finalizes */
+    reset();
+    cur.markPos = 0.30; H('Push'); H('Push');
+    note('s3 candidateAfterToggle=' + cur.candidate);
+    H('Ok'); note('s3 overlay=' + (app.overlay ? 'YES' : 'NO'));
+    if (app.overlay) { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); pump(10); }
+    note('s3 state=' + app.stateName + ' sections=' + S());
+
+    /* scenario 4: invalid candidate (too close) should auto-cancel and prompt finish */
+    reset();
+    cur.markPos = 0.30; H('Push'); H('Ok');           // S1 = 0.30
+    cur.markPos = 0.30; H('Push'); H('Ok');           // invalid -> cancel + prompt
+    note('s4 overlay=' + (app.overlay ? 'YES' : 'NO') + ' candidate=' + cur.candidate);
+    if (app.overlay) { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); pump(10); }
+    note('s4 state=' + app.stateName + ' sections=' + S());
+
+    /* scenario 5: Push = one section then finish, nothing else */
+    reset();
+    cur.markPos = 0.50; H('Push'); H('Ok');
+    H('Ok');
+    if (app.overlay) { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); pump(10); }
+    note('s5 state=' + app.stateName + ' sections=' + S());
+
+    document.getElementById('testout').textContent = window.__log.join('\n') + '\nERRORS=' + window.__errors.join('|');
+  });
+  </script>
+</body>
+</html>

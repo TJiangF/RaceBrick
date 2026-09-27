@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>test</title>
+<script>
+/* deterministic frame pump: capture rAF instead of scheduling */
+window.__rafCb = null;
+window.__t = 1000;
+window.requestAnimationFrame = function (cb) { window.__rafCb = cb; return 1; };
+window.__errors = [];
+window.__states = [];
+window.addEventListener('error', function (e) {
+  window.__errors.push(String(e.message) + '@' + (e.filename || '') + ':' + e.lineno +
+    (e.error && e.error.stack ? '\n' + e.error.stack : ''));
+});
+window.addEventListener('unhandledrejection', function (e) { window.__errors.push('promise:' + e.reason); });
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="deviceWrap">
+      <div id="deviceScaler">
+        <div id="device">
+          <div id="ledBar"></div>
+          <div id="stage"></div>
+          <div id="statusBar"></div>
+          <div id="toastHost"></div>
+        </div>
+      </div>
+      <div id="buttons">
+        <button class="hwbtn" data-btn="Up">UP</button>
+        <button class="hwbtn" data-btn="Down">DOWN</button>
+        <button class="hwbtn wide" data-btn="Push">PUSH</button>
+        <button class="hwbtn wide" data-btn="Ok">OK</button>
+        <button class="hwbtn wide" data-btn="Back">BACK</button>
+      </div>
+    </div>
+    <div id="panel">
+      <div class="kv"><span>state</span><span id="dbgState">-</span></div>
+      <div class="kv"><span>held</span><span id="dbgHeld">-</span></div>
+      <div class="kv"><span>race</span><span id="dbgRace">-</span></div>
+      <div id="dbgLog"></div>
+    </div>
+  </div>
+  <div id="testout">pending</div>
+
+  <script src="js/config.js"></script>
+  <script src="js/dom.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/track.js"></script>
+  <script src="js/gnss.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/screens.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+  window.addEventListener('DOMContentLoaded', function () {
+    var app = window.RC.app;
+    var orig = app.go.bind(app);
+    app.go = function (name, dir) { window.__states.push(name); return orig(name, dir); };
+
+    function frame(dt) {
+      if (!window.__rafCb) return;
+      var cb = window.__rafCb;
+      window.__rafCb = null;
+      window.__t += dt;
+      cb(window.__t);
+    }
+    function pump(ms) { var n = Math.max(1, Math.round(ms / 16)); for (var i = 0; i < n; i++) frame(16); }
+    function tap(btn) { app.buttonDown(btn); app.buttonUp(btn); }
+    function press(btn) { app.buttonDown(btn); app.buttonUp(btn); }
+
+    var steps = [
+      { fn: function () { tap('Ok'); }, pump: 480 },              // HOME -> MODE_SELECT
+      { fn: function () { tap('Ok'); }, pump: 480 },              // -> NEW_TRACK_MARK_START
+      { fn: function () { tap('Push'); }, pump: 1440 },           // mark -> RACING
+      { fn: function () { app.engine.completeLap(); }, pump: 80 },
+      { fn: function () { app.engine.completeLap(); }, pump: 80 },
+      { fn: function () { app.engine.completeLap(); }, pump: 80 },
+      { fn: function () { app.buttonDown('Back'); }, pump: 720 }, // hold -> LONG
+      { fn: function () { app.buttonUp('Back'); }, pump: 160 },   // overlay
+      { fn: function () { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 320 }, // YES -> LAP_SELECT
+      { fn: function () { tap('Ok'); }, pump: 80 },               // section prompt overlay
+      { fn: function () { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 320 }, // YES -> SECTION_MARKING
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Push' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Down' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Down' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Down' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Push' }); }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 32 },
+      { fn: function () { app.current.markPos = 0.99; }, pump: 32 },
+      { fn: function () { app.current.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 80 }, // finalize overlay
+      { fn: function () { app.overlay.handle({ type: 'PRESS', button: 'Ok' }); }, pump: 320 }, // -> VEHICLE_SELECT
+      { fn: function () { tap('Ok'); }, pump: 320 },              // -> TRACK_NAMING
+      { fn: function () { tap('Ok'); }, pump: 320 },              // save -> HOME
+      /* recorded flow */
+      { fn: function () { tap('Ok'); }, pump: 320 },              // MODE_SELECT
+      { fn: function () { tap('Down'); }, pump: 320 },            // select recorded
+      { fn: function () { tap('Ok'); }, pump: 320 },              // TRACK_LIST
+      { fn: function () { tap('Ok'); }, pump: 400 },              // RACING_RECORDED
+      { fn: function () { tap('Down'); }, pump: 120 },            // panel TIMER
+      { fn: function () { tap('Down'); }, pump: 120 },            // panel DASH
+      { fn: function () { tap('Up'); }, pump: 120 },              // panel TIMER
+      { fn: function () { tap('Down'); }, pump: 120 },            // panel DASH
+      { fn: function () { tap('Down'); }, pump: 120 },            // panel SECTOR
+      { fn: function () { press('Back'); }, pump: 320 },          // TRACK_LIST
+      { fn: function () { press('Back'); }, pump: 320 },          // HOME
+      /* home tab navigation + enter-gate */
+      { fn: function () { tap('Down'); }, pump: 320 },            // TRACK_EDIT (not entered)
+      { fn: function () { tap('Down'); }, pump: 320 },            // SETTINGS (proves not trapped)
+      { fn: function () { tap('Ok'); }, pump: 160 },              // enter settings
+      { fn: function () { tap('Down'); }, pump: 80 },             // move row
+      { fn: function () { tap('Push'); }, pump: 80 },             // toggle
+      { fn: function () { tap('Back'); }, pump: 160 },            // exit entered
+      { fn: function () { tap('Up'); }, pump: 320 },              // TRACK_EDIT
+      { fn: function () { tap('Ok'); }, pump: 160 },              // enter track edit
+      { fn: function () { tap('Down'); }, pump: 80 },             // select track
+      { fn: function () { tap('Back'); }, pump: 160 },            // exit entered
+      { fn: function () { tap('Back'); }, pump: 320 },            // HOME
+      /* GNSS test page */
+      { fn: function () { tap('Up'); }, pump: 320 },              // SETTINGS
+      { fn: function () { tap('Ok'); }, pump: 160 },              // enter
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },             // sel = GNSS row
+      { fn: function () { tap('Ok'); }, pump: 300 },              // GNSS_TEST
+      { fn: function () { tap('Push'); }, pump: 200 },            // reset search
+      { fn: function () { press('Back'); }, pump: 300 }           // SETTINGS
+    ];
+    var i = 0;
+    while (i < steps.length) {
+      var st = steps[i++];
+      try { st.fn(); } catch (e) { window.__errors.push('step' + i + ':' + e.message + '\n' + e.stack); }
+      try { pump(st.pump || 64); } catch (e) { window.__errors.push('pump' + i + ':' + e.message + '\n' + e.stack); }
+    }
+    var out = document.getElementById('testout');
+    out.textContent = 'STATES=' + window.__states.join('>') +
+      '\nLEDS=' + (app.engine ? app.engine.leds.join(',') : '-') +
+      '\nERRORS=' + window.__errors.join(' | ') +
+      '\nERRCOUNT=' + window.__errors.length +
+      '\nTRACKS=' + app.tracks.map(function (t) { return t.name; }).join(',');
+    document.title = window.__errors.length ? 'FAIL' : 'OK';
+  });
+  </script>
+</body>
+</html>

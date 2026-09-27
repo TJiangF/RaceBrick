@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>shot</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="deviceWrap">
+      <div id="deviceScaler" style="width:720px;height:480px">
+        <div id="device" style="transform:scale(2);transform-origin:top left">
+          <div id="ledBar"></div>
+          <div id="stage"></div>
+          <div id="statusBar"></div>
+          <div id="toastHost"></div>
+        </div>
+      </div>
+      <div id="buttons">
+        <button class="hwbtn" data-btn="Up">UP</button>
+        <button class="hwbtn" data-btn="Down">DOWN</button>
+        <button class="hwbtn wide" data-btn="Push">PUSH</button>
+        <button class="hwbtn wide" data-btn="Ok">OK</button>
+        <button class="hwbtn wide" data-btn="Back">BACK</button>
+      </div>
+    </div>
+    <div id="panel">
+      <div class="kv"><span>state</span><span id="dbgState">-</span></div>
+      <div class="kv"><span>held</span><span id="dbgHeld">-</span></div>
+      <div class="kv"><span>race</span><span id="dbgRace">-</span></div>
+      <div id="dbgLog"></div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/dom.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/track.js"></script>
+  <script src="js/gnss.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/screens.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+  window.addEventListener('DOMContentLoaded', function () {
+    var app = window.RC.app;
+    if (location.search.indexOf('clean') >= 0) {
+      document.getElementById('panel').style.display = 'none';
+      document.getElementById('buttons').style.display = 'none';
+    }
+    var hash = location.hash.slice(1) || 'home';
+    if (hash === 'home' || hash === 'edit' || hash === 'settings') {
+      app.go(hash === 'edit' ? 'TRACK_EDIT' : hash === 'settings' ? 'SETTINGS' : 'HOME');
+      return;
+    }
+    if (hash === 'mode') { app.go('MODE_SELECT'); return; }
+    if (hash === 'mark') { app.go('NEW_TRACK_MARK_START'); return; }
+
+    var tr = new RC.Track(RC.TRACK_DEFS[0]);
+    app.sessionTrack = tr;
+
+    if (hash === 'gnss') { app.gnss.t = 7; app.gnss.update(0.02); app.go('GNSS_TEST'); return; }
+
+    if (hash === 'racing' || hash === 'recorded' || hash === 'timer' || hash === 'dash' || hash === 'sector' || hash === 'build') {
+      var rec = hash === 'recorded';
+      if (rec) tr.best = 11.842;
+      tr.sections = [0.25, 0.6, 0.85];
+      app.sessionSections = [0.25, 0.6, 0.85];
+      var e = new RC.RaceEngine(tr, { histBest: tr.best });
+      app.engine = e;
+      var nsteps = hash === 'build' ? 260 : 1600;
+      for (var i = 0; i < nsteps; i++) e.update(0.02);
+      app.go(rec ? 'RACING_RECORDED' : 'RACING');
+      var pmap = { timer: 1, dash: 2, sector: 3 };
+      if (pmap[hash] != null && app.current) {
+        app.current.panel = pmap[hash];
+        app.current.buildPanel();
+      }
+      app.gnss.t = 6; app.gnss.update(0.016);
+      return;
+    }
+    if (hash === 'confirm') {
+      var e3 = new RC.RaceEngine(tr);
+      app.engine = e3;
+      for (var m = 0; m < 1600; m++) e3.update(0.02);
+      app.go('RACING');
+      app.pushOverlay('CONFIRM', { text: '用此次记录\n新建赛道？', yesLabel: 'YES', noLabel: 'NO' });
+      return;
+    }
+    if (hash === 'laps' || hash === 'section' || hash === 'vehicle' || hash === 'naming') {
+      var e2 = new RC.RaceEngine(tr);
+      app.engine = e2;
+      for (var j = 0; j < 1600; j++) e2.update(0.02);
+      if (hash === 'laps') { app.go('LAP_SELECT'); return; }
+      if (hash === 'vehicle') { app.sessionVehicle = 1; app.go('VEHICLE_SELECT'); return; }
+      if (hash === 'naming') { app.go('TRACK_NAMING'); return; }
+      if (hash === 'section') {
+        app.sessionSections = [0.25, 0.6];
+        app.go('SECTION_MARKING');
+        if (app.current) { app.current.markPos = 0.78; app.current.candidate = 0.78; app.current.sections = [0.25, 0.6]; }
+        return;
+      }
+    }
+    if (hash === 'list') { app.go('TRACK_LIST'); return; }
+    if (hash === 'confirm') {
+      app.go('RACING');
+      app.engine = e2;
+      app.pushOverlay('CONFIRM', { text: '用此次记录\n新建赛道？', yesLabel: 'YES', noLabel: 'NO' });
+      return;
+    }
+    app.go('HOME');
+  });
+  </script>
+</body>
+</html>
