@@ -113,13 +113,13 @@
 
     begin() {
       const c = this.ctx;
-      c.fillStyle = C.COLORS.stage;
+      c.fillStyle = C.COLORS.mapBg;
       c.fillRect(0, 0, this.W, this.H);
-      c.fillStyle = '#15151d';
+      c.fillStyle = C.COLORS.mapGrid;
       for (let y = GRID; y < this.H; y += GRID)
         for (let x = GRID; x < this.W; x += GRID) c.fillRect(x, y, 1, 1);
       /* subtle border */
-      c.fillStyle = '#1b1b24';
+      c.fillStyle = C.COLORS.mapBorder;
       c.fillRect(0, 0, this.W, 1);
       c.fillRect(0, this.H - 1, this.W, 1);
       c.fillRect(0, 0, 1, this.H);
@@ -129,7 +129,7 @@
     centerline(color, step) {
       if (!this.track) return;
       const c = this.ctx;
-      c.fillStyle = color || '#1e1e29';
+      c.fillStyle = color || C.COLORS.centerline;
       const st = step || 2;
       for (let i = 0; i < this.track.N; i += st) {
         const p = this.px(this.track.points[i]);
@@ -149,8 +149,8 @@
 
     /* history traces dim, current lap bright */
     trail(engine) {
-      for (const lap of engine.laps) this.trace(lap.trace, '#2c3a3f', 2);
-      this.trace(engine.lapTrace, C.COLORS.cyan, 2);
+      for (const lap of engine.laps) this.trace(lap.trace, C.COLORS.histTrace, 2);
+      this.trace(engine.lapTrace, C.COLORS.curTrace, 2);
     }
 
     /* fit the view to everything recorded so far (New Track mode) */
@@ -201,7 +201,7 @@
       const p = this.px(pworld);
       const t = tangentWorld || { x: 0, y: 0 };
       this.block(p.x + t.x * 5 - 1, p.y + t.y * 5 - 1, 2, color);
-      this.block(p.x - 2, p.y - 2, 4, '#ffffff');
+      this.block(p.x - 2, p.y - 2, 4, C.COLORS.white);
       this.block(p.x - 1, p.y - 1, 2, color);
     }
 
@@ -267,7 +267,7 @@
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     const W = cv.width, H = cv.height;
-    ctx.fillStyle = '#0e0e12';
+    ctx.fillStyle = C.COLORS.mapBg;
     ctx.fillRect(0, 0, W, H);
     if (!track) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -292,14 +292,14 @@
   /* ---------- G-force meter (g-g diagram) ---------- */
   function drawGmeter(ctx, W, H, lat, long, trail, maxG) {
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = C.COLORS.stage;
+    ctx.fillStyle = C.COLORS.mapBg;
     ctx.fillRect(0, 0, W, H);
     const cx = W / 2;
     const cy = H / 2;
     const R = Math.min(W, H) / 2 - 6;
     const mx = maxG || 2;
     /* rings */
-    ctx.strokeStyle = '#20202a';
+    ctx.strokeStyle = C.COLORS.gmRing;
     ctx.lineWidth = 1;
     for (let g = 0.5; g <= mx; g += 0.5) {
       ctx.beginPath();
@@ -318,7 +318,7 @@
     });
     /* trail */
     if (trail) {
-      ctx.fillStyle = '#2b4a44';
+      ctx.fillStyle = C.COLORS.gmTrail;
       for (const t of trail) {
         const q = toXY(t.l, t.n);
         ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
@@ -330,10 +330,10 @@
     const col = mag >= 1 ? C.COLORS.red : mag >= 0.5 ? C.COLORS.yellow : C.COLORS.green;
     ctx.fillStyle = col;
     ctx.fillRect(Math.round(q.x) - 2, Math.round(q.y) - 2, 4, 4);
-    ctx.fillStyle = '#101014';
+    ctx.fillStyle = C.COLORS.mapBg;
     ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
     /* center dot */
-    ctx.fillStyle = '#2b2b33';
+    ctx.fillStyle = C.COLORS.gmCenter;
     ctx.fillRect(cx - 1, cy - 1, 2, 2);
     /* labels */
     ctx.fillStyle = C.COLORS.dim;

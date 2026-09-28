@@ -48,6 +48,7 @@
       document.getElementById('panel').style.display = 'none';
       document.getElementById('buttons').style.display = 'none';
     }
+    if (location.search.indexOf('light') >= 0) app.setTheme('light');
     var hash = location.hash.slice(1) || 'home';
     if (hash === 'home' || hash === 'edit' || hash === 'settings') {
       app.go(hash === 'edit' ? 'TRACK_EDIT' : hash === 'settings' ? 'SETTINGS' : 'HOME');

@@ -124,8 +124,10 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Down'); }, pump: 320 },            // TRACK_EDIT
       { fn: function () { tap('Down'); }, pump: 320 },            // SETTINGS (proves not trapped)
       { fn: function () { tap('Ok'); }, pump: 160 },              // enter settings
-      { fn: function () { tap('Down'); }, pump: 80 },             // move row
-      { fn: function () { tap('Push'); }, pump: 80 },             // toggle
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 80 },             // row = display mode
+      { fn: function () { tap('Push'); }, pump: 120 },            // toggle light theme
+      { fn: function () { tap('Push'); }, pump: 120 },            // back to dark
       { fn: function () { tap('Back'); }, pump: 160 },            // exit entered
       { fn: function () { tap('Up'); }, pump: 320 },              // TRACK_EDIT
       { fn: function () { tap('Ok'); }, pump: 160 },              // enter track edit
@@ -138,7 +140,8 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
-      { fn: function () { tap('Down'); }, pump: 60 },             // sel = IMU row
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },             // sel = IMU row (index 5)
       { fn: function () { tap('Ok'); }, pump: 300 },              // IMU_CALIB
       { fn: function () { tap('Push'); }, pump: 160 },            // restart sampling
       { fn: function () { tap('Ok'); }, pump: 1200 },             // complete -> HOME
@@ -149,7 +152,8 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
       { fn: function () { tap('Down'); }, pump: 60 },
-      { fn: function () { tap('Down'); }, pump: 60 },             // sel = GNSS row
+      { fn: function () { tap('Down'); }, pump: 60 },
+      { fn: function () { tap('Down'); }, pump: 60 },             // sel = GNSS row (index 6)
       { fn: function () { tap('Ok'); }, pump: 300 },              // GNSS_TEST
       { fn: function () { tap('Push'); }, pump: 200 },            // reset search
       { fn: function () { press('Back'); }, pump: 300 }           // SETTINGS

@@ -4,6 +4,107 @@
 (function () {
   const RC = (window.RC = window.RC || {});
 
+  /* ===================== themes ===================== */
+  const DARK = {
+    bg: '#0b0b0d',
+    stage: '#0e0e12',
+    panel: '#141418',
+    line: '#2b2b33',
+    text: '#d7d7dc',
+    dim: '#767b84',
+    white: '#f2f2f5',
+    cyan: '#66e0d2',
+    green: '#44ff44',
+    red: '#ff4444',
+    ledOff: '#222222',
+    purple: '#8b5cf6',
+    gold: '#ffd700',
+    yellow: '#ffff44',
+    orange: '#f5a97f',
+    deviceBg: '#000000',
+    statusBg: '#050506',
+    surface: '#131318',
+    surface2: '#1a1a22',
+    line2: '#23232b',
+    selTint: '#16262a',
+    liveBg: '#10202a',
+    text2: '#b7bcc4',
+    glyphOff: '#4a4a52',
+    dotOff: '#33333c',
+    checkboxOff: '#55555f',
+    goldTint: '#2a2408',
+    bestBorder: '#b28cff',
+    prn: '#8a8f97',
+    mapBg: '#0e0e12',
+    mapGrid: '#15151d',
+    mapBorder: '#1b1b24',
+    centerline: '#1e1e29',
+    histTrace: '#2c3a3f',
+    curTrace: '#66e0d2',
+    gpsTrace: '#4a3540',
+    gpsTraceHist: '#3a2e33',
+    gmRing: '#20202a',
+    gmTrail: '#2b4a44',
+    gmCenter: '#2b2b33',
+  };
+
+  /* daylight: light surfaces, dark text, deeper accents for readability */
+  const LIGHT = {
+    bg: '#eef1f4',
+    stage: '#f7f8fa',
+    panel: '#ffffff',
+    line: '#c6ccd6',
+    text: '#23262c',
+    dim: '#6b7280',
+    white: '#111318',
+    cyan: '#0a9e90',
+    green: '#0f9d3a',
+    red: '#d92b2b',
+    ledOff: '#d4d8de',
+    purple: '#6d3fd6',
+    gold: '#a97900',
+    yellow: '#b07a00',
+    orange: '#c2611f',
+    deviceBg: '#dfe3e8',
+    statusBg: '#e6eaee',
+    surface: '#f0f2f5',
+    surface2: '#e3e6ea',
+    line2: '#d5dae1',
+    selTint: '#dff5f1',
+    liveBg: '#e3f4f8',
+    text2: '#3a3f47',
+    glyphOff: '#b3b8c0',
+    dotOff: '#c6ccd6',
+    checkboxOff: '#9aa1ac',
+    goldTint: '#fbf3d6',
+    bestBorder: '#8f6be0',
+    prn: '#6b7280',
+    mapBg: '#f7f8fa',
+    mapGrid: '#e2e5ea',
+    mapBorder: '#d0d4db',
+    centerline: '#d7dbe1',
+    histTrace: '#b9c0ca',
+    curTrace: '#0a9e90',
+    gpsTrace: '#d8c4ba',
+    gpsTraceHist: '#e4d5cd',
+    gmRing: '#d7dbe1',
+    gmTrail: '#8fbfb7',
+    gmCenter: '#9aa0a8',
+  };
+
+  RC.THEMES = { dark: DARK, light: LIGHT };
+
+  /* apply a theme: mutate COLORS in place (all `C.COLORS.x` update) and
+   * toggle the CSS class that switches the DOM palette. */
+  RC.setTheme = function (name) {
+    const p = RC.THEMES[name] || RC.THEMES.dark;
+    const COL = RC.CONFIG.COLORS;
+    for (const k in p) COL[k] = p[k];
+    RC.CONFIG.THEME = name;
+    const dev = document.getElementById('device');
+    if (dev) dev.classList.toggle('theme-light', name === 'light');
+  };
+
   RC.CONFIG = {
     /* ---- screen geometry (physical pixels, LANDSCAPE) ---- */
     SCREEN_W: 360,
@@ -22,24 +123,9 @@
     DIFF_PER_LED: 0.5, // seconds per LED
     MAX_LED: 5, // per side
 
-    /* ---- palette ---- */
-    COLORS: {
-      bg: '#0b0b0d',
-      stage: '#0e0e12',
-      panel: '#141418',
-      line: '#2b2b33',
-      text: '#d7d7dc',
-      dim: '#767b84',
-      white: '#f2f2f5',
-      cyan: '#66e0d2',
-      green: '#44ff44',
-      red: '#ff4444',
-      ledOff: '#222222',
-      purple: '#8b5cf6',
-      gold: '#ffd700',
-      yellow: '#ffff44',
-      orange: '#f5a97f',
-    },
+    /* ---- active palette (dark by default; RC.setTheme swaps it) ---- */
+    THEME: 'dark',
+    COLORS: Object.assign({}, DARK),
 
     /* ---- keyboard -> logical button map (web only) ---- */
     KEY_MAP: {

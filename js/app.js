@@ -40,6 +40,7 @@
       this.raceLog = [];
       this.fusionProfile = 'chassis';
       this.raceMount = 'chassis';
+      this.theme = 'dark';
       this.raceTarget = 'RACING';
       this.sessionTrack = null;
       this.sessionSections = [];
@@ -52,6 +53,7 @@
       /* seed a few demo race sessions so the HISTORY page is populated */
       this.seedHistory();
 
+      RC.setTheme(this.theme);
       this.go('IMU_CALIB');
 
       this.last = performance.now();
@@ -314,6 +316,11 @@
       this.simSpeed = x;
       const el = document.getElementById('dbgSpeed');
       if (el) el.textContent = x + 'x';
+    }
+
+    setTheme(name) {
+      this.theme = name === 'light' ? 'light' : 'dark';
+      RC.setTheme(this.theme);
     }
     injectLap() {
       if (this.engine) {

@@ -1138,3 +1138,98 @@ body {
   width: 24px;
   text-align: right;
 }
+
+/* ============================================================
+   LIGHT / DAYLIGHT THEME  (Settings ▸ 显示模式)
+   Scoped to #device so the debug panel stays dark.
+   ============================================================ */
+#device.theme-light {
+  --bg: #eef1f4;
+  --stage: #f7f8fa;
+  --panel: #ffffff;
+  --line: #c6ccd6;
+  --text: #23262c;
+  --dim: #6b7280;
+  --white: #111318;
+  --cyan: #0a9e90;
+  --green: #0f9d3a;
+  --red: #d92b2b;
+  --purple: #6d3fd6;
+  --gold: #a97900;
+  --yellow: #b07a00;
+  --orange: #c2611f;
+  background: #dfe3e8;
+}
+#device.theme-light #ledBar {
+  background: #dfe3e8;
+}
+#device.theme-light .led {
+  background: #d4d8de;
+}
+#device.theme-light #statusBar {
+  background: #e6eaee;
+}
+#device.theme-light .pxbox {
+  background: #ffffff;
+}
+#device.theme-light .pxbox.sel,
+#device.theme-light .set-row.sel,
+#device.theme-light .track-row.sel,
+#device.theme-light .modal-btn.sel,
+#device.theme-light .split-row.cur {
+  background: #dff5f1;
+}
+#device.theme-light .lap-live {
+  background: #e3f4f8;
+}
+#device.theme-light .lap-row,
+#device.theme-light .split-row {
+  background: #f0f2f5;
+  border-color: #d5dae1;
+}
+#device.theme-light .lap-row .lap-time {
+  color: #3a3f47;
+}
+#device.theme-light .lap-row.best {
+  background: var(--purple);
+  border-color: #8f6be0;
+}
+#device.theme-light .lap-row.gold {
+  background: #fbf3d6;
+  border-color: var(--gold);
+}
+#device.theme-light .checkbox {
+  background: #ffffff;
+  border-color: #9aa1ac;
+}
+#device.theme-light .dash-bar,
+#device.theme-light .gsat-bar,
+#device.theme-light .imu-bar {
+  background: #e3e6ea;
+  border-color: #c6ccd6;
+}
+#device.theme-light .dash-row,
+#device.theme-light .hd-secrow {
+  border-color: #e0e3e8;
+}
+#device.theme-light .gsat-prn {
+  color: #6b7280;
+}
+#device.theme-light .dot {
+  background: #c6ccd6;
+}
+#device.theme-light .pdot {
+  background: #c6ccd6;
+}
+#device.theme-light .letter {
+  color: #b3b8c0;
+}
+#device.theme-light .toast {
+  background: #ffffff;
+}
+#device.theme-light .overlay-backdrop {
+  background: rgba(20, 24, 30, 0.35);
+}
+#device.theme-light .veh-card {
+  filter: grayscale(0.4) opacity(0.75);
+}

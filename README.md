@@ -134,8 +134,20 @@ HOME ▸ HISTORY ──Ok(进入)──▶ 记录列表 ──Ok──▶ 单场
 
 ### 3. 主页面（HOME 三页轮播）
 
-`HOME`、`TRACK_EDIT`、`SETTINGS` 用 **Up/Down 换页**。
-进入 `TRACK_EDIT` / `SETTINGS` 后先处于「换页模式」，**按 Ok 才进入**，之后再 Up/Down 选择列表项，`Back` 退出编辑回到换页模式——这样不会因为列表吃掉了 Up/Down 而卡在页面里出不去。
+`HOME`、`HISTORY`、`TRACK_EDIT`、`SETTINGS` 用 **Up/Down 换页**。
+进入 `HISTORY` / `TRACK_EDIT` / `SETTINGS` 后先处于「换页模式」，**按 Ok 才进入**，之后再 Up/Down 选择列表项，`Back` 退出编辑回到换页模式——这样不会因为列表吃掉了 Up/Down 而卡在页面里出不去。
+
+**Settings** 项：亮度、亮灯颜色、**显示模式（暗色 / 明亮）**、WiFi、蓝牙、IMU 水平校准、GNSS 雷达测试。
+
+### 暗色 / 明亮（日光）模式
+
+- 默认暗色；`Settings ▸ 显示模式` 可切到**明亮模式**，白底深字、加深的强调色，适合白天强光下看
+- 两套调色板都在 `js/config.js` 的 `RC.THEMES`，`RC.setTheme(name)` 会**原地更新**当前 `COLORS`（所有 `C.COLORS.x` 立即生效）并给设备加 `theme-light` 类切换 DOM 配色
+- 像素轨迹图 / 天空视图 / G 值表等 Canvas 绘制也走同一调色板（`mapBg / histTrace / curTrace / gmRing …`），所以主题切换对图形同样生效
+
+| 明亮 · 主页面 | 明亮 · 比赛 | 明亮 · DASH | 明亮 · Settings |
+|---|---|---|---|
+| ![lh](docs/20-light-home.png) | ![lr](docs/21-light-racing.png) | ![ld](docs/22-light-dash.png) | ![ls](docs/23-light-settings.png) |
 
 ### 4. 比赛界面（4 个仪表面板，Up/Down 切换）
 
@@ -284,6 +296,7 @@ input.attachGPIO({
 - [x] MPU6050 开机水平校准 + GPS/IMU 卡尔曼融合 + DASH G 值表
 - [x] 开赛前安装方式选择（按安装方式调整 IMU/GPS 权重）
 - [x] Race 历史记录页（圈速 / 分段最快在第几圈 / 轨迹）
+- [x] 暗色 / 明亮（日光）双主题，Settings 可切换
 - [ ] 亮度/亮灯颜色设置真正作用到画面与背光
 - [ ] 真实 GPS/IMU 轨迹导入回放
 - [ ] 移植到 ESP32-S3 + LVGL，接入真实 GPIO / UBX / MPU6050

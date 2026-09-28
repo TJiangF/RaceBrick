@@ -179,6 +179,7 @@
       return [
         ['亮度', s.brightness + '%'],
         ['亮灯颜色', this.ledColors[s.ledColor]],
+        ['显示模式', this.app.theme === 'light' ? '明亮' : '暗色'],
         ['WiFi', s.wifi ? '开' : '关'],
         ['蓝牙', s.bluetooth ? '开' : '关'],
         ['IMU 水平校准', '>'],
@@ -187,13 +188,15 @@
     }
     render() {
       this.list.innerHTML = '';
-      this.rowsData().forEach((it, i) => {
+      const rows = this.rowsData();
+      const w = windowed(rows.length, this.sel, 5);
+      for (let i = w.start; i < w.end; i++) {
         const on = this.entered && i === this.sel;
         const b = pxbox('set-row' + (on ? ' sel' : ''));
-        b.appendChild(D.div('set-k', it[0]));
-        b.appendChild(D.div('set-v', it[1]));
+        b.appendChild(D.div('set-k', rows[i][0]));
+        b.appendChild(D.div('set-v', rows[i][1]));
         this.list.appendChild(b);
-      });
+      }
       this.footHint.textContent = this.entered
         ? 'UP/DOWN 选择 · PUSH 调整 · BACK 退出'
         : 'UP/DOWN 换页 · OK 进入设置';
@@ -216,7 +219,7 @@
       }
       const d = navDir(ev);
       if (d) {
-        this.sel = (this.sel + d + 6) % 6;
+        this.sel = (this.sel + d + 7) % 7;
         this.render();
         return;
       }
@@ -225,10 +228,11 @@
         const s = this.settings;
         if (this.sel === 0) s.brightness = s.brightness >= 100 ? 20 : s.brightness + 20;
         else if (this.sel === 1) s.ledColor = (s.ledColor + 1) % this.ledColors.length;
-        else if (this.sel === 2) s.wifi = !s.wifi;
-        else if (this.sel === 3) s.bluetooth = !s.bluetooth;
-        else if (this.sel === 4) this.app.go('IMU_CALIB', 'left');
-        else if (this.sel === 5) this.app.go('GNSS_TEST', 'left');
+        else if (this.sel === 2) this.app.setTheme(this.app.theme === 'light' ? 'dark' : 'light');
+        else if (this.sel === 3) s.wifi = !s.wifi;
+        else if (this.sel === 4) s.bluetooth = !s.bluetooth;
+        else if (this.sel === 5) this.app.go('IMU_CALIB', 'left');
+        else if (this.sel === 6) this.app.go('GNSS_TEST', 'left');
         this.render();
       } else if (ev.button === 'Back') {
         this.entered = false;
@@ -579,8 +583,8 @@
         this.map.smooth(dt || 0.016, 4);
       }
       /* raw GPS fixes (noisy) faint, then the fused (Kalman) trajectory */
-      for (const lap of e.laps) if (lap.gpsTrace) this.map.trace(lap.gpsTrace, '#3a2e33', 2);
-      this.map.trace(e.gpsLapTrace, '#4a3540', 2);
+      for (const lap of e.laps) if (lap.gpsTrace) this.map.trace(lap.gpsTrace, C.COLORS.gpsTraceHist, 2);
+      this.map.trace(e.gpsLapTrace, C.COLORS.gpsTrace, 2);
       this.map.trail(e);
       if (rec) {
         this.map.startLine(0, C.COLORS.white);
@@ -778,7 +782,7 @@
       this.map.begin();
       this.map.centerline();
       this.laps.forEach((lap, i) => {
-        this.map.trace(lap.trace, this.checked[i] ? '#3a5a52' : '#23232b', 2);
+        this.map.trace(lap.trace, this.checked[i] ? C.COLORS.cyan : C.COLORS.histTrace, 2);
       });
     }
     update(dt) {
@@ -1208,7 +1212,7 @@
         for (const l of rec.laps) for (const p of l.trace) pts.push(p);
         this.map.fitPoints(pts, 0.3);
         for (const l of rec.laps) if (l.index !== rec.bestIndex)
-          this.map.trace(l.trace, '#2c3a3f', 2);
+          this.map.trace(l.trace, C.COLORS.histTrace, 2);
         const bl = rec.laps.find((l) => l.index === rec.bestIndex);
         if (bl) this.map.trace(bl.trace, C.COLORS.purple, 2);
       }
@@ -1415,7 +1419,7 @@
       const cx = W / 2;
       const cy = H / 2;
       const R = Math.min(W, H) / 2 - 16;
-      c.strokeStyle = '#1e1e29';
+      c.strokeStyle = C.COLORS.centerline;
       c.lineWidth = 1;
       [1, 2 / 3, 1 / 3].forEach((k) => {
         c.beginPath();
@@ -1432,7 +1436,7 @@
       c.fillStyle = C.COLORS.dim;
       c.fillRect(cx - 1, cy - R - 3, 2, 6);
       /* horizon center */
-      c.fillStyle = '#2b2b33';
+      c.fillStyle = C.COLORS.gmCenter;
       c.fillRect(cx - 1, cy - 1, 2, 2);
       for (const s of g.sats) {
         if (s.cn0 <= 0.5) continue;
@@ -1591,7 +1595,7 @@
       const R = Math.min(W, H) / 2 - 18;
       const scale = R / 0.15; // full radius = 0.15 g
       /* rings + cross */
-      c.strokeStyle = '#23232b';
+      c.strokeStyle = C.COLORS.gmRing;
       c.lineWidth = 1;
       [0.05, 0.1, 0.15].forEach((g) => {
         c.beginPath();
@@ -1605,7 +1609,7 @@
       c.lineTo(cx, cy + R);
       c.stroke();
       /* horizon cross target */
-      c.fillStyle = '#2b2b33';
+      c.fillStyle = C.COLORS.gmCenter;
       c.fillRect(cx - 6, cy - 1, 12, 2);
       c.fillRect(cx - 1, cy - 6, 2, 12);
       /* bubble = measured horizontal accel */
@@ -1616,7 +1620,7 @@
         const off = Math.hypot(s.ax, s.ay);
         c.fillStyle = off < 0.03 ? C.COLORS.green : off < 0.08 ? C.COLORS.yellow : C.COLORS.red;
         c.fillRect(Math.round(bx) - 3, Math.round(by) - 3, 6, 6);
-        c.fillStyle = '#0b0b0d';
+        c.fillStyle = C.COLORS.mapBg;
         c.fillRect(Math.round(bx) - 1, Math.round(by) - 1, 2, 2);
       }
       /* progress arc */
