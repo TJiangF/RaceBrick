@@ -171,8 +171,8 @@ static void confirm_handle(const event_t *ev) {
             return;
         }
     }
-    if (ev->type != EV_PRESS) return;
-    if (ev->button == BTN_OK) confirm_choose(g.confirm_sel == 0);
+    if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
+    if (ev->button == BTN_PUSH) confirm_choose(g.confirm_sel == 0);
     else if (ev->button == BTN_BACK) confirm_choose(false);
 }
 

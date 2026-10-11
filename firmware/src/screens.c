@@ -89,7 +89,7 @@ static void render_home(void) {
         gfx_fill(dx, 150, 6, 6, i == 0 ? PAL.cyan : PAL.dotoff);
     }
     hint_c("UP/DOWN  SWITCH PAGE", 166); /* kept */
-    hint_c("OK  START", 180);
+    hint_c("PUSH  START", 180);
 }
 
 /* ================= TRACK EDIT ================= */
@@ -106,7 +106,7 @@ static void render_track_edit(void) {
         y += 48;
     }
     if (!g.ntracks) hint_c("(NO TRACKS)", 60);
-    hint_c(g.entered ? "OK VIEW - BACK EXIT" : "OK EDIT - UP/DOWN PAGE", 182);
+    hint_c(g.entered ? "PUSH VIEW - BACK EXIT" : "PUSH EDIT - UP/DOWN PAGE", 182);
 }
 
 /* ================= SETTINGS ================= */
@@ -156,7 +156,7 @@ static void render_mode_select(void) {
     title_c("SELECT MODE", 6);
     mode_box(40, "NEW TRACK", "MAP + RACE MODE", g.sel == 0);
     mode_box(112, "RECORDED TRACK", "KNOWN TRACK", g.sel == 1);
-    hint_c("UP/DOWN SELECT - OK ENTER - BACK", 182);
+    hint_c("UP/DOWN SELECT - PUSH ENTER - BACK", 182);
 }
 
 /* ================= MOUNT SELECT ================= */
@@ -165,7 +165,7 @@ static void render_mount_select(void) {
     title_c("MOUNTING", 6);
     mode_box(40, "FIXED (CHASSIS)", "RIGID - TRUST IMU", g.sel == 0);
     mode_box(112, "NOT FIXED (WHEEL)", "ROTATES - TRUST GPS", g.sel == 1);
-    hint_c("UP/DOWN SELECT - OK START - BACK", 182);
+    hint_c("UP/DOWN SELECT - PUSH START - BACK", 182);
 }
 
 /* ================= NEW TRACK - MARK START ================= */
@@ -349,7 +349,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                 start = sections[i];
             }
         }
-        hint_c("OK END RACE - UP/DOWN PANEL", 182);
+        hint_c("PUSH END RACE - UP/DOWN PANEL", 182);
     }
     render_panel_dots();
 }
@@ -381,7 +381,7 @@ static void render_lap_select(void) {
     for (int i = 0; i < g.engine.nLaps; i++) if (g.lapChecked[i]) nsel++;
     snprintf(b, sizeof b, "PICKED %d / MIN 2", nsel);
     gfx_text(182, 158, b, PAL.dim, 0);
-    gfx_text(182, 174, "PUSH CHECK - OK CONFIRM", PAL.dim, 0);
+    gfx_text(182, 174, "PUSH CHECK - 2xPUSH GO", PAL.dim, 0);
 }
 
 /* ================= SECTION MARKING ================= */
@@ -409,7 +409,7 @@ static void render_section(void) {
     }
     gfx_text(182, 120, "UP/DOWN MOVE", PAL.dim, 1);
     gfx_text(182, 134, "PUSH MARK", PAL.dim, 1);
-    gfx_text(182, 148, "OK FINISH", PAL.dim, 1);
+    gfx_text(182, 148, "2xPUSH FINISH", PAL.dim, 1);
     gfx_text(182, 162, "BACK EXIT", PAL.dim, 1);
 }
 
@@ -424,7 +424,7 @@ static void render_vehicle(void) {
         map_draw_vehicle(cx - 36, 46, 72, 56, on ? VEH_COLORS[i] : PAL.glyphoff, PAL.yellow);
         gfx_text_center(cx, 112, VEH_NAMES[i], on ? PAL.cyan : PAL.dim, 1);
     }
-    hint_c("UP/DOWN SELECT - OK CONFIRM", 182);
+    hint_c("UP/DOWN SELECT - PUSH CONFIRM", 182);
 }
 
 /* ================= TRACK NAMING ================= */
@@ -444,7 +444,7 @@ static void render_naming(void) {
             gfx_text(x0 + i * step, 140, ch, PAL.glyphoff, 0);
         }
     }
-    hint_c("UP/DOWN LETTER - OK SAVE", 182);
+    hint_c("UP/DOWN LETTER - PUSH SAVE", 182);
 }
 
 /* ================= TRACK LIST ================= */
@@ -462,7 +462,7 @@ static void render_track_list(void) {
         gfx_text(70, y + 8, g.tracks[i].name, PAL.white, 1);
         gfx_text(70, y + 24, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
     }
-    hint_c("UP/DOWN SELECT - OK ENTER", 182);
+    hint_c("UP/DOWN SELECT - PUSH ENTER", 182);
 }
 
 /* ================= HISTORY ================= */
@@ -491,7 +491,7 @@ static void render_history(void) {
         gfx_text_right(310, y + 20, b, PAL.dim, 0);
     }
     if (!g.nlog) hint_c("(NO RECORDS)", 60);
-    gfx_text(182, 158, g.entered ? "OK DETAIL" : "OK ENTER", PAL.dim, 1);
+    gfx_text(182, 158, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
     gfx_text(182, 174, "BACK EXIT", PAL.dim, 1);
 }
 
@@ -811,7 +811,7 @@ static void render_imu_calib(void) {
     gfx_fill(rx + 1, 93, (int)(118 * g.imu_progress / IMU_CALIB_MS), 6, PAL.cyan);
     snprintf(b, sizeof b, "%d%%", (int)(g.imu_progress / IMU_CALIB_MS * 100));
     gfx_text_center(rx + 60, 104, b, PAL.cyan, 1);
-    gfx_text(rx, 128, "OK DONE  PUSH REDO", PAL.dim, 0);
+    gfx_text(rx, 128, "PUSH DONE  2xPUSH REDO", PAL.dim, 0);
     gfx_text(rx, 142, "BACK SKIP", PAL.dim, 0);
     gfx_text(rx, 178, "PLACE DEVICE LEVEL", PAL.dim, 0);
 }
@@ -887,7 +887,7 @@ void screens_enter(scid_t id) {
         break;
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
-    case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
+    case SC_GPS_DEBUG: gps_begin_i2c(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -1016,7 +1016,7 @@ void screens_handle(const event_t *ev) {
     switch (g.cur) {
     case SC_HOME:
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) app_go(SC_MODE_SELECT, 1);
+        if (ev->button == BTN_PUSH) app_go(SC_MODE_SELECT, 1);
         else if (ev->button == BTN_DOWN) app_go_home(1);
         else if (ev->button == BTN_UP) app_go_home(-1);
         break;
@@ -1025,12 +1025,12 @@ void screens_handle(const event_t *ev) {
         if (!g.entered) {
             if (d) { app_go_home(d); return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_OK) { g.entered = true; }
+            if (ev->button == BTN_PUSH) { g.entered = true; }
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
             if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_OK || ev->button == BTN_PUSH) app_toast("EDIT ON PHONE APP");
+            if (ev->button == BTN_PUSH) app_toast("EDIT ON PHONE APP");
             else if (ev->button == BTN_BACK) g.entered = false;
         }
         break;
@@ -1039,12 +1039,12 @@ void screens_handle(const event_t *ev) {
         if (!g.entered) {
             if (d) { app_go_home(d); return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_OK) g.entered = true;
+            if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
             if (d) { g.sel = (g.sel + d + 8) % 8; return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
+            if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
                 else if (g.sel == 1) g.set_ledcolor = (g.set_ledcolor + 1) % 4;
                 else if (g.sel == 2) { g.set_ledbright = g.set_ledbright >= 100 ? 10 : g.set_ledbright + 10; ws2812_set_brightness(g.set_ledbright); }
@@ -1061,14 +1061,14 @@ void screens_handle(const event_t *ev) {
     case SC_MODE_SELECT:
         if (d) { g.sel = (g.sel + d + 2) % 2; return; }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) app_go(g.sel == 0 ? SC_NEW_TRACK_MARK_START : SC_TRACK_LIST, 1);
+        if (ev->button == BTN_PUSH) app_go(g.sel == 0 ? SC_NEW_TRACK_MARK_START : SC_TRACK_LIST, 1);
         else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         break;
 
     case SC_MOUNT_SELECT:
         if (d) { g.sel = (g.sel + d + 2) % 2; return; }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) {
+        if (ev->button == BTN_PUSH) {
             g.race_mount = g.sel;
             if (g.engine_valid) engine_set_profile(e, g.race_mount);
             app_go(g.raceTarget, 1);
@@ -1105,9 +1105,9 @@ void screens_handle(const event_t *ev) {
 
     case SC_LAP_SELECT: {
         if (d && e->nLaps) { g.sel = (g.sel + d + e->nLaps) % e->nLaps; return; }
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH && e->nLaps) { g.lapChecked[g.sel] = !g.lapChecked[g.sel]; }
-        else if (ev->button == BTN_OK) {
+        if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
+        if (ev->type == EV_PRESS && ev->button == BTN_PUSH && e->nLaps) { g.lapChecked[g.sel] = !g.lapChecked[g.sel]; }
+        else if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH) {   /* 2x push = confirm */
             int nsel = 0; for (int i = 0; i < e->nLaps; i++) if (g.lapChecked[i]) nsel++;
             if (nsel < 2) { app_toast("PICK AT LEAST 2 LAPS"); return; }
             /* average selected traces -> sessionTrack */
@@ -1144,11 +1144,11 @@ void screens_handle(const event_t *ev) {
             g.sec_pos = u_clampf(g.sec_pos + d * step, 0.01f, 0.99f);
             return;
         }
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) {
+        if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
+        if (ev->type == EV_PRESS && ev->button == BTN_PUSH) {
             if (!isnan(g.sec_cand)) { g.sec_cand = NAN; app_toast("CANDIDATE CLEARED"); }
             else { g.sec_cand = g.sec_pos; app_toast("CANDIDATE SET"); }
-        } else if (ev->button == BTN_OK) {
+        } else if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH) {   /* 2x push = commit */
             if (!isnan(g.sec_cand)) {
                 float f = g.sec_cand;
                 if (f > g.sec_prev + 0.005f && g.sec_n < MAX_SECTIONS) {
@@ -1180,14 +1180,14 @@ void screens_handle(const event_t *ev) {
     case SC_VEHICLE_SELECT:
         if (d) { g.sel = (g.sel + d + 4) % 4; return; }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) { g.sessionVehicle = g.sel; app_go(SC_TRACK_NAMING, 1); }
+        if (ev->button == BTN_PUSH) { g.sessionVehicle = g.sel; app_go(SC_TRACK_NAMING, 1); }
         else if (ev->button == BTN_BACK) app_go(SC_LAP_SELECT, -1);
         break;
 
     case SC_TRACK_NAMING:
         if (d && g.navail) { g.sel = (g.sel + d + g.navail) % g.navail; return; }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) {
+        if (ev->button == BTN_PUSH) {
             char name[4] = {g.avail[g.sel], 0, 0, 0};
             track_t *t = &g.sessionTrack;
             strncpy(t->name, name, sizeof(t->name) - 1);
@@ -1206,8 +1206,7 @@ void screens_handle(const event_t *ev) {
     case SC_TRACK_LIST:
         if (d && g.ntracks) { g.cursor = (g.cursor + d + g.ntracks) % g.ntracks; return; }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH && g.ntracks) { app_toast("TRACK SELECTED"); }
-        else if (ev->button == BTN_OK) {
+        if (ev->button == BTN_PUSH) {
             if (!g.ntracks) return;
             track_t *t = &g.tracks[g.cursor];
             engine_init(e, t, true, &g.imu);
@@ -1222,12 +1221,12 @@ void screens_handle(const event_t *ev) {
         if (!g.entered) {
             if (d) { app_go_home(d); return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_OK) g.entered = true;
+            if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
             if (d && g.nlog) { g.sel = (g.sel + d + g.nlog) % g.nlog; return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_OK && g.nlog) { g.hist_rec = g.nlog - 1 - g.sel; app_go(SC_HISTORY_DETAIL, 1); }
+            if (ev->button == BTN_PUSH && g.nlog) { g.hist_rec = g.nlog - 1 - g.sel; app_go(SC_HISTORY_DETAIL, 1); }
             else if (ev->button == BTN_BACK) g.entered = false;
         }
         break;
@@ -1247,11 +1246,8 @@ void screens_handle(const event_t *ev) {
             return;
         }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) gps_next_baud();
-        else if (ev->button == BTN_OK) {
-            gps_toggle_source();
-            app_toast(gps_get()->source ? "GPS: I2C" : "GPS: UART");
-        } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        if (ev->button == BTN_PUSH) { gps_scan_i2c(); app_toast("GPS I2C RESCAN"); }
+        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
 
     case SC_LOCATION:
@@ -1260,8 +1256,8 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_IMU_CALIB:
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_OK) {
+        if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
+        if (ev->type == EV_PRESS && ev->button == BTN_PUSH) {
             imu6_t m = {0, 0, 0, 0, 0, 0};
             int n2 = g.imu_ns;
             if (n2) {
@@ -1274,7 +1270,7 @@ void screens_handle(const event_t *ev) {
             mpu_apply_calibration(&g.imu, m);
             g.imu_phase = 1; g.imu_doneTimer = 0.8f; g.imu_progress = IMU_CALIB_MS;
             app_toast("IMU CALIBRATED");
-        } else if (ev->button == BTN_PUSH) {
+        } else if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH) {   /* 2x push = resample */
             g.imu_ns = 0; g.imu_progress = 0; g.imu_phase = 0;
             mpu_clear_calibration(&g.imu);
             app_toast("RESAMPLING");
@@ -1305,8 +1301,8 @@ void screens_chrome(void) {
     for (int i = 0; i < LED_COUNT; i++) g.leds[i] = 0;
     switch (g.cur) {
     case SC_HOME: snprintf(g.status, sizeof g.status, "HOME - START RACING"); break;
-    case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - OK TO EDIT"); break;
-    case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - OK TO ENTER"); break;
+    case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - PUSH TO EDIT"); break;
+    case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
     case SC_MOUNT_SELECT: snprintf(g.status, sizeof g.status, g.sel == 0 ? "MOUNT - FIXED (TRUST IMU)" : "MOUNT - NOT FIXED (TRUST GPS)"); break;
     case SC_NEW_TRACK_MARK_START: snprintf(g.status, sizeof g.status, g.marked ? "START MARKED - GO" : "MARK START LINE"); break;
@@ -1323,7 +1319,7 @@ void screens_chrome(void) {
     case SC_VEHICLE_SELECT: snprintf(g.status, sizeof g.status, "VEHICLE - %s", VEH_NAMES[g.sel]); break;
     case SC_TRACK_NAMING: snprintf(g.status, sizeof g.status, "NAME TRACK"); break;
     case SC_TRACK_LIST: snprintf(g.status, sizeof g.status, "TRACK LIST - %d", g.ntracks); break;
-    case SC_HISTORY: snprintf(g.status, sizeof g.status, g.entered ? "HISTORY - BROWSE" : "HISTORY - OK TO ENTER"); break;
+    case SC_HISTORY: snprintf(g.status, sizeof g.status, g.entered ? "HISTORY - BROWSE" : "HISTORY - PUSH TO ENTER"); break;
     case SC_HISTORY_DETAIL: snprintf(g.status, sizeof g.status, "RACE DETAIL"); break;
     case SC_IMU_CALIB: snprintf(g.status, sizeof g.status, "IMU CALIB - %s - %d%%", g.imu_phase ? "DONE" : (g.imu_stable ? "STABLE" : "MOVING"), (int)(g.imu_progress / IMU_CALIB_MS * 100));
         g.statusColor = g.imu_stable ? PAL.green : PAL.yellow; break;

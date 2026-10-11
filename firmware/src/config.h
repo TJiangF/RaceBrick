@@ -92,6 +92,7 @@
 /* ---------------- interaction timing (ms), identical to the web demo ------- */
 #define LONG_PRESS_MS   600
 #define REPEAT_MS       110
+#define DOUBLE_MS       260   /* two PUSH presses within this window = EV_DOUBLE */
 
 /* ---------------- simulation (mirrors RC.CONFIG) ---------------- */
 #define TRK_N           360       /* samples per lap */

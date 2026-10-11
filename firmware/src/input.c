@@ -7,6 +7,8 @@ typedef struct {
     float t0;
     bool  longFired;
     float nextRepeat;
+    bool  dblPending;     /* PUSH: a short press is waiting to see if a 2nd follows */
+    float dblDeadline;
 } bstate_t;
 
 static bstate_t s_btn[BTN_COUNT];
@@ -33,6 +35,8 @@ void input_init(void) {
         s_btn[i].t0 = 0;
         s_btn[i].longFired = false;
         s_btn[i].nextRepeat = 0;
+        s_btn[i].dblPending = false;
+        s_btn[i].dblDeadline = 0;
     }
     s_head = s_tail = 0;
     s_clock = 0;
@@ -67,7 +71,20 @@ void input_release(btn_id_t b) {
     if (b < 0 || b >= BTN_COUNT) return;
     bstate_t *s = &s_btn[b];
     if (!s->down) return;
-    if (!s->longFired) emit(EV_PRESS, b);
+    if (!s->longFired) {
+        if (b == BTN_PUSH) {
+            /* defer the single press briefly so a quick 2nd press = EV_DOUBLE */
+            if (s->dblPending && s_clock < s->dblDeadline) {
+                s->dblPending = false;
+                emit(EV_DOUBLE, b);
+            } else {
+                s->dblPending = true;
+                s->dblDeadline = s_clock + DOUBLE_MS;
+            }
+        } else {
+            emit(EV_PRESS, b);
+        }
+    }
     s->down = false;
     emit(EV_RELEASED, b);
 }
@@ -76,6 +93,10 @@ void input_tick(float dt_ms) {
     s_clock += dt_ms;
     for (int i = 0; i < BTN_COUNT; i++) {
         bstate_t *s = &s_btn[i];
+        if (s->dblPending && !s->down && s_clock >= s->dblDeadline) {
+            s->dblPending = false;
+            emit(EV_PRESS, (btn_id_t)i);   /* no 2nd press -> plain single */
+        }
         if (!s->down) continue;
         float held = s_clock - s->t0;
         if (!s->longFired && held >= LONG_PRESS_MS) {

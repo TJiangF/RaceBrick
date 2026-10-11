@@ -9,7 +9,7 @@
 #include <stdbool.h>
 
 typedef enum { BTN_UP = 0, BTN_DOWN, BTN_PUSH, BTN_OK, BTN_BACK, BTN_COUNT } btn_id_t;
-typedef enum { EV_PRESS, EV_LONG, EV_REPEAT, EV_RELEASED } ev_type_t;
+typedef enum { EV_PRESS, EV_LONG, EV_REPEAT, EV_RELEASED, EV_DOUBLE } ev_type_t;
 
 typedef struct {
     ev_type_t type;
