@@ -159,9 +159,29 @@ static void handle_line(const char *raw) {
         if (nf > 2) {
             int ft = atoi(f[2]);
             s_st.fix_type = (ft == 3) ? 2 : (ft == 2) ? 1 : 0;
-            for (int i = 0; i < s_st.nsat; i++) s_st.sats[i].used = false;
+            /* u-blox emits one GSA per constellation (all tagged GNGSA), with a
+             * trailing systemID field (NMEA 4.10+): 1=GPS 2=GLO 3=GAL 4=BDS 5=QZSS.
+             * Only clear/set THAT system's used flags, otherwise each sentence
+             * zeroes the others and the per-system counts flicker. */
+            char sys = 0;
+            if (nf > 18) {
+                switch (atoi(f[18])) {
+                case 1: sys = 'P'; break; case 2: sys = 'L'; break; case 3: sys = 'A'; break;
+                case 4: sys = 'B'; break; case 5: sys = 'Q'; break;
+                }
+            } else {
+                switch (id[1]) {
+                case 'P': sys = 'P'; break; case 'L': sys = 'L'; break; case 'A': sys = 'A'; break;
+                case 'B': sys = 'B'; break; case 'Q': sys = 'Q'; break;
+                }
+            }
+            for (int i = 0; i < s_st.nsat; i++)
+                if (!sys || s_st.sats[i].sys == sys) s_st.sats[i].used = false;
             for (int i = 3; i < 15 && i < nf; i++) {
-                if (f[i][0]) { gps_sat_t *s = sat_find_prn(atoi(f[i])); if (s) s->used = true; }
+                if (!f[i][0]) continue;
+                int prn = atoi(f[i]);
+                gps_sat_t *s = sys ? sat_find_sys(sys, prn) : sat_find_prn(prn);
+                if (s) s->used = true;
             }
         }
     } else if (!strcmp(type, "GSV")) {
