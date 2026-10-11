@@ -386,8 +386,13 @@ void gps_dump(void) {
     for (int i = 0; i < g->nsat; i++) {
         gps_sat_t *s = &g->sats[i];
         if (s->sys != 'B' || !s->seen || s->snr <= 0) continue;
-        p += snprintf(line + p, sizeof line - p, " B%d:%d%s%s",
-                      s->prn, s->snr, s->used ? "*" : "", s->eph ? "E" : "");
+        int room = (int)sizeof(line) - p;
+        if (room < 16) break;                 /* leave room for NUL */
+        int w = snprintf(line + p, (size_t)room, " B%d:%d%s%s",
+                         s->prn, s->snr, s->used ? "*" : "", s->eph ? "E" : "");
+        if (w < 0) break;
+        if (w >= room) { p += room - 1; break; }  /* truncated: stop, stay in-bounds */
+        p += w;
         n++;
     }
     line[p] = 0;
