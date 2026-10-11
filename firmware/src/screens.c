@@ -111,7 +111,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[9] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "GNSS TEST", "GPS DEBUG", "LOCATION"};
+    static const char *k[8] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -130,7 +130,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(9, g.sel, K, &start, &end);
+    windowed(8, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -142,7 +142,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 9) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 8) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
 }
 
 /* ================= MODE SELECT ================= */
@@ -550,77 +550,62 @@ static void render_history_detail(void) {
 }
 
 /* ================= GNSS TEST ================= */
-static void render_gnss(void) {
+/* ================= SAT VIEW (real NEO-M9N sats, debug sub-page 2) ================= */
+static void render_sat_page(void) {
+    gps_state_t *gp = gps_get();
     char b[48];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    /* sky view */
-    int W = 180, H = 200;
-    gfx_fill(0, 0, W, H, PAL.stage);
-    float cx = W / 2.0f, cy = H / 2.0f;
-    float R = (W < H ? W : H) / 2.0f - 16;
-    gfx_circle((int)cx, (int)cy, (int)R, PAL.centerline);
-    gfx_circle((int)cx, (int)cy, (int)(R * 2 / 3), PAL.centerline);
-    gfx_circle((int)cx, (int)cy, (int)(R / 3), PAL.centerline);
-    gfx_hline((int)(cx - R), (int)cy, (int)(2 * R), PAL.centerline);
-    gfx_vline((int)cx, (int)(cy - R), (int)(2 * R), PAL.centerline);
-    gfx_fill((int)cx - 1, (int)(cy - R - 3), 2, 6, PAL.dim);
-    gfx_fill((int)cx - 1, (int)cy - 1, 2, 2, PAL.gmcenter);
-    gnss_t *gn = &g.gnss;
-    for (int i = 0; i < GNSS_NSAT; i++) {
-        sat_t *s = &gn->sats[i];
-        if (s->cn0 <= 0.5f) continue;
-        float rr = ((90 - s->el) / 90.0f) * R;
-        float a = (s->az - 90) * (float)M_PI / 180.0f;
-        int x = (int)(cx + cosf(a) * rr);
-        int y = (int)(cy + sinf(a) * rr);
-        uint16_t col = s->cn0 >= 40 ? PAL.green : (s->cn0 >= 30 ? PAL.yellow : PAL.red);
-        int size = s->used ? 4 : 3;
-        gfx_fill(x - 1, y - 1, size, size, col);
-    }
-    /* info */
-    int rx = 188;
-    gfx_text(rx, 6, "NEO-M9N", PAL.cyan, 1);
-    gfx_text(rx, 22, fix_str(gn->fix), gn->fix ? PAL.green : PAL.red, 2);
-    snprintf(b, sizeof b, "SATS %d/%d  HDOP ", gn->used, gn->visible);
-    char hb[12]; u_fmt_f(hb, sizeof hb, gn->hdop, 2);
-    gfx_text(rx, 44, b, PAL.text, 0);
-    gfx_text(rx + gfx_text_w(b, 0), 44, hb, PAL.text, 0);
-    char lb[24];
-    u_fmt_f(lb, sizeof lb, (float)gn->lat, 5);
-    snprintf(b, sizeof b, "LAT %s", lb); gfx_text(rx, 60, b, PAL.dim, 0);
-    u_fmt_f(lb, sizeof lb, (float)gn->lon, 5);
-    snprintf(b, sizeof b, "LON %s", lb); gfx_text(rx, 74, b, PAL.dim, 0);
-    u_fmt_f(lb, sizeof lb, gn->alt, 1);
-    snprintf(b, sizeof b, "ALT %sM  V ", lb); gfx_text(rx, 88, b, PAL.dim, 0);
-    u_fmt_f(lb, sizeof lb, gn->speed, 1);
-    gfx_text(rx + gfx_text_w(b, 0), 88, lb, PAL.dim, 0);
-    /* satellite list (top by cn0) */
-    int order[GNSS_NSAT]; int no = 0;
-    for (int i = 0; i < GNSS_NSAT; i++) if (gn->sats[i].cn0 > 0.5f) order[no++] = i;
+
+    /* satellites seen with a signal, strongest SNR first */
+    int order[GPS_NSAT], no = 0;
+    for (int i = 0; i < gp->nsat; i++)
+        if (gp->sats[i].seen && gp->sats[i].snr > 0) order[no++] = i;
     for (int i = 0; i < no; i++)
         for (int j = i + 1; j < no; j++)
-            if (gn->sats[order[j]].cn0 > gn->sats[order[i]].cn0) { int t = order[i]; order[i] = order[j]; order[j] = t; }
-    if (no > 5) no = 5;
-    for (int i = 0; i < no; i++) {
-        sat_t *s = &gn->sats[order[i]];
-        int y = 108 + i * 14;
-        snprintf(b, sizeof b, "%02d", s->prn);
-        gfx_text(rx, y, b, s->used ? PAL.green : PAL.prn, 0);
-        int bw = 100;
-        gfx_fill(rx + 22, y + 2, bw, 6, PAL.surface2);
-        int w = (int)(bw * (s->cn0 / 50.0f));
+            if (gp->sats[order[j]].snr > gp->sats[order[i]].snr) {
+                int t = order[i]; order[i] = order[j]; order[j] = t;
+            }
+
+    snprintf(b, sizeof b, "SATELLITES  %d VIS  %d USED", no, gp->sats_used);
+    gfx_text(6, 2, b, PAL.cyan, 1);
+    snprintf(b, sizeof b, "%s  HDOP %.1f  %s", gp->fix_type == 2 ? "3D" : (gp->fix_type == 1 ? "2D" : "NO"),
+             gp->hdop, gp->source == 1 ? "I2C" : "UART");
+    gfx_text(6, 18, b, gp->fix_type >= 1 ? PAL.green : PAL.orange, 1);
+
+    /* column header */
+    gfx_text(6, 38, "SYS", PAL.dim, 0);
+    gfx_text(42, 38, "SNR", PAL.dim, 0);
+    gfx_text(206, 38, "EL", PAL.dim, 0);
+    gfx_text(240, 38, "AZ", PAL.dim, 0);
+    gfx_text(290, 38, "U", PAL.dim, 0);
+
+    for (int r = 0; r < 8 && r < no; r++) {
+        gps_sat_t *s = &gp->sats[order[r]];
+        int y = 50 + r * 19;
+        const char *sn = s->sys == 'P' ? "G" : s->sys == 'B' ? "B" : s->sys == 'A' ? "E" :
+                         s->sys == 'L' ? "R" : s->sys == 'Q' ? "J" : "?";
+        uint16_t col = s->snr >= 40 ? PAL.green : (s->snr >= 30 ? PAL.yellow : PAL.red);
+        snprintf(b, sizeof b, "%s%02d", sn, s->prn);
+        gfx_text(6, y, b, s->used ? PAL.cyan : PAL.text, 1);
+        snprintf(b, sizeof b, "%d", s->snr);
+        gfx_text(42, y, b, col, 1);
+        int bx = 78, bw = 116;
+        gfx_fill(bx, y + 3, bw, 6, PAL.surface2);
+        int w = (int)(bw * (s->snr / 50.0f));
         if (w > bw) w = bw;
-        uint16_t col = s->cn0 >= 40 ? PAL.green : (s->cn0 >= 30 ? PAL.yellow : PAL.red);
-        gfx_fill(rx + 22, y + 2, w, 6, col);
-        snprintf(b, sizeof b, "%d", (int)lroundf(s->cn0));
-        gfx_text_right(CW - 8, y, b, PAL.text, 0);
+        gfx_fill(bx, y + 3, w, 6, col);
+        snprintf(b, sizeof b, "%d", s->el);
+        gfx_text(206, y, b, PAL.text2, 1);
+        snprintf(b, sizeof b, "%d", s->az);
+        gfx_text(240, y, b, PAL.text2, 1);
+        if (s->used) gfx_text(290, y, "*", PAL.green, 1);
     }
-    if (no == 0) gfx_text(rx, 108, "SEARCHING...", PAL.dim, 0);
-    gfx_text(188, 182, "PUSH RE-SEARCH - BACK", PAL.dim, 0);
+    if (no == 0) gfx_text(6, 50, "no satellites", PAL.dim, 1);
 }
 
 /* ================= GPS DEBUG (real NEO-M9N over UART1) ================= */
 static void render_gps_debug(void) {
+    if (g.dbg_page == 1) { render_sat_page(); return; }   /* UP/DOWN switches sub-page */
     gps_state_t *gp = gps_get();
     char l[64], t1[20], t2[20], latlon[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
@@ -849,7 +834,6 @@ void screens_render(void) {
     case SC_TRACK_LIST: render_track_list(); break;
     case SC_HISTORY: render_history(); break;
     case SC_HISTORY_DETAIL: render_history_detail(); break;
-    case SC_GNSS_TEST: render_gnss(); break;
     case SC_GPS_DEBUG: render_gps_debug(); break;
     case SC_LOCATION: render_location(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
@@ -903,7 +887,7 @@ void screens_enter(scid_t id) {
         break;
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
-    case SC_GPS_DEBUG: gps_begin(); gps_restart(); break;
+    case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -1058,7 +1042,7 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_OK) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 9) % 9; return; }
+            if (d) { g.sel = (g.sel + d + 8) % 8; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
@@ -1067,9 +1051,8 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 3) { g.theme_light = !g.theme_light; theme_set(g.theme_light); }
                 else if (g.sel == 4) g.set_wifi = !g.set_wifi;
                 else if (g.sel == 5) g.set_bt = !g.set_bt;
-                else if (g.sel == 6) app_go(SC_GNSS_TEST, 1);
-                else if (g.sel == 7) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 8) app_go(SC_LOCATION, 1);
+                else if (g.sel == 6) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 7) app_go(SC_LOCATION, 1);
                 if (g.sel <= 5) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
@@ -1258,13 +1241,11 @@ void screens_handle(const event_t *ev) {
         }
         break;
 
-    case SC_GNSS_TEST:
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { gnss_init(&g.gnss); app_toast("GNSS RE-SEARCH"); }
-        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
-        break;
-
     case SC_GPS_DEBUG:
+        if (ev->type == EV_PRESS && (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
+            g.dbg_page = (g.dbg_page + 1) % 2;   /* switch debug sub-page */
+            return;
+        }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) gps_next_baud();
         else if (ev->button == BTN_OK) {
@@ -1344,12 +1325,6 @@ void screens_chrome(void) {
     case SC_TRACK_LIST: snprintf(g.status, sizeof g.status, "TRACK LIST - %d", g.ntracks); break;
     case SC_HISTORY: snprintf(g.status, sizeof g.status, g.entered ? "HISTORY - BROWSE" : "HISTORY - OK TO ENTER"); break;
     case SC_HISTORY_DETAIL: snprintf(g.status, sizeof g.status, "RACE DETAIL"); break;
-    case SC_GNSS_TEST: {
-        char hb[12]; u_fmt_f(hb, sizeof hb, g.gnss.hdop, 1);
-        snprintf(g.status, sizeof g.status, "GNSS - %s - %d/%d SAT - HDOP %s", fix_str(g.gnss.fix), g.gnss.used, g.gnss.visible, hb);
-        g.statusColor = g.gnss.fix ? PAL.green : PAL.red;
-        break;
-    }
     case SC_IMU_CALIB: snprintf(g.status, sizeof g.status, "IMU CALIB - %s - %d%%", g.imu_phase ? "DONE" : (g.imu_stable ? "STABLE" : "MOVING"), (int)(g.imu_progress / IMU_CALIB_MS * 100));
         g.statusColor = g.imu_stable ? PAL.green : PAL.yellow; break;
     case SC_LOCATION: {
@@ -1362,11 +1337,11 @@ void screens_chrome(void) {
     case SC_GPS_DEBUG: {
         gps_state_t *gp = gps_get();
         if (gp->source == 1)
-            snprintf(g.status, sizeof g.status, "GPS I2C  RX %lu  NMEA %lu",
-                     (unsigned long)gp->bytes_rx, (unsigned long)gp->sentences);
+            snprintf(g.status, sizeof g.status, "GPS I2C  RX %lu  NMEA %lu  PG%d/2 UP-DN",
+                     (unsigned long)gp->bytes_rx, (unsigned long)gp->sentences, g.dbg_page + 1);
         else
-            snprintf(g.status, sizeof g.status, "GPS UART%d  RX %lu  NMEA %lu",
-                     gp->baud, (unsigned long)gp->bytes_rx, (unsigned long)gp->sentences);
+            snprintf(g.status, sizeof g.status, "GPS UART%d  RX %lu  NMEA %lu  PG%d/2 UP-DN",
+                     gp->baud, (unsigned long)gp->bytes_rx, (unsigned long)gp->sentences, g.dbg_page + 1);
         g.statusColor = gp->sentences ? PAL.green : PAL.dim;
         break;
     }

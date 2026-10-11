@@ -12,7 +12,7 @@ typedef enum {
     SC_IMU_CALIB, SC_HOME, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT, SC_MOUNT_SELECT,
     SC_NEW_TRACK_MARK_START, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
     SC_VEHICLE_SELECT, SC_TRACK_NAMING, SC_TRACK_LIST, SC_HISTORY, SC_HISTORY_DETAIL,
-    SC_GNSS_TEST, SC_GPS_DEBUG, SC_LOCATION, SC_CONFIRM, SC_COUNT
+    SC_GPS_DEBUG, SC_LOCATION, SC_CONFIRM, SC_COUNT
 } scid_t;
 
 typedef void (*action_fn)(void);
@@ -69,6 +69,7 @@ typedef struct {
     int set_brightness, set_ledcolor, set_ledbright; bool set_wifi, set_bt;
     bool marked; float postTimer;
     int panel;
+    int dbg_page;              /* GPS debug sub-page: 0 = live NMEA, 1 = satellites */
     bool lapChecked[MAX_LAPS];
 
     float sec_sections[MAX_SECTIONS]; int sec_n; float sec_prev; float sec_pos; float sec_cand; bool sec_done;

@@ -537,9 +537,9 @@ void app_autopilot(float dt) {
         else if (s_auto_step >= 4 && s_auto_step <= 7 && s_auto_t > 0.6f) { auto_tap(BTN_DOWN); s_auto_step++; s_auto_t = 0; } /* -> GNSS */
         else if (s_auto_step == 8 && s_auto_t > 1.0f) { s_settings_tours = 1; auto_tap(BTN_OK); s_auto_step = 9; s_auto_t = 0; }
         break;
-    case SC_GNSS_TEST:
-        if (s_auto_step == 0 && s_auto_t > 2.0f) { auto_tap(BTN_PUSH); s_auto_step = 1; s_auto_t = 0; }
-        else if (s_auto_step == 1 && s_auto_t > 3.0f) { auto_tap(BTN_BACK); s_auto_step = 2; s_auto_t = 0; }
+    case SC_GPS_DEBUG:
+        if (s_auto_step == 0 && s_auto_t > 2.0f) { auto_tap(BTN_DOWN); s_auto_step = 1; s_auto_t = 0; } /* sub-page */
+        else if (s_auto_step == 1 && s_auto_t > 2.0f) { auto_tap(BTN_BACK); s_auto_step = 2; s_auto_t = 0; }
         break;
     default:
         break;
