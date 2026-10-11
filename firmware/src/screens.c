@@ -887,7 +887,7 @@ void screens_enter(scid_t id) {
         break;
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
-    case SC_GPS_DEBUG: gps_begin_i2c(); gps_restart(); g.dbg_page = 0; break;
+    case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -1246,7 +1246,7 @@ void screens_handle(const event_t *ev) {
             return;
         }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { gps_scan_i2c(); app_toast("GPS I2C RESCAN"); }
+        if (ev->button == BTN_PUSH) { gps_next_baud(); app_toast("GPS NEXT BAUD"); }
         else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
 
