@@ -3,6 +3,7 @@
 #include "lcd.h"
 #include "util.h"
 #include "battery.h"
+#include "gps.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -191,14 +192,29 @@ void app_update(float dt) {
 /* ================= chrome ================= */
 static void render_led_bar(void) {
     gfx_fill(0, 0, LCD_W, LED_H, PAL.devicebg);
-    const int gap = 3, pad = 6, h = 11, y = (LED_H - h) / 2;
-    int w = (LCD_W - 2 * pad - 9 * gap) / LED_COUNT;
+    const int gap = 3, h = 11, y = (LED_H - h) / 2;
+    int pad = 84;                                  /* leave the top-left for the clock */
+    int w = (LCD_W - pad - 6 - 9 * gap) / LED_COUNT;
     for (int i = 0; i < LED_COUNT; i++) {
         uint16_t c = PAL.ledoff;
         if (g.leds[i] == 1) c = PAL.red;
         else if (g.leds[i] == 2) c = PAL.green;
         gfx_fill(pad + i * (w + gap), y, w, h, c);
     }
+}
+
+/* top-left clock: GPS UTC time + 8h (China time), shown on every screen */
+static void render_clock(void) {
+    gps_state_t *gp = gps_get();
+    char t[12];
+    if (!gp->has_time) {
+        gfx_text(4, (LED_H - 11) / 2, "--:--:--", PAL.dim, 1);
+        return;
+    }
+    int hh = gp->utc_h + 8;
+    if (hh >= 24) hh -= 24;
+    snprintf(t, sizeof t, "%02d:%02d:%02d", hh, gp->utc_m, gp->utc_s);
+    gfx_text(4, (LED_H - 11) / 2, t, PAL.cyan, 1);
 }
 
 static void render_status(void) {
@@ -345,6 +361,7 @@ void app_render(void) {
     gfx_reset_view();
     screens_chrome();
     render_led_bar();
+    render_clock();
     render_status();
     render_battery();
     render_toast();

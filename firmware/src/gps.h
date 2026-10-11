@@ -40,6 +40,7 @@ typedef struct {
     double lat, lon;
     float  alt;
     bool   has_pos;
+    bool   has_time;      /* received a valid UTC time from GGA/RMC */
     float  speed_kmh;
     int    utc_h, utc_m, utc_s;
     int    day, month, year;

@@ -125,17 +125,25 @@ static void handle_line(const char *raw) {
     if (!strcmp(type, "GGA")) {
         snprintf(s_st.last_gga, sizeof(s_st.last_gga), "%s", raw);
         if (nf > 8) {
-            s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+            if (f[1][0]) {
+                s_st.has_time = true;
+                s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+            }
             if (f[2][0]) { s_st.lat = nmea_deg(f[2], f[3]); s_st.has_pos = true; }
             if (f[4][0]) s_st.lon = nmea_deg(f[4], f[5]);
-            s_st.fix_quality = atoi(f[6]);
-            s_st.sats_used = atoi(f[7]);
+            int q = atoi(f[6]);
+            s_st.fix_quality = q;
+            int ns = atoi(f[7]);
+            if (q > 0 && ns > 0) s_st.sats_used = ns;  /* don't let no-fix samples (numSats=0) zero it */
             s_st.hdop = atof(f[8]);
             if (nf > 9) s_st.alt = atof(f[9]);
         }
     } else if (!strcmp(type, "RMC")) {
         if (nf > 8) {
-            s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+            if (f[1][0]) {
+                s_st.has_time = true;
+                s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+            }
             if (f[3][0]) { s_st.lat = nmea_deg(f[3], f[4]); s_st.has_pos = true; }
             if (f[5][0]) s_st.lon = nmea_deg(f[5], f[6]);
             s_st.speed_kmh = atof(f[7]) * 1.852f;

@@ -648,8 +648,24 @@ static void render_gps_debug(void) {
     const char *fxs = gp->fix_type == 2 ? "3D" : (gp->fix_type == 1 ? "2D" : (gp->fix_type == 0 ? "NO" : "--"));
     const char *fxl = gp->fix_type == 2 ? "3D FIX" : (gp->fix_type == 1 ? "2D FIX" : (gp->fix_type == 0 ? "NO FIX" : "--"));
 
-    /* header */
+    /* header + top-right sky radar (the battery chrome sits just above it) */
     gfx_text(6, 2, "GPS DEBUG", PAL.cyan, 1);
+    int sx = 262, sy = 14, SW = 52, SH = 52;
+    float cx = sx + SW / 2.0f, cy = sy + SH / 2.0f, R = SW / 2.0f - 5;
+    gfx_circle((int)cx, (int)cy, (int)R, PAL.centerline);
+    gfx_circle((int)cx, (int)cy, (int)(R / 2), PAL.centerline);
+    gfx_hline((int)(cx - R), (int)cy, (int)(2 * R), PAL.centerline);
+    gfx_vline((int)cx, (int)(cy - R), (int)(2 * R), PAL.centerline);
+    for (int i = 0; i < gp->nsat; i++) {
+        gps_sat_t *s = &gp->sats[i];
+        if (!s->seen || s->snr <= 0) continue;
+        int el = s->el < 0 ? 0 : (s->el > 90 ? 90 : s->el);
+        float rr = ((90 - el) / 90.0f) * R;
+        float a = (s->az - 90) * (float)M_PI / 180.0f;
+        int x = (int)(cx + cosf(a) * rr), y = (int)(cy + sinf(a) * rr);
+        uint16_t c = s->snr >= 40 ? PAL.green : (s->snr >= 30 ? PAL.yellow : PAL.red);
+        gfx_fill(x - 1, y - 1, s->used ? 3 : 2, s->used ? 3 : 2, c);
+    }
 
     /* big fix line */
     gfx_text(6, 18, fxl, gp->fix_type >= 1 ? PAL.green : PAL.orange, 2);
@@ -677,24 +693,23 @@ static void render_gps_debug(void) {
              gp->utc_h, gp->utc_m, gp->utc_s);
     gfx_text(6, 128, l, PAL.white, 1);
 
-    /* bottom box: live raw NMEA from the module */
-    gfx_pxbox(4, 146, CW - 8, CH - 150, PAL.line, 1, PAL.surface);
-    gfx_text(8, 148, "NMEA", PAL.dim, 0);
+    /* bottom box: live raw NMEA (latest sentence, wrapped over 2 lines) */
+    gfx_pxbox(4, 142, CW - 8, CH - 146, PAL.line, 1, PAL.surface);
     const char *raw = gp->raw_n ? gp->raw[0] : "";
     int len = (int)strlen(raw);
     if (len == 0) {
-        gfx_text(8, 160, "waiting...", PAL.dim, 0);
+        gfx_text(8, 152, "waiting...", PAL.dim, 1);
     } else {
-        for (int r = 0; r < 3; r++) {
-            int off = r * 50;
+        for (int r = 0; r < 2; r++) {
+            int off = r * 34;
             if (off >= len) break;
-            int n = len - off; if (n > 50) n = 50;
-            char chunk[52];
+            int n = len - off; if (n > 34) n = 34;
+            char chunk[36];
             memcpy(chunk, raw + off, n); chunk[n] = 0;
-            gfx_text(8, 158 + r * 11, chunk, PAL.curtrace, 0);
+            gfx_text(8, 150 + r * 15, chunk, PAL.curtrace, 1);
         }
     }
-    if (gp->txt_toostrong) gfx_text(8, CH - 12, "!! RF INPUT TOO STRONG", PAL.red, 0);
+    if (gp->txt_toostrong) gfx_text(8, 182, "!! RF INPUT TOO STRONG", PAL.red, 1);
 }
 
 /* ================= LOCATION (flat China map + GPS) ================= */
