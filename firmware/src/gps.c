@@ -51,6 +51,9 @@ static double nmea_deg(const char *dm, const char *hemi) {
     return d;
 }
 
+/* read a 2-digit decimal field (HHMMSS / DDMMYY slices) */
+static int nmea_u2(const char *p) { return (p[0] - '0') * 10 + (p[1] - '0'); }
+
 static gps_sat_t *sat_find_sys(char sys, int prn) {
     for (int i = 0; i < s_st.nsat; i++)
         if (s_st.sats[i].prn == prn && s_st.sats[i].sys == sys) return &s_st.sats[i];
@@ -125,9 +128,9 @@ static void handle_line(const char *raw) {
     if (!strcmp(type, "GGA")) {
         snprintf(s_st.last_gga, sizeof(s_st.last_gga), "%s", raw);
         if (nf > 8) {
-            if (f[1][0]) {
+            if (f[1][0] && strlen(f[1]) >= 6) {
                 s_st.has_time = true;
-                s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+                s_st.utc_h = nmea_u2(f[1]); s_st.utc_m = nmea_u2(f[1] + 2); s_st.utc_s = nmea_u2(f[1] + 4);
             }
             if (f[2][0]) { s_st.lat = nmea_deg(f[2], f[3]); s_st.has_pos = true; }
             if (f[4][0]) s_st.lon = nmea_deg(f[4], f[5]);
@@ -140,15 +143,15 @@ static void handle_line(const char *raw) {
         }
     } else if (!strcmp(type, "RMC")) {
         if (nf > 8) {
-            if (f[1][0]) {
+            if (f[1][0] && strlen(f[1]) >= 6) {
                 s_st.has_time = true;
-                s_st.utc_h = atoi(f[1]); s_st.utc_m = atoi(f[1] + 2); s_st.utc_s = atoi(f[1] + 4);
+                s_st.utc_h = nmea_u2(f[1]); s_st.utc_m = nmea_u2(f[1] + 2); s_st.utc_s = nmea_u2(f[1] + 4);
             }
             if (f[3][0]) { s_st.lat = nmea_deg(f[3], f[4]); s_st.has_pos = true; }
             if (f[5][0]) s_st.lon = nmea_deg(f[5], f[6]);
             s_st.speed_kmh = atof(f[7]) * 1.852f;
-            if (nf > 9 && f[9][0]) {
-                s_st.day = atoi(f[9]); s_st.month = atoi(f[9] + 2); s_st.year = 2000 + atoi(f[9] + 4);
+            if (nf > 9 && f[9][0] && strlen(f[9]) >= 6) {
+                s_st.day = nmea_u2(f[9]); s_st.month = nmea_u2(f[9] + 2); s_st.year = 2000 + nmea_u2(f[9] + 4);
             }
         }
     } else if (!strcmp(type, "GSA")) {
@@ -381,8 +384,9 @@ static const char *ant_str(int s) {
 
 void gps_dump(void) {
     gps_state_t *g = &s_st;
-    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  ANT %s  pwr %s  JAM %d/%d  VER %.12s  GLL %lu",
+    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  VER %.12s  GLL %lu",
              g->source == 1 ? "I2C" : "UART", g->fix_type, g->sats_used, g->sats_visible,
+             g->utc_h, g->utc_m, g->utc_s,
              g->have_monhw ? ant_str(g->ant_status) : "?",
              g->have_monhw ? (g->ant_power == 1 ? "ON" : (g->ant_power == 0 ? "OFF" : "?")) : "?",
              g->jam_ind, g->jam_state, g->have_ver ? g->ver : "-",
