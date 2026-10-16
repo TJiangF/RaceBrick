@@ -10,6 +10,7 @@
 #include "lcd.h"
 #include "gps.h"
 #include "ws2812.h"
+#include "buzzer.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -111,7 +112,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[8] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "GPS DEBUG", "LOCATION"};
+    static const char *k[9] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -130,7 +131,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(8, g.sel, K, &start, &end);
+    windowed(9, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -142,7 +143,30 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 8) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 9) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+}
+
+/* ================= SOUND ================= */
+static void render_sound(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("SOUND", 2);
+    static const char *keys[4] = {"VOLUME", "CONFIRM", "CALIB", "3D FIX"};
+    const int h = 32;
+    int y = 24;
+    for (int i = 0; i < 4; i++) {
+        bool on = i == g.sel;
+        panel_box(10, y, CW - 20, h - 4, on, false);
+        gfx_text(20, y + 7, keys[i], PAL.text, 2);
+        char v[16];
+        if (i == 0) snprintf(v, sizeof v, "%d%%", g.set_sound_vol);
+        else {
+            bool b = i == 1 ? g.set_snd_confirm : (i == 2 ? g.set_snd_calib : g.set_snd_fix);
+            strcpy(v, b ? "ON" : "OFF");
+        }
+        gfx_text_right(CW - 18, y + 7, v, PAL.cyan, 2);
+        y += h;
+    }
+    hint_c("UP/DOWN SELECT - PUSH ADJUST - BACK", 182);
 }
 
 /* ================= MODE SELECT ================= */
@@ -836,6 +860,7 @@ void screens_render(void) {
     case SC_HISTORY_DETAIL: render_history_detail(); break;
     case SC_GPS_DEBUG: render_gps_debug(); break;
     case SC_LOCATION: render_location(); break;
+    case SC_SOUND: render_sound(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
     default: break;
     }
@@ -887,6 +912,7 @@ void screens_enter(scid_t id) {
         break;
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
+    case SC_SOUND: g.sel = 0; break;
     case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
@@ -949,6 +975,7 @@ void screens_update(float dt) {
                 g.imu_phase = 1;
                 g.imu_doneTimer = 0.8f;
                 app_toast("IMU CALIBRATED");
+                if (g.set_snd_calib) buzzer_play_id(SND_CALIB);
             }
         } else if (g.imu_phase == 1) {
             g.imu_doneTimer -= dt;
@@ -1042,7 +1069,7 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 8) % 8; return; }
+            if (d) { g.sel = (g.sel + d + 9) % 9; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
@@ -1051,8 +1078,9 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 3) { g.theme_light = !g.theme_light; theme_set(g.theme_light); }
                 else if (g.sel == 4) g.set_wifi = !g.set_wifi;
                 else if (g.sel == 5) g.set_bt = !g.set_bt;
-                else if (g.sel == 6) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 7) app_go(SC_LOCATION, 1);
+                else if (g.sel == 6) app_go(SC_SOUND, 1);
+                else if (g.sel == 7) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 8) app_go(SC_LOCATION, 1);
                 if (g.sel <= 5) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
@@ -1255,6 +1283,28 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
 
+    case SC_SOUND:
+        if (d) { g.sel = (g.sel + d + 4) % 4; return; }
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) {
+            if (g.sel == 0) {
+                g.set_sound_vol = g.set_sound_vol >= 100 ? 0 : g.set_sound_vol + 10;
+                buzzer_set_volume(g.set_sound_vol);
+                buzzer_play_id(SND_FIX);              /* preview */
+            } else if (g.sel == 1) {
+                g.set_snd_confirm = !g.set_snd_confirm;
+                if (g.set_snd_confirm) buzzer_play_id(SND_CONFIRM);
+            } else if (g.sel == 2) {
+                g.set_snd_calib = !g.set_snd_calib;
+                if (g.set_snd_calib) buzzer_play_id(SND_CALIB);
+            } else {
+                g.set_snd_fix = !g.set_snd_fix;
+                if (g.set_snd_fix) buzzer_play_id(SND_FIX);
+            }
+            app_save_settings();
+        } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        break;
+
     case SC_IMU_CALIB:
         if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
         if (ev->type == EV_PRESS && ev->button == BTN_PUSH) {
@@ -1270,6 +1320,7 @@ void screens_handle(const event_t *ev) {
             mpu_apply_calibration(&g.imu, m);
             g.imu_phase = 1; g.imu_doneTimer = 0.8f; g.imu_progress = IMU_CALIB_MS;
             app_toast("IMU CALIBRATED");
+            if (g.set_snd_calib) buzzer_play_id(SND_CALIB);
         } else if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH) {   /* 2x push = resample */
             g.imu_ns = 0; g.imu_progress = 0; g.imu_phase = 0;
             mpu_clear_calibration(&g.imu);
@@ -1330,6 +1381,11 @@ void screens_chrome(void) {
         g.statusColor = gp->fix_type >= 1 ? PAL.green : PAL.orange;
         break;
     }
+    case SC_SOUND:
+        snprintf(g.status, sizeof g.status, "SOUND  VOL %d%%  %s", g.set_sound_vol,
+                 g.set_sound_vol ? "ON" : "MUTED");
+        g.statusColor = g.set_sound_vol ? PAL.green : PAL.dim;
+        break;
     case SC_GPS_DEBUG: {
         gps_state_t *gp = gps_get();
         if (gp->source == 1)

@@ -4,6 +4,7 @@
 #include "util.h"
 #include "battery.h"
 #include "gps.h"
+#include "buzzer.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -141,6 +142,7 @@ void app_toast(const char *msg) {
 /* ================= overlay (confirm modal) ================= */
 void app_push_confirm(const char *text, const char *yes, const char *no,
                       action_fn on_yes, action_fn on_no) {
+    if (g.set_snd_confirm) buzzer_play_id(SND_CONFIRM);
     g.overlay_active = true;
     g.overlay = SC_CONFIRM;
     strncpy(g.confirm_text, text, sizeof(g.confirm_text) - 1);
@@ -185,6 +187,10 @@ void app_update(float dt) {
     g.now += dt * 1000.0f;
     g.screenT += dt;
     if (g.toastT > 0) g.toastT -= dt;
+    /* chime when GPS reaches a 3D fix */
+    int fx = gps_get()->fix_type;
+    if (fx >= 2 && g.prev_fix < 2 && g.set_snd_fix) buzzer_play_id(SND_FIX);
+    g.prev_fix = fx;
     gnss_update(&g.gnss, dt);
     screens_update(dt);
 }
@@ -379,6 +385,10 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "ledbr", &v) == ESP_OK) g.set_ledbright = v;
     if (nvs_get_i32(h, "wifi", &v) == ESP_OK) g.set_wifi = v ? 1 : 0;
     if (nvs_get_i32(h, "bt", &v) == ESP_OK) g.set_bt = v ? 1 : 0;
+    if (nvs_get_i32(h, "sndvol", &v) == ESP_OK) g.set_sound_vol = v;
+    if (nvs_get_i32(h, "sndcfm", &v) == ESP_OK) g.set_snd_confirm = v ? 1 : 0;
+    if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
+    if (nvs_get_i32(h, "sndfix", &v) == ESP_OK) g.set_snd_fix = v ? 1 : 0;
     nvs_close(h);
 }
 
@@ -391,6 +401,10 @@ void app_save_settings(void) {
     nvs_set_i32(h, "ledbr", g.set_ledbright);
     nvs_set_i32(h, "wifi", g.set_wifi);
     nvs_set_i32(h, "bt", g.set_bt);
+    nvs_set_i32(h, "sndvol", g.set_sound_vol);
+    nvs_set_i32(h, "sndcfm", g.set_snd_confirm);
+    nvs_set_i32(h, "sndcal", g.set_snd_calib);
+    nvs_set_i32(h, "sndfix", g.set_snd_fix);
     nvs_commit(h);
     nvs_close(h);
 }
@@ -404,6 +418,8 @@ void app_init(void) {
     g.set_brightness = START_BRIGHTNESS;
     g.set_ledcolor = 0;
     g.set_ledbright = START_LED_BRIGHT;
+    g.set_sound_vol = START_SOUND_VOL;
+    g.set_snd_confirm = true; g.set_snd_calib = true; g.set_snd_fix = true;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     /* load persisted settings */
     esp_err_t nv = nvs_flash_init();
@@ -416,6 +432,7 @@ void app_init(void) {
     lcd_set_brightness(g.set_brightness);
     ws2812_init();
     ws2812_set_brightness(g.set_ledbright);
+    buzzer_set_volume(g.set_sound_vol);
     mpu_init(&g.imu);
     gnss_init(&g.gnss);
     seed_tracks();

@@ -10,6 +10,7 @@
 #include "extflash.h"
 #include "gps.h"
 #include "battery.h"
+#include "buzzer.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -61,6 +62,7 @@ void app_main(void) {
 
     battery_init();
     input_init();
+    buzzer_init();
     app_init();
 
     ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d)", LCD_W, LCD_H);
@@ -68,11 +70,11 @@ void app_main(void) {
     const float target_dt = 1.0f / 30.0f;
     int64_t last = esp_timer_get_time();
     int64_t last_gps_log = 0;
-
     for (;;) {
         int64_t now = esp_timer_get_time();
         gps_poll();
         battery_update();
+        buzzer_update();
         if (now - last_gps_log >= 1000000) { last_gps_log = now; gps_dump(); }
         float dt = (float)(now - last) / 1e6f;
         last = now;

@@ -42,6 +42,9 @@
 #define LED_GPIO 48
 #define START_LED_BRIGHT 60   /* global LED brightness 0..100 */
 
+/* buzzer (PIN_BEE) global volume 0..100 at boot */
+#define START_SOUND_VOL 60
+
 /* panel mounting / rotation — verified on the bench: CFG4 = S1 X1 Y0 I0 */
 #define LCD_SWAP_XY  1
 #define LCD_MIRROR_X 1
