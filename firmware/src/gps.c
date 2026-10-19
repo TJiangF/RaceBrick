@@ -8,6 +8,8 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "gps";
 
@@ -404,8 +406,9 @@ static const char *ant_str(int s) {
 
 void gps_dump(void) {
     gps_state_t *g = &s_st;
-    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  VER %.12s  GLL %lu",
+    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  NMEA %lu  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  VER %.12s  GLL %lu",
              g->source == 1 ? "I2C" : "UART", g->fix_type, g->sats_used, g->sats_visible,
+             (unsigned long)g->sentences,
              g->utc_h, g->utc_m, g->utc_s,
              g->have_monhw ? ant_str(g->ant_status) : "?",
              g->have_monhw ? (g->ant_power == 1 ? "ON" : (g->ant_power == 0 ? "OFF" : "?")) : "?",
@@ -535,4 +538,64 @@ void gps_poll(void) {
     int vis = 0;
     for (int i = 0; i < s_st.nsat; i++) if (s_st.sats[i].seen && s_st.sats[i].snr > 0) vis++;
     s_st.sats_visible = vis;
+}
+
+/* ---- raise the module to 25 Hz ----
+ * 1) confirm the module answers UBX polls (i.e. ESP TX works)
+ * 2) bump the module's UART1 baud to 115200 and switch the ESP UART
+ * 3) UBX-CFG-RATE: measRate = 40 ms (25 Hz), navRate = 1, timeRef = UTC
+ * 4) UBX-CFG-MSG: GGA + RMC every solution, GSA + GSV at 1 Hz, VTG/GLL off
+ */
+static void ubx_cfg_msg(uint8_t id, uint8_t r_i2c, uint8_t r_u1, uint8_t r_u2, uint8_t r_usb, uint8_t r_spi) {
+    uint8_t p[8] = {0xF0, id, r_i2c, r_u1, r_u2, r_usb, r_spi, 0};
+    ubx_send(0x06, 0x01, p, 8);
+}
+
+void gps_config_25hz(void) {
+    if (!s_st.inited || s_st.source != 0) return;
+
+    /* 1) TX self-test: poll MON-VER a few times, expect a UBX reply */
+    for (int k = 0; k < 3 && !s_st.have_ver; k++) {
+        ubx_send(0x0A, 0x04, NULL, 0);
+        int64_t t0 = esp_timer_get_time();
+        while (esp_timer_get_time() - t0 < 400000 && !s_st.have_ver) {
+            gps_poll();
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    if (!s_st.have_ver) {
+        ESP_LOGW(TAG, "GPS TX: no MON-VER reply -> keep default rate (check NEO-RX wiring)");
+        return;
+    }
+    ESP_LOGI(TAG, "GPS TX OK (VER %.12s); switching to 25 Hz @115200", s_st.ver);
+
+    /* 2) module UART1 -> 115200, 8N1, UBX+NMEA both ways */
+    uint8_t prt[20] = {
+        0x01, 0x00,                         /* portID = UART1, reserved0 */
+        0x00, 0x00,                         /* txReady */
+        0xD0, 0x08, 0x00, 0x00,             /* mode = 8N1 */
+        0x00, 0xC2, 0x01, 0x00,             /* baudRate = 115200 */
+        0x03, 0x00, 0x03, 0x00,             /* inProto = UBX|NMEA, outProto = UBX|NMEA */
+        0x00, 0x00, 0x00, 0x00              /* flags, reserved5 */
+    };
+    ubx_send(0x06, 0x00, prt, 20);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    uart_set_baudrate(GPS_UART, 115200);
+    uart_flush_input(GPS_UART);
+    s_st.baud = 115200;
+    vTaskDelay(pdMS_TO_TICKS(120));
+
+    /* 3) 25 Hz navigation rate, UTC time reference */
+    uint8_t rate[6] = {0x28, 0x00, 0x01, 0x00, 0x01, 0x00};
+    ubx_send(0x06, 0x08, rate, 6);
+
+    /* 4) sentence rates */
+    ubx_cfg_msg(0x00, 0, 1, 0, 0, 0);    /* GGA every solution */
+    ubx_cfg_msg(0x04, 0, 1, 0, 0, 0);    /* RMC every solution */
+    ubx_cfg_msg(0x02, 0, 25, 0, 0, 0);   /* GSA 1 Hz */
+    ubx_cfg_msg(0x03, 0, 25, 0, 0, 0);   /* GSV 1 Hz */
+    ubx_cfg_msg(0x05, 0, 0, 0, 0, 0);    /* VTG off */
+    ubx_cfg_msg(0x01, 0, 0, 0, 0, 0);    /* GLL off */
+    vTaskDelay(pdMS_TO_TICKS(120));
+    ESP_LOGI(TAG, "GPS reconfigured: 25 Hz nav, GGA/RMC 25 Hz, GSA/GSV 1 Hz");
 }
