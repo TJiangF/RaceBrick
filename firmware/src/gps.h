@@ -77,7 +77,7 @@ void gps_scan_i2c(void);        /* rescan the I2C bus */
 void gps_cfg_gps_bds(void);     /* UBX-CFG-GNSS: enable only GPS + BeiDou */
 void gps_disable_gll(void);     /* UBX-CFG-MSG: stop GLL output (TX test) */
 void gps_restart(void);         /* UBX-CFG-RST: force a (cold) GNSS (re)start */
-void gps_config_25hz(void);     /* raise baud + set 25 Hz nav rate (UART) */
+void gps_set_rate(int hz);      /* 1/5/10/25 Hz output rate (UART; finds module) */
 void gps_poll(void);            /* read + parse available bytes */
 void gps_dump(void);            /* log a one-line live summary + raw + sats */
 gps_state_t *gps_get(void);

@@ -68,6 +68,7 @@ typedef struct {
     int sel, cursor, entered;
     int set_brightness, set_ledcolor, set_ledbright; bool set_wifi, set_bt;
     int set_sound_vol; bool set_snd_confirm, set_snd_calib, set_snd_fix;
+    int gps_rate_hz;           /* GPS output rate: 1 / 5 / 10 / 25 Hz */
     int prev_fix;              /* last GPS fix_type, for the 3D-fix sound */
     bool marked; float postTimer;
     int panel;

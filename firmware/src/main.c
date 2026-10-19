@@ -59,7 +59,6 @@ void app_main(void) {
     /* GPS bring-up over UART (ESP RX=20, TX=19 @ 38400) */
     gps_begin();
     for (int i = 0; i < 40; i++) { gps_poll(); vTaskDelay(pdMS_TO_TICKS(20)); }
-    gps_config_25hz();
 
     battery_init();
     input_init();

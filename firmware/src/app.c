@@ -389,6 +389,7 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "sndcfm", &v) == ESP_OK) g.set_snd_confirm = v ? 1 : 0;
     if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
     if (nvs_get_i32(h, "sndfix", &v) == ESP_OK) g.set_snd_fix = v ? 1 : 0;
+    if (nvs_get_i32(h, "gpshz", &v) == ESP_OK) g.gps_rate_hz = v;
     nvs_close(h);
 }
 
@@ -405,6 +406,7 @@ void app_save_settings(void) {
     nvs_set_i32(h, "sndcfm", g.set_snd_confirm);
     nvs_set_i32(h, "sndcal", g.set_snd_calib);
     nvs_set_i32(h, "sndfix", g.set_snd_fix);
+    nvs_set_i32(h, "gpshz", g.gps_rate_hz);
     nvs_commit(h);
     nvs_close(h);
 }
@@ -420,6 +422,7 @@ void app_init(void) {
     g.set_ledbright = START_LED_BRIGHT;
     g.set_sound_vol = START_SOUND_VOL;
     g.set_snd_confirm = true; g.set_snd_calib = true; g.set_snd_fix = true;
+    g.gps_rate_hz = 10;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     /* load persisted settings */
     esp_err_t nv = nvs_flash_init();
@@ -437,6 +440,7 @@ void app_init(void) {
     gnss_init(&g.gnss);
     seed_tracks();
     seed_history();
+    gps_set_rate(g.gps_rate_hz);   /* find the module and program its output rate */
     app_go(SC_IMU_CALIB, 1);
 }
 

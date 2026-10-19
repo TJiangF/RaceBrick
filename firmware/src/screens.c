@@ -112,7 +112,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[9] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS DEBUG", "LOCATION"};
+    static const char *k[10] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -123,6 +123,7 @@ static void settings_val(int i, char *out) {
     case 3: strcpy(out, g.theme_light ? "LIGHT" : "DARK"); break;
     case 4: strcpy(out, g.set_wifi ? "ON" : "OFF"); break;
     case 5: strcpy(out, g.set_bt ? "ON" : "OFF"); break;
+    case 7: snprintf(out, 16, "%dHz", g.gps_rate_hz); break;
     default: strcpy(out, ">"); break;
     }
 }
@@ -131,7 +132,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(9, g.sel, K, &start, &end);
+    windowed(10, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -143,7 +144,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 9) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 10) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
 }
 
 /* ================= SOUND ================= */
@@ -1069,7 +1070,7 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 9) % 9; return; }
+            if (d) { g.sel = (g.sel + d + 10) % 10; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
@@ -1079,9 +1080,15 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 4) g.set_wifi = !g.set_wifi;
                 else if (g.sel == 5) g.set_bt = !g.set_bt;
                 else if (g.sel == 6) app_go(SC_SOUND, 1);
-                else if (g.sel == 7) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 8) app_go(SC_LOCATION, 1);
-                if (g.sel <= 5) app_save_settings();   /* persist changes */
+                else if (g.sel == 7) {
+                    g.gps_rate_hz = g.gps_rate_hz == 1 ? 5 : g.gps_rate_hz == 5 ? 10 : g.gps_rate_hz == 10 ? 25 : 1;
+                    gps_set_rate(g.gps_rate_hz);
+                    app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
+                              g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
+                }
+                else if (g.sel == 8) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 9) app_go(SC_LOCATION, 1);
+                if (g.sel <= 5 || g.sel == 7) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
         break;
