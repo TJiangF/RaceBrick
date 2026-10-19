@@ -56,7 +56,7 @@ void app_main(void) {
     if (ext_flash_selftest()) ESP_LOGI("main", "EXT FLASH: PASS");
     else                      ESP_LOGI("main", "EXT FLASH: FAIL");
 #endif
-    /* GPS bring-up over UART (ESP RX=12, TX=11 @ 38400) */
+    /* GPS bring-up over UART (ESP RX=20, TX=19 @ 38400) */
     gps_begin();
     for (int i = 0; i < 40; i++) { gps_poll(); vTaskDelay(pdMS_TO_TICKS(20)); }
 

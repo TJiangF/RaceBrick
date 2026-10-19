@@ -4,14 +4,14 @@
  */
 #pragma once
 
-/* ---------------- ST7789 wiring (production board Rev.A) ----------------
- * Cs-io4  Sck-io5  Miso-io6(unused)  Mosi-io7  Dc-io15  Bl-io16 */
-#define LCD_MOSI   7
-#define LCD_SCLK   5
-#define LCD_CS     4
-#define LCD_DC     15
+/* ---------------- ST7789 wiring (production board Rev.B) ----------------
+ * Cs-io12  Sck-io11  Miso-io13(unused)  Mosi-io14  Dc-io9  Bl-io10 */
+#define LCD_MOSI   14
+#define LCD_SCLK   11
+#define LCD_CS     12
+#define LCD_DC     9
 #define LCD_RST    (-1)   /* not wired; software reset only */
-#define LCD_BL     16
+#define LCD_BL     10
 
 #define LCD_HOST    SPI2_HOST
 #define LCD_PCLK_HZ (40 * 1000 * 1000)
@@ -54,16 +54,16 @@
 #define LCD_GAP_X    0
 #define LCD_GAP_Y    0
 
-/* ---------------- input (five keys), production board Rev.A ----------------
- * Up-io8  Down-io17  Push-io18  Ok-io9  Back-io10
+/* ---------------- input (five keys), production board Rev.B ----------------
+ * Up-io42  Down-io40  Push-io41  Ok-io5  Back-io4
  * Set BTN_ENABLE to 1 to use the real buttons.
  * With BTN_ENABLE 0 the firmware runs a scripted autoplay demo. */
 #define BTN_ENABLE   1
-#define PIN_BTN_UP   8
-#define PIN_BTN_DOWN 17
-#define PIN_BTN_PUSH 18
-#define PIN_BTN_OK   9
-#define PIN_BTN_BACK 10
+#define PIN_BTN_UP   42
+#define PIN_BTN_DOWN 40
+#define PIN_BTN_PUSH 41
+#define PIN_BTN_OK   5
+#define PIN_BTN_BACK 4
 #define BTN_ACTIVE_LOW 1
 #define DEBOUNCE_MS  20
 
@@ -77,16 +77,17 @@
 #define EXT_FLASH_HZ    (10 * 1000 * 1000)
 #define EXT_FLASH_TEST  1     /* run the W25Q128 self-test at boot */
 
-/* ---------------- other on-board peripherals (unused for now) ----------------
- * I2C (IMU)   Scl-io19 Sda-io20
- * GNSS        Tx-io11  Rx-io12  TP-io13
+/* ---------------- other on-board peripherals (production board Rev.B) --------
+ * I2C (MPU6050) Scl-io16  Sda-io17   (MPU6050 INT io15)
+ * GNSS NEO-M9N  NEO-RX-io19 (=ESP TX)  NEO-TX-io20 (=ESP RX)  TP-io8
  * Buzzer BEE-io47   WS2812 DI-io48
- * VBAT sense  switch-io21  adc-io1                                      */
-#define PIN_I2C_SCL 19
-#define PIN_I2C_SDA 20
-#define PIN_GPS_TX  11
-#define PIN_GPS_RX  12
-#define PIN_GPS_TP  13
+ * VBAT sense  switch-io21 (drive HIGH to sample)  adc-io1  (reading x2)      */
+#define PIN_I2C_SCL 16
+#define PIN_I2C_SDA 17
+#define PIN_MPU_INT 15
+#define PIN_GPS_TX  19   /* ESP TX -> NEO-RX (module RX) */
+#define PIN_GPS_RX  20   /* ESP RX <- NEO-TX (module TX) */
+#define PIN_GPS_TP  8
 #define PIN_BEE     47
 #define PIN_WS2812  48
 #define PIN_VBAT_EN 21
