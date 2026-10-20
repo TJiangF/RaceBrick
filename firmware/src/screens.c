@@ -378,7 +378,10 @@ static void render_record_track(void) {
     else if (gp->fix_type >= 2) { hint = "PUSH START"; hc = PAL.cyan; }
     else { hint = "WAIT 3D FIX"; hc = PAL.orange; }
     gfx_text(rx, 112, hint, hc, 1);
-    gfx_text(6, 170, "PUSH START/FINISH - BACK CANCEL", PAL.dim, 0);
+    if (gp->fix_type < 2)
+        gfx_text(6, 170, "DOWN: GPS DEBUG   BACK CANCEL", PAL.orange, 0);
+    else
+        gfx_text(6, 170, "PUSH START/FINISH   BACK CANCEL", PAL.dim, 0);
 }
 
 /* ================= RACING ================= */
@@ -1323,6 +1326,8 @@ void screens_handle(const event_t *ev) {
                 app_toast("TRACK RECORDED");
                 app_go(SC_TRACK_NAMING, 1);
             }
+        } else if (ev->button == BTN_DOWN && g.rec_state == 0 && gps_get()->fix_type < 2) {
+            app_go(SC_GPS_DEBUG, 1);     /* jump to GPS debug when there is no 3D fix */
         } else if (ev->button == BTN_BACK) {
             if (g.rec_state == 1) { g.rec_state = 0; app_toast("CANCELLED"); }
             else app_go(SC_MODE_SELECT, -1);
@@ -1495,7 +1500,7 @@ void screens_handle(const event_t *ev) {
         }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { gps_next_baud(); app_toast("GPS NEXT BAUD"); }
-        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        else if (ev->button == BTN_BACK) app_go(g.prev_cur, -1);   /* return to where we came from */
         break;
 
     case SC_LOCATION:
