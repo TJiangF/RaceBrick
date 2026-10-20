@@ -12,6 +12,7 @@
 #include "ws2812.h"
 #include "buzzer.h"
 #include "mpu6050.h"
+#include "rt.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -113,7 +114,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[11] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "IMU DEBUG", "GPS DEBUG", "LOCATION"};
+    static const char *k[12] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "IMU DEBUG", "GPS TRACK", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -133,7 +134,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(11, g.sel, K, &start, &end);
+    windowed(12, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -145,7 +146,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 11) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 12) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
 }
 
 /* ================= SOUND ================= */
@@ -239,6 +240,55 @@ static void render_imu_debug(void) {
     gfx_text(214, 174, "C", PAL.dim, 0);
 
     gfx_text(6, 186, "PUSH TARE - BACK EXIT", PAL.dim, 0);
+}
+
+/* ================= GPS TRACK (real driven path) ================= */
+static void render_gps_track(void) {
+    gps_state_t *gp = gps_get();
+    rt_path_t *rt = rt_get();
+    char b[48];
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text(6, 2, "GPS TRACK", PAL.cyan, 1);
+    snprintf(b, sizeof b, "FIX %s  SAT %d  PTS %d",
+             gp->fix_type == 2 ? "3D" : (gp->fix_type == 1 ? "2D" : "NO"), gp->sats_used, rt->n);
+    gfx_text(6, 18, b, gp->fix_type >= 1 ? PAL.green : PAL.orange, 1);
+
+    int mx = 4, my = 34, mw = CW - 8, mh = 128;
+    gfx_fill(mx, my, mw, mh, PAL.mapbg);
+    gfx_rect(mx, my, mw, mh, PAL.mapborder);
+
+    if (rt->n > 1) {
+        float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
+        for (int i = 0; i < rt->n; i++) {
+            pt_t q = rt->pts[i];
+            if (q.x < minx) minx = q.x;
+            if (q.x > maxx) maxx = q.x;
+            if (q.y < miny) miny = q.y;
+            if (q.y > maxy) maxy = q.y;
+        }
+        float spx = maxx - minx, spy = maxy - miny;
+        if (spx < 3) spx = 3;
+        if (spy < 3) spy = 3;
+        float s = (mw - 10) / spx, sy = (mh - 10) / spy;
+        if (sy < s) s = sy;
+        float ox = mx + mw / 2.0f - (minx + maxx) / 2 * s;
+        float oy = my + mh / 2.0f - (miny + maxy) / 2 * s;
+        for (int i = 0; i < rt->n; i++) {
+            int px = (int)lroundf(rt->pts[i].x * s + ox);
+            int py = (int)lroundf(rt->pts[i].y * s + oy);
+            gfx_fill(px - 1, py - 1, 2, 2, PAL.gpstrace);
+        }
+        int px = (int)lroundf(rt->pts[rt->n - 1].x * s + ox);
+        int py = (int)lroundf(rt->pts[rt->n - 1].y * s + oy);
+        gfx_fill(px - 2, py - 2, 5, 5, PAL.red);
+        gfx_fill(px - 1, py - 1, 3, 3, PAL.white);
+    } else {
+        gfx_text(mx + 8, my + 8, gp->fix_type >= 1 ? "move to draw..." : "waiting for fix...", PAL.dim, 0);
+    }
+
+    snprintf(b, sizeof b, "PATH %.1f M   SPD %.0f KM/H", rt->dist, gp->speed_kmh);
+    gfx_text(6, 168, b, PAL.white, 1);
+    gfx_text(6, 184, "PUSH CLEAR - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= MODE SELECT ================= */
@@ -934,6 +984,7 @@ void screens_render(void) {
     case SC_LOCATION: render_location(); break;
     case SC_SOUND: render_sound(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
+    case SC_GPS_TRACK: render_gps_track(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
     default: break;
     }
@@ -1081,6 +1132,11 @@ void screens_update(float dt) {
     case SC_GPS_DEBUG:
         gps_poll();
         break;
+    case SC_GPS_TRACK: {
+        gps_state_t *gp = gps_get();
+        if (gp->has_pos && gp->fix_type >= 1) rt_add(rt_get(), gp->lat, gp->lon);
+        break;
+    }
     case SC_IMU_DEBUG: {
         float ax, ay, az, gx, gy, gz, tp;
         if (mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) {
@@ -1157,7 +1213,7 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 11) % 11; return; }
+            if (d) { g.sel = (g.sel + d + 12) % 12; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
@@ -1174,8 +1230,9 @@ void screens_handle(const event_t *ev) {
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
                 else if (g.sel == 8) app_go(SC_IMU_DEBUG, 1);
-                else if (g.sel == 9) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 10) app_go(SC_LOCATION, 1);
+                else if (g.sel == 9) app_go(SC_GPS_TRACK, 1);
+                else if (g.sel == 10) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 11) app_go(SC_LOCATION, 1);
                 if (g.sel <= 5 || g.sel == 7) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
@@ -1388,6 +1445,12 @@ void screens_handle(const event_t *ev) {
         } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
 
+    case SC_GPS_TRACK:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) { rt_reset(rt_get()); app_toast("GPS TRACK CLEARED"); }
+        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        break;
+
     case SC_SOUND:
         if (d) { g.sel = (g.sel + d + 4) % 4; return; }
         if (ev->type != EV_PRESS) return;
@@ -1494,6 +1557,10 @@ void screens_chrome(void) {
     case SC_IMU_DEBUG:
         snprintf(g.status, sizeof g.status, "IMU DEBUG  MPU6050 %s", g.imu_ok ? "OK" : "NOT FOUND");
         g.statusColor = g.imu_ok ? PAL.green : PAL.red;
+        break;
+    case SC_GPS_TRACK:
+        snprintf(g.status, sizeof g.status, "GPS TRACK  %.1f M  %d PTS", rt_get()->dist, rt_get()->n);
+        g.statusColor = gps_get()->fix_type >= 1 ? PAL.green : PAL.dim;
         break;
     case SC_GPS_DEBUG: {
         gps_state_t *gp = gps_get();
