@@ -73,7 +73,9 @@ typedef struct {
     /* real MPU6050 (IMU debug page) */
     bool  imu_ok;
     float i_ax, i_ay, i_az, i_gx, i_gy, i_gz, i_temp;
-    float i_ox, i_oy, i_oz, i_ogx, i_ogy, i_ogz;   /* tare offsets */
+    float i_ox, i_oy, i_oz, i_ogx, i_ogy, i_ogz;   /* zero offsets (boot orientation) */
+    float i_gmax;                                  /* peak |G| in the horizontal plane */
+    int   i_vaxis;                                 /* vertical axis (gravity) detected at boot */
     int prev_fix;              /* last GPS fix_type, for the 3D-fix sound */
     bool marked; float postTimer;
     int panel;

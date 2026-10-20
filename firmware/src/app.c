@@ -13,6 +13,7 @@
 #include "string.h"
 #include <stdio.h>
 #include "esp_random.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -434,6 +435,33 @@ void app_init(void) {
     buzzer_set_volume(g.set_sound_vol);
     mpu_init(&g.imu);
     g.imu_ok = mpu6050_init();
+    if (g.imu_ok) {
+        /* Treat the boot pose as the IMU zero point: average a few samples and
+         * keep them as the offset. This removes gravity + mounting angle, so the
+         * live values become driving G (0 at rest, whatever the board is tilted). */
+        float sx = 0, sy = 0, sz = 0, rx = 0, ry = 0, rz = 0, tp;
+        int n = 0;
+        for (int i = 0; i < 16; i++) {
+            float ax, ay, az, gx, gy, gz;
+            if (mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) {
+                sx += ax; sy += ay; sz += az; rx += gx; ry += gy; rz += gz; n++;
+            }
+            vTaskDelay(pdMS_TO_TICKS(6));
+        }
+        if (n) {
+            g.i_ox = sx / n; g.i_oy = sy / n; g.i_oz = sz / n;
+            g.i_ogx = rx / n; g.i_ogy = ry / n; g.i_ogz = rz / n;
+            /* the axis carrying gravity is the vertical one (board mounted
+             * upright); racing G is measured in the other two axes */
+            float am = fabsf(g.i_ox); g.i_vaxis = 0;
+            if (fabsf(g.i_oy) > am) { am = fabsf(g.i_oy); g.i_vaxis = 1; }
+            if (fabsf(g.i_oz) > am) { am = fabsf(g.i_oz); g.i_vaxis = 2; }
+            ESP_LOGI("imu", "boot zero: a(%d,%d,%d)mg  r(%d,%d,%d)mdps  vaxis=%d",
+                     (int)(g.i_ox * 1000), (int)(g.i_oy * 1000), (int)(g.i_oz * 1000),
+                     (int)(g.i_ogx * 1000), (int)(g.i_ogy * 1000), (int)(g.i_ogz * 1000),
+                     g.i_vaxis);
+        }
+    }
     gnss_init(&g.gnss);
     seed_tracks();
     seed_history();

@@ -199,7 +199,8 @@ static void render_imu_debug(void) {
     gfx_vline(cx, cy - R, 2 * R, PAL.centerline);
     gfx_circle(cx, cy, 4, PAL.centerline);
     if (g.imu_ok) {
-        float tx = g.i_ax, ty = g.i_ay;
+        float a3[3] = {g.i_ax, g.i_ay, g.i_az};
+        float tx = a3[(g.i_vaxis + 1) % 3], ty = a3[(g.i_vaxis + 2) % 3];
         if (tx > 1) tx = 1; if (tx < -1) tx = -1;
         if (ty > 1) ty = 1; if (ty < -1) ty = -1;
         int px = cx + (int)(tx * (R - 8));
@@ -209,21 +210,33 @@ static void render_imu_debug(void) {
     }
     gfx_text(cx - 12, cy + R + 5, "TILT", PAL.dim, 0);
 
-    /* accel (g) */
-    gfx_text(150, 34, "ACCEL g", PAL.cyan, 0);
-    dbg_bar(48, "AX", g.i_ax, 1.0f, PAL.green);
-    dbg_bar(64, "AY", g.i_ay, 1.0f, PAL.green);
-    dbg_bar(80, "AZ", g.i_az, 1.0f, PAL.cyan);
-    /* gyro (deg/s) */
-    gfx_text(150, 100, "GYRO d/s", PAL.cyan, 0);
-    dbg_bar(114, "GX", g.i_gx, 250.0f, PAL.yellow);
-    dbg_bar(130, "GY", g.i_gy, 250.0f, PAL.yellow);
-    dbg_bar(146, "GZ", g.i_gz, 250.0f, PAL.orange);
+    /* G force, calibrated to the boot pose (0 at rest) */
+    gfx_text(150, 34, "G FORCE", PAL.cyan, 0);
+    dbg_bar(46, "GX", g.i_ax, 2.0f, PAL.green);
+    dbg_bar(62, "GY", g.i_ay, 2.0f, PAL.green);
+    dbg_bar(78, "GZ", g.i_az, 2.0f, PAL.cyan);
+    /* rotation rate */
+    gfx_text(150, 94, "RATE d/s", PAL.cyan, 0);
+    dbg_bar(106, "RX", g.i_gx, 250.0f, PAL.yellow);
+    dbg_bar(122, "RY", g.i_gy, 250.0f, PAL.yellow);
+    dbg_bar(138, "RZ", g.i_gz, 250.0f, PAL.orange);
 
-    char t[16]; u_fmt_f(t, sizeof t, g.i_temp, 1);
-    gfx_text(150, 166, "TEMP", PAL.dim, 0);
-    gfx_text(180, 166, t, PAL.text, 0);
-    gfx_text(214, 166, "C", PAL.dim, 0);
+    char t[16];
+    {
+        float a3[3] = {g.i_ax, g.i_ay, g.i_az};
+        float h1 = a3[(g.i_vaxis + 1) % 3], h2 = a3[(g.i_vaxis + 2) % 3];
+        u_fmt_f(t, sizeof t, sqrtf(h1 * h1 + h2 * h2), 2);
+    }
+    gfx_text(150, 158, "|G|", PAL.dim, 0);
+    gfx_text(172, 158, t, PAL.white, 0);
+    u_fmt_f(t, sizeof t, g.i_gmax, 2);
+    gfx_text(228, 158, "PEAK", PAL.dim, 0);
+    gfx_text(256, 158, t, PAL.gold, 0);
+
+    u_fmt_f(t, sizeof t, g.i_temp, 1);
+    gfx_text(150, 174, "TEMP", PAL.dim, 0);
+    gfx_text(180, 174, t, PAL.text, 0);
+    gfx_text(214, 174, "C", PAL.dim, 0);
 
     gfx_text(6, 186, "PUSH TARE - BACK EXIT", PAL.dim, 0);
 }
@@ -973,9 +986,7 @@ void screens_enter(scid_t id) {
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
     case SC_SOUND: g.sel = 0; break;
-    case SC_IMU_DEBUG:
-        g.i_ox = g.i_oy = g.i_oz = 0; g.i_ogx = g.i_ogy = g.i_ogz = 0;
-        break;
+    case SC_IMU_DEBUG: g.i_gmax = 0; break;   /* keep the boot-pose zero offsets */
     case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
@@ -1077,6 +1088,10 @@ void screens_update(float dt) {
             g.i_temp = tp;
             g.i_ax = ax - g.i_ox; g.i_ay = ay - g.i_oy; g.i_az = az - g.i_oz;
             g.i_gx = gx - g.i_ogx; g.i_gy = gy - g.i_ogy; g.i_gz = gz - g.i_ogz;
+            float a3[3] = {g.i_ax, g.i_ay, g.i_az};
+            float h1 = a3[(g.i_vaxis + 1) % 3], h2 = a3[(g.i_vaxis + 2) % 3];
+            float mag = sqrtf(h1 * h1 + h2 * h2);   /* horizontal plane only */
+            if (mag > g.i_gmax) g.i_gmax = mag;
         }
         break;
     }
@@ -1366,8 +1381,9 @@ void screens_handle(const event_t *ev) {
     case SC_IMU_DEBUG:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
-            g.i_ox += g.i_ax; g.i_oy += g.i_ay;               /* zero tilt */
-            g.i_ogx += g.i_gx; g.i_ogy += g.i_gy; g.i_ogz += g.i_gz;  /* zero gyro */
+            g.i_ox += g.i_ax; g.i_oy += g.i_ay; g.i_oz += g.i_az;
+            g.i_ogx += g.i_gx; g.i_ogy += g.i_gy; g.i_ogz += g.i_gz;
+            g.i_gmax = 0;
             app_toast("IMU TARE");
         } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
