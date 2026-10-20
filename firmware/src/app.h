@@ -86,6 +86,15 @@ typedef struct {
     float  rec_dist;
     pt_t   rec_last;
     float  start_f;            /* start-line edit position (0..1) */
+    /* auto-lap state while recording */
+    float  rec_hdg;            /* start-line heading (rad) */
+    bool   rec_line_ok;
+    float  rec_along_prev;
+    bool   rec_armed;
+    float  rec_lap_start;      /* g.now at the current lap start (ms) */
+    float  rec_lap_time;       /* current lap elapsed (s) */
+    float  rec_last_lap, rec_best_lap, rec_delta;
+    int    rec_laps;           /* completed laps */
     int prev_fix;              /* last GPS fix_type, for the 3D-fix sound */
     bool marked; float postTimer;
     int panel;
