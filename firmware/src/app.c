@@ -93,7 +93,7 @@ static void seed_tracks(void) {
     g.tracks[0].nsec = 3; g.tracks[0].sections[0] = 0.26f; g.tracks[0].sections[1] = 0.55f; g.tracks[0].sections[2] = 0.8f;
     g.tracks[1].nsec = 2; g.tracks[1].sections[0] = 0.4f;  g.tracks[1].sections[1] = 0.72f;
     g.tracks[2].nsec = 2; g.tracks[2].sections[0] = 0.33f; g.tracks[2].sections[1] = 0.66f;
-    g.ntracks = TRACK_DEF_COUNT;
+    g.ntracks = 1;   /* keep a single simulated sample track; real tracks are recorded */
 }
 
 static void seed_history(void) {
