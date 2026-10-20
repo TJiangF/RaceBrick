@@ -1177,7 +1177,13 @@ void screens_update(float dt) {
     case SC_RACING_RECORDED:
         if (g.engine_valid) {
             e->speedMul = g.simSpeed;
-            engine_update(e, dt);
+            if (e->real) {
+                gps_state_t *gp = gps_get();
+                engine_update_gnss(e, dt, gp->lat, gp->lon, gp->speed_kmh,
+                                   gp->has_pos && gp->fix_type >= 1);
+            } else {
+                engine_update(e, dt);
+            }
         }
         break;
     case SC_LAP_SELECT:

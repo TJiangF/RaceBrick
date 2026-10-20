@@ -555,7 +555,7 @@ static void engine_run_fusion(engine_t *e, float dt) {
 void engine_reset(engine_t *e) {
     track_t *t = e->track;
     e->v = t->vTop * 0.5f;
-    e->s = 0.5f;
+    e->s = e->real ? 0.0f : 0.5f;
     e->lap = 1;
     e->elapsed = 0;
     e->time = 0;
@@ -578,11 +578,13 @@ void engine_reset(engine_t *e) {
     e->gpsLapTrace[0] = p0; e->nGps = 1;
     e->gLat = 0; e->gLong = 0; e->nGTrail = 0;
     e->gpsFix = false;
+    e->gnssInit = false; e->lapArmed = false; e->sPrev = 0; e->alongPrev = 0;
 }
 
 void engine_init(engine_t *e, track_t *track, bool useHistBest, mpu_t *sensor) {
     memset(e, 0, sizeof(*e));
     e->track = track;
+    e->real = track->geo;
     e->traceEvery = 3;
     e->speedMul = 1;
     e->useSensors = true;
@@ -745,6 +747,79 @@ float engine_lat_g(const engine_t *e) {
     float kn = e->track->curvNorm[idx];
     float sp = e->v / e->track->vTop;
     return kn * sp * sp * 2.2f;
+}
+
+/* ---------------- real-GNSS racing ---------------- */
+static void engine_gnss_lap(engine_t *e) {
+    if (e->nLaps < MAX_LAPS) {
+        lap_t *lap = &e->laps[e->nLaps];
+        lap->index = e->nLaps + 1;
+        lap->time = e->elapsed;
+        lap->nTrace = e->nTrace;
+        memcpy(lap->trace, e->lapTrace, sizeof(pt_t) * e->nTrace);
+        lap->nGps = e->nGps;
+        memcpy(lap->gps, e->gpsLapTrace, sizeof(pt_t) * e->nGps);
+        lap->valid = e->elapsed > 2.0f;
+        if (lap->valid && (!e->hasBestLap || e->elapsed < e->bestTime)) {
+            e->hasBestLap = true;
+            e->bestTime = e->elapsed;
+            e->bestIndex = lap->index;
+        }
+        e->nLaps++;
+    }
+    e->elapsed = 0;
+    e->lap++;
+    e->nTrace = 0;
+    e->nGps = 0;
+    e->diff = 0;
+}
+
+void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
+                        float speed_kmh, bool valid) {
+    if (e->paused || !e->running) return;
+    track_t *t = e->track;
+    if (!t->geo || !valid) return;          /* need a recorded track + a fix */
+
+    geo_ref_t r = { t->glat0, t->glon0 };
+    float mx, my;
+    geo_meters(&r, lat, lon, &mx, &my);      /* metres from the start/origin */
+    pt_t q = track_geo_to_norm(t, lat, lon);
+    float s = 0, dist = 0;
+    if (!track_project(t, q, &s, &dist)) return;
+
+    e->v = (speed_kmh / 3.6f) / (t->lengthM > 1.0f ? t->lengthM : 1.0f) * (float)t->N;
+
+    float h = t->start_hdg;
+    float along = mx * cosf(h) + my * sinf(h);   /* + = ahead of the line */
+    float latd  = -mx * sinf(h) + my * cosf(h);
+
+    if (!e->gnssInit) {
+        e->gnssInit = true;
+        e->s = s; e->sPrev = s;
+        e->alongPrev = along;
+        return;
+    }
+
+    e->time += dt;
+    e->elapsed += dt;
+
+    int idx = (int)s;
+    if (idx != (int)e->sPrev) {
+        if (e->nTrace < TRACE_MAX) e->lapTrace[e->nTrace++] = q;
+        if (e->nGps < GPS_MAX) e->gpsLapTrace[e->nGps++] = q;
+    }
+
+    /* lap = forward crossing of the start line (6 m wide) after half a lap */
+    if (s > 0.5f * t->N) e->lapArmed = true;
+    if (e->lapArmed && e->alongPrev < 0.0f && along >= 0.0f &&
+        fabsf(latd) < 3.0f && e->elapsed > 2.0f) {
+        engine_gnss_lap(e);
+        e->lapArmed = false;
+    }
+    e->alongPrev = along;
+    e->sPrev = e->s;
+    e->s = s;
+    engine_led_state(e);
 }
 
 void engine_section_deltas(const engine_t *e, float *out) {

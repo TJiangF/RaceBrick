@@ -67,7 +67,7 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - [x] Step 1：经纬度→米制、真实轨迹采样、GPS TRACK 预览页（Settings → GPS TRACK）。
 - [x] Step 2：赛道地理基准（origin / 比例 / 真实周长）+ 最近线段投影。
 - [x] Step 3：真实赛道录制（NEW TRACK）：3D fix 门控，起点 PUSH 开始，跑一圈回起点 PUSH 结束并生成赛道（记录 origin/比例/真实周长/起始朝向）。当前保存在 RAM。起终线 6 m 判圈在 Step 4 使用。
-- [ ] Step 4：真实比赛（进度 s / 过线判圈 / GPS 速度 / 圈速）。
+- [x] Step 4：真实 GNSS 比赛：把实时 fix 投影到赛道得到进度 s，6 m 起终线判圈，速度来自 GPS，记录圈速/最佳圈与轨迹。当前不含 IMU 融合，G-meter 暂为空。
 - [ ] Step 5：外置 flash 存储 + 剩余空间显示；已录赛道起点编辑。
 - [ ] Step 6：G 轴方向最终标定与（可选）G-meter 接入。
 

@@ -152,15 +152,25 @@ typedef struct {
     bool      gpsFix;
     float     rawGpsX, rawGpsY;
     float     speedMul;
-    float     histBest;
-    bool      hasHistBest;
-    float     traceEvery;
+    float histBest;
+    bool  hasHistBest;
+    float traceEvery;
+
+    /* real-GNSS mode */
+    bool  real;         /* track->geo: drive from real GPS instead of the sim */
+    bool  gnssInit;
+    bool  lapArmed;
+    float sPrev;
+    float alongPrev;
 } engine_t;
 
 void  engine_init(engine_t *e, track_t *track, bool useHistBest, mpu_t *sensor);
 void  engine_set_profile(engine_t *e, int steering);   /* 0 chassis, 1 steering */
 void  engine_reset(engine_t *e);
 void  engine_update(engine_t *e, float dt);
+/* real-GNSS racing: project the live fix onto the track, time laps */
+void  engine_update_gnss(engine_t *e, float dt, double lat, double lon,
+                         float speed_kmh, bool valid);
 float engine_speed_kmh(const engine_t *e);
 float engine_heading_deg(const engine_t *e);
 float engine_dist_m(const engine_t *e);
