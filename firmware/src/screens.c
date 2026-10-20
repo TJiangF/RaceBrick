@@ -201,11 +201,12 @@ static void render_imu_debug(void) {
     gfx_circle(cx, cy, 4, PAL.centerline);
     if (g.imu_ok) {
         float a3[3] = {g.i_ax, g.i_ay, g.i_az};
-        float tx = a3[(g.i_vaxis + 1) % 3], ty = a3[(g.i_vaxis + 2) % 3];
-        if (tx > 1) tx = 1; if (tx < -1) tx = -1;
-        if (ty > 1) ty = 1; if (ty < -1) ty = -1;
-        int px = cx + (int)(tx * (R - 8));
-        int py = cy + (int)(ty * (R - 8));
+        float fwd = a3[IMU_BUB_FWD_AXIS] * IMU_BUB_FWD_SIGN;   /* + = forward */
+        float lat = a3[IMU_BUB_LAT_AXIS] * IMU_BUB_LAT_SIGN;   /* + = left */
+        if (fwd > 1) fwd = 1; if (fwd < -1) fwd = -1;
+        if (lat > 1) lat = 1; if (lat < -1) lat = -1;
+        int px = cx - (int)(lat * (R - 8));   /* left -> left */
+        int py = cy - (int)(fwd * (R - 8));   /* forward -> up */
         gfx_disc(px, py, 7, PAL.cyan);
         gfx_disc(px, py, 3, PAL.red);
     }

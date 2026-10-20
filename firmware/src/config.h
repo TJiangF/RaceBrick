@@ -103,6 +103,14 @@
 #define IMU_SWAP_XY 0
 #define IMU_SWAP_XZ 0
 
+/* IMU debug bubble mapping (tuned on the bench): which signed axis is
+ * "forward" (+ = dot up) and "left" (+ = dot left). If the car mounting
+ * makes the dot disagree, adjust these. */
+#define IMU_BUB_FWD_AXIS 0     /* 0=X 1=Y 2=Z */
+#define IMU_BUB_FWD_SIGN (-1)
+#define IMU_BUB_LAT_AXIS 1
+#define IMU_BUB_LAT_SIGN ( 1)
+
 /* ---------------- interaction timing (ms), identical to the web demo ------- */
 #define LONG_PRESS_MS   600
 #define REPEAT_MS       110
