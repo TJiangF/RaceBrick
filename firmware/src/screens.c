@@ -277,11 +277,11 @@ static void render_gps_track(void) {
         float oy = my + mh / 2.0f - (miny + maxy) / 2 * s;
         for (int i = 0; i < rt->n; i++) {
             int px = (int)lroundf(rt->pts[i].x * s + ox);
-            int py = (int)lroundf(rt->pts[i].y * s + oy);
+            int py = 2 * my + mh - (int)lroundf(rt->pts[i].y * s + oy);   /* north up */
             gfx_fill(px - 1, py - 1, 2, 2, PAL.gpstrace);
         }
         int px = (int)lroundf(rt->pts[rt->n - 1].x * s + ox);
-        int py = (int)lroundf(rt->pts[rt->n - 1].y * s + oy);
+        int py = 2 * my + mh - (int)lroundf(rt->pts[rt->n - 1].y * s + oy);
         gfx_fill(px - 2, py - 2, 5, 5, PAL.red);
         gfx_fill(px - 1, py - 1, 3, 3, PAL.white);
     } else {
@@ -353,11 +353,11 @@ static void render_record_track(void) {
         float oy = my + mh / 2.0f - (miny + maxy) / 2 * s;
         for (int i = 0; i < g.rec_n; i++) {
             int px = (int)lroundf(g.rec_pts[i].x * s + ox);
-            int py = (int)lroundf(g.rec_pts[i].y * s + oy);
+            int py = 2 * my + mh - (int)lroundf(g.rec_pts[i].y * s + oy);   /* north up */
             gfx_fill(px - 1, py - 1, 2, 2, PAL.gpstrace);
         }
         int px = (int)lroundf(g.rec_last.x * s + ox);
-        int py = (int)lroundf(g.rec_last.y * s + oy);
+        int py = 2 * my + mh - (int)lroundf(g.rec_last.y * s + oy);
         gfx_fill(px - 2, py - 2, 5, 5, PAL.red);
         gfx_fill(px - 1, py - 1, 3, 3, PAL.white);
     } else {

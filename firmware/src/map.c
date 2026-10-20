@@ -27,6 +27,9 @@ static void map_commit(tmap_t *m) {
 
 pt_t map_px(const tmap_t *m, pt_t world) {
     pt_t r = {world.x * m->scale + m->ox, world.y * m->scale + m->oy};
+    /* GPS y is north-positive but screen y grows downward: flip so north is up
+     * (the fit is centred, so flipping about the viewport centre keeps it fitted) */
+    r.y = (float)m->vh - r.y;
     return r;
 }
 
@@ -218,7 +221,7 @@ void map_draw_thumb(int x, int y, int w, int h, const track_t *t, uint16_t color
     float oy = (h - ry * s) / 2 - minY * s;
     for (int i = 0; i < t->N; i += 4) {
         int px = x + (int)lroundf(t->points[i].x * s + ox);
-        int py = y + (int)lroundf(t->points[i].y * s + oy);
+        int py = y + h - (int)lroundf(t->points[i].y * s + oy);   /* north up */
         gfx_pixel(px, py, color);
     }
 }
