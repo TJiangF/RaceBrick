@@ -93,6 +93,16 @@
 #define PIN_VBAT_EN 21
 #define PIN_VBAT_ADC 1
 
+/* ---------------- MPU6050 axis correction ----------------
+ * The PCB is mounted vertically and the chip silkscreen is reversed (head
+ * down), so forward/back and left/right read inverted. Adjust signs/swap here
+ * after testing so the G axes match the car. */
+#define IMU_SIGN_X (-1)
+#define IMU_SIGN_Y (-1)
+#define IMU_SIGN_Z ( 1)
+#define IMU_SWAP_XY 0
+#define IMU_SWAP_XZ 0
+
 /* ---------------- interaction timing (ms), identical to the web demo ------- */
 #define LONG_PRESS_MS   600
 #define REPEAT_MS       110

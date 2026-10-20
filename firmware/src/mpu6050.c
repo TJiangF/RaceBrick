@@ -74,8 +74,20 @@ bool mpu6050_read(float *ax, float *ay, float *az, float *gx, float *gy, float *
     int16_t rgx = (int16_t)((b[8] << 8) | b[9]);
     int16_t rgy = (int16_t)((b[10] << 8) | b[11]);
     int16_t rgz = (int16_t)((b[12] << 8) | b[13]);
-    *ax = rax / 16384.0f; *ay = ray / 16384.0f; *az = raz / 16384.0f;
-    *gx = rgx / 131.0f;   *gy = rgy / 131.0f;   *gz = rgz / 131.0f;
+    float axf = rax / 16384.0f, ayf = ray / 16384.0f, azf = raz / 16384.0f;
+    float gxf = rgx / 131.0f,   gyf = rgy / 131.0f,   gzf = rgz / 131.0f;
+#if IMU_SWAP_XY
+    { float t;
+      t = axf; axf = ayf; ayf = t;
+      t = gxf; gxf = gyf; gyf = t; }
+#endif
+#if IMU_SWAP_XZ
+    { float t;
+      t = axf; axf = azf; azf = t;
+      t = gxf; gxf = gzf; gzf = t; }
+#endif
+    *ax = axf * IMU_SIGN_X; *ay = ayf * IMU_SIGN_Y; *az = azf * IMU_SIGN_Z;
+    *gx = gxf * IMU_SIGN_X; *gy = gyf * IMU_SIGN_Y; *gz = gzf * IMU_SIGN_Z;
     *temp_c = rt / 340.0f + 36.53f;
     return true;
 }

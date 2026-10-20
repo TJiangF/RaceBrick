@@ -22,6 +22,12 @@ python3 -m http.server 8000
 
 ---
 
+## ESP32-S3 实机固件
+
+实机固件位于 [`firmware/`](firmware/README.md)（ESP-IDF / PlatformIO）：ST7789 像素 UI、NEO-M9N（1/5/10/25 Hz）、MPU6050、WS2812、蜂鸣器、外置 W25Q128。当前正在把赛道模式从**模拟轨迹**切换为**真实 GNSS 轨迹**（含真实赛道录制、起终线判圈、外置 flash 存储），详情与进度见 [`firmware/README.md`](firmware/README.md)。
+
+---
+
 ## 截图
 
 | 开机 IMU 水平校准 | 主页面 |
@@ -299,4 +305,5 @@ input.attachGPIO({
 - [x] 暗色 / 明亮（日光）双主题，Settings 可切换
 - [ ] 亮度/亮灯颜色设置真正作用到画面与背光
 - [ ] 真实 GPS/IMU 轨迹导入回放
-- [ ] 移植到 ESP32-S3 + LVGL，接入真实 GPIO / UBX / MPU6050
+- [x] 移植到 ESP32-S3 实机固件（`firmware/`）：真实 GPIO / UBX / MPU6050 / WS2812 / 蜂鸣器 / 外置 flash
+- [ ] 实机赛道模式切换为真实 GNSS 轨迹（录制 / 起终线 / 圈速 / 外置 flash 存储）

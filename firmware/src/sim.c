@@ -1,5 +1,6 @@
 #include "sim.h"
 #include "util.h"
+#include "geo.h"
 #include <math.h>
 #include <string.h>
 
@@ -66,7 +67,7 @@ static void resample_closed(const pt_t *dense, int m, int N, pt_t *out) {
     }
 }
 
-static void normalize(pt_t *pts, int N) {
+static void normalize_ex(pt_t *pts, int N, float *pScale, float *pOx, float *pOy) {
     float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
     for (int i = 0; i < N; i++) {
         if (pts[i].x < minX) minX = pts[i].x;
@@ -81,11 +82,16 @@ static void normalize(pt_t *pts, int N) {
     if (s2 < scale) scale = s2;
     float ox = (1 - rx * scale) / 2 - minX * scale;
     float oy = (1 - ry * scale) / 2 - minY * scale;
+    if (pScale) *pScale = scale;
+    if (pOx) *pOx = ox;
+    if (pOy) *pOy = oy;
     for (int i = 0; i < N; i++) {
         pts[i].x = pts[i].x * scale + ox;
         pts[i].y = pts[i].y * scale + oy;
     }
 }
+
+static void normalize(pt_t *pts, int N) { normalize_ex(pts, N, NULL, NULL, NULL); }
 
 void track_finalize(track_t *t) {
     int N = t->N;
@@ -173,6 +179,59 @@ void track_build_from_points(track_t *t, const pt_t *pts, int n, const char *nam
     resample_closed(pts, n, TRK_N, t->points);
     normalize(t->points, TRK_N);
     track_finalize(t);
+}
+
+void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lon0,
+                     const char *name, int vehicle) {
+    memset(t, 0, sizeof(*t));
+    t->N = TRK_N;
+    t->lapTarget = 30.0f;
+    t->vehicle = vehicle;
+    t->hasBest = false;
+    strncpy(t->name, name, sizeof(t->name) - 1);
+    /* real perimeter in metres (closed loop) */
+    float per = 0;
+    for (int i = 0; i < n; i++) {
+        pt_t a = mpts[i], b = mpts[(i + 1) % n];
+        per += hypotf(b.x - a.x, b.y - a.y);
+    }
+    t->lengthM = per > 1.0f ? per : 1.0f;
+    resample_closed(mpts, n, TRK_N, t->points);
+    normalize_ex(t->points, TRK_N, &t->nscale, &t->nox, &t->noy);
+    t->geo = true; t->glat0 = lat0; t->glon0 = lon0;
+    track_finalize(t);
+}
+
+pt_t track_geo_to_norm(const track_t *t, double lat, double lon) {
+    geo_ref_t r = { t->glat0, t->glon0 };
+    float mx, my;
+    geo_meters(&r, lat, lon, &mx, &my);
+    pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+    return q;
+}
+
+/* nearest point on the closed polyline: progress in samples [0,N) + distance */
+bool track_project(const track_t *t, pt_t q, float *s, float *dist) {
+    int N = t->N;
+    float best = 1e30f;
+    int bi = -1;
+    float bt = 0;
+    for (int i = 0; i < N; i++) {
+        pt_t a = t->points[i], b = t->points[(i + 1) % N];
+        float dx = b.x - a.x, dy = b.y - a.y;
+        float len2 = dx * dx + dy * dy;
+        if (len2 < 1e-9f) continue;
+        float tt = ((q.x - a.x) * dx + (q.y - a.y) * dy) / len2;
+        if (tt < 0) tt = 0;
+        if (tt > 1) tt = 1;
+        float px = a.x + dx * tt, py = a.y + dy * tt;
+        float d2 = (q.x - px) * (q.x - px) + (q.y - py) * (q.y - py);
+        if (d2 < best) { best = d2; bi = i; bt = tt; }
+    }
+    if (bi < 0) return false;
+    if (s) *s = (float)bi + bt;
+    if (dist) *dist = sqrtf(best);
+    return true;
 }
 
 pt_t track_point_at(const track_t *t, float f) {

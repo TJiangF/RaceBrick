@@ -25,10 +25,20 @@ typedef struct {
     float vTop, accel, brake;
     float sections[MAX_SECTIONS];
     int   nsec;
+
+    /* real-GNSS geo reference (set for tracks recorded from GPS) */
+    bool   geo;
+    double glat0, glon0;        /* origin (first recorded point) */
+    float  nscale, nox, noy;    /* metres -> normalised: norm = m*nscale + (nox,noy) */
 } track_t;
 
 void track_build_def(track_t *t, int defIndex);
 void track_build_from_points(track_t *t, const pt_t *pts, int n, const char *name, int vehicle);
+/* build from real-GNSS metre-space points, keeping the geo origin + transform */
+void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lon0,
+                     const char *name, int vehicle);
+pt_t track_geo_to_norm(const track_t *t, double lat, double lon);
+bool track_project(const track_t *t, pt_t norm, float *s, float *dist);
 void track_finalize(track_t *t);
 pt_t track_point_at(const track_t *t, float f);
 pt_t track_tangent_at(const track_t *t, float f);
