@@ -33,7 +33,7 @@ pio device monitor -b 115200              # 串口日志
 - MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
-- 性能测试页（HOME 轮播页）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。
+- 性能测试页（HOME 轮播页）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
 
 ## 计时精度
 - MCU 侧：`esp_timer` **1 µs** 分辨率、单调递增，时间戳足够精确。
@@ -76,7 +76,7 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - 本阶段**暂不把 IMU 融合进轨迹**；G 值先在 IMU DEBUG 页验证方向。
 
 ### 路线图
-- [x] Step 1：经纬度→米制、真实轨迹采样、GPS TRACK 预览页（Settings → GPS TRACK）。
+- [x] Step 1：经纬度→米制、真实轨迹采样（早期用 GPS TRACK 预览页验证，验证后已移除）。
 - [x] Step 2：赛道地理基准（origin / 比例 / 真实周长）+ 最近线段投影。
 - [x] Step 3：真实赛道录制（NEW TRACK）：3D fix 门控，起点 PUSH 开始，跑一圈回起点 PUSH 结束并生成赛道（记录 origin/比例/真实周长/起始朝向）。当前保存在 RAM。起终线 6 m 判圈在 Step 4 使用。
 - [x] Step 4：真实 GNSS 比赛：把实时 fix 投影到赛道得到进度 s，6 m 起终线判圈，速度来自 GPS，记录圈速/最佳圈与轨迹。当前不含 IMU 融合，G-meter 暂为空。
