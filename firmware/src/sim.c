@@ -218,12 +218,13 @@ pt_t track_geo_to_norm(const track_t *t, double lat, double lon) {
 }
 
 /* nearest point on the closed polyline: progress in samples [0,N) + distance */
-bool track_project(const track_t *t, pt_t q, float *s, float *dist) {
+static bool project_range(const track_t *t, pt_t q, int from, int count, float *s, float *dist) {
     int N = t->N;
     float best = 1e30f;
     int bi = -1;
     float bt = 0;
-    for (int i = 0; i < N; i++) {
+    for (int k = 0; k < count; k++) {
+        int i = ((from + k) % N + N) % N;
         pt_t a = t->points[i], b = t->points[(i + 1) % N];
         float dx = b.x - a.x, dy = b.y - a.y;
         float len2 = dx * dx + dy * dy;
@@ -239,6 +240,19 @@ bool track_project(const track_t *t, pt_t q, float *s, float *dist) {
     if (s) *s = (float)bi + bt;
     if (dist) *dist = sqrtf(best);
     return true;
+}
+
+bool track_project(const track_t *t, pt_t q, float *s, float *dist) {
+    return project_range(t, q, 0, t->N, s, dist);
+}
+
+bool track_project_near(const track_t *t, pt_t q, float s_hint, float window, float *s, float *dist) {
+    int N = t->N;
+    if (window <= 0.0f || window > N * 0.5f) return track_project(t, q, s, dist);
+    int c = (int)floorf(s_hint);
+    int w = (int)window;
+    if (w < 1) w = 1;
+    return project_range(t, q, c - w, 2 * w + 1, s, dist);
 }
 
 pt_t track_point_at(const track_t *t, float f) {
@@ -786,7 +800,15 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
     geo_meters(&r, lat, lon, &mx, &my);      /* metres from the start/origin */
     pt_t q = track_geo_to_norm(t, lat, lon);
     float s = 0, dist = 0;
-    if (!track_project(t, q, &s, &dist)) return;
+    if (e->gnssInit) {
+        /* constrain the search around the last sample so a self-crossing track
+         * or a GPS spike cannot jump to the wrong part of the loop */
+        if (!track_project_near(t, q, e->s, t->N / 8.0f, &s, &dist)) return;
+        float dist_m = dist / (t->nscale > 1e-9f ? t->nscale : 1.0f);
+        if (dist_m > 25.0f) return;      /* off track: ignore this sample */
+    } else {
+        if (!track_project(t, q, &s, &dist)) return;
+    }
 
     e->v = (speed_kmh / 3.6f) / (t->lengthM > 1.0f ? t->lengthM : 1.0f) * (float)t->N;
 

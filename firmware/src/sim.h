@@ -44,6 +44,8 @@ void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lo
                      const char *name, int vehicle);
 pt_t track_geo_to_norm(const track_t *t, double lat, double lon);
 bool track_project(const track_t *t, pt_t norm, float *s, float *dist);
+/* project but only near s_hint (+/- window samples) to keep continuity */
+bool track_project_near(const track_t *t, pt_t norm, float s_hint, float window, float *s, float *dist);
 void track_finalize(track_t *t);
 pt_t track_point_at(const track_t *t, float f);
 pt_t track_tangent_at(const track_t *t, float f);
