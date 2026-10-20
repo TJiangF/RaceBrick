@@ -30,6 +30,7 @@ typedef struct {
     bool   geo;
     double glat0, glon0;        /* origin (first recorded point) */
     float  nscale, nox, noy;    /* metres -> normalised: norm = m*nscale + (nox,noy) */
+    float  start_hdg;           /* forward heading at the start line (rad, metres frame) */
 } track_t;
 
 void track_build_def(track_t *t, int defIndex);

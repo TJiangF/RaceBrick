@@ -131,6 +131,7 @@
 #define MAX_TRACKS      6
 #define HISTORY_RECORDS 5
 #define HISTORY_LAPS    16
+#define REC_MAX         800   /* max points while recording a real track */
 
 /* MPU6050 + GPS/IMU fusion (RC.CONFIG.IMU) */
 #define IMU_CALIB_MS    2500.0f

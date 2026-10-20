@@ -76,6 +76,15 @@ typedef struct {
     float i_ox, i_oy, i_oz, i_ogx, i_ogy, i_ogz;   /* zero offsets (boot orientation) */
     float i_gmax;                                  /* peak |G| in the horizontal plane */
     int   i_vaxis;                                 /* vertical axis (gravity) detected at boot */
+
+    /* real track recording (NEW TRACK) */
+    int    rec_state;          /* 0 ready, 1 recording */
+    bool   rec_has_ref;
+    double rec_lat0, rec_lon0;
+    pt_t   rec_pts[REC_MAX];
+    int    rec_n;
+    float  rec_dist;
+    pt_t   rec_last;
     int prev_fix;              /* last GPS fix_type, for the 3D-fix sound */
     bool marked; float postTimer;
     int panel;

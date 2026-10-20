@@ -196,6 +196,12 @@ void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lo
         per += hypotf(b.x - a.x, b.y - a.y);
     }
     t->lengthM = per > 1.0f ? per : 1.0f;
+    /* forward heading at the start (a few points in, to reduce noise) */
+    int k = n > 5 ? 5 : (n > 1 ? 1 : 0);
+    if (k) {
+        float dx = mpts[k].x - mpts[0].x, dy = mpts[k].y - mpts[0].y;
+        if (hypotf(dx, dy) > 0.5f) t->start_hdg = atan2f(dy, dx);
+    }
     resample_closed(mpts, n, TRK_N, t->points);
     normalize_ex(t->points, TRK_N, &t->nscale, &t->nox, &t->noy);
     t->geo = true; t->glat0 = lat0; t->glon0 = lon0;
