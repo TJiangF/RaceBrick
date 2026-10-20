@@ -1,6 +1,7 @@
 #include "extflash.h"
 #include "config.h"
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/spi_master.h"
@@ -74,18 +75,22 @@ static bool page_program(uint32_t addr, const uint8_t *data, int n) {
     return wait_ready(500);
 }
 
+#define EXT_FLASH_MAX_XFER 3072
+static uint8_t *s_rdbuf;   /* heap: keeps ~3 KB out of .bss/DRAM */
+
 static bool read_data(uint32_t addr, uint8_t *buf, int n) {
-    uint8_t tx[4];
-    tx[0] = CMD_READ;
-    tx[1] = (uint8_t)(addr >> 16);
-    tx[2] = (uint8_t)(addr >> 8);
-    tx[3] = (uint8_t)addr;
-    /* send command+addr, then read n bytes (combined) */
-    uint8_t cmd[4 + 256];
-    memcpy(cmd, tx, 4);
-    memset(cmd + 4, 0, n);
-    if (!xfer(cmd, cmd, 4 + n)) return false;
-    memcpy(buf, cmd + 4, n);
+    if (n > EXT_FLASH_MAX_XFER) return false;
+    if (!s_rdbuf) {
+        s_rdbuf = (uint8_t *)malloc(4 + EXT_FLASH_MAX_XFER);
+        if (!s_rdbuf) return false;
+    }
+    s_rdbuf[0] = CMD_READ;
+    s_rdbuf[1] = (uint8_t)(addr >> 16);
+    s_rdbuf[2] = (uint8_t)(addr >> 8);
+    s_rdbuf[3] = (uint8_t)addr;
+    memset(s_rdbuf + 4, 0, n);
+    if (!xfer(s_rdbuf, s_rdbuf, 4 + n)) return false;
+    memcpy(buf, s_rdbuf + 4, n);
     return true;
 }
 
@@ -101,28 +106,37 @@ static bool write_data(uint32_t addr, const uint8_t *data, int n) {
     return true;
 }
 
+bool ext_flash_init(void) {
+    if (s_init) return true;
+    spi_bus_config_t bus = {
+        .mosi_io_num = EXT_FLASH_MOSI,
+        .miso_io_num = EXT_FLASH_MISO,
+        .sclk_io_num = EXT_FLASH_SCLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,
+    };
+    esp_err_t e = spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO);
+    if (e != ESP_OK) { ESP_LOGE(TAG, "bus init failed: %s", esp_err_to_name(e)); return false; }
+    spi_device_interface_config_t d = {
+        .clock_speed_hz = EXT_FLASH_HZ,
+        .mode = 0,
+        .spics_io_num = EXT_FLASH_CS,
+        .queue_size = 1,
+    };
+    e = spi_bus_add_device(SPI3_HOST, &d, &s_dev);
+    if (e != ESP_OK) { ESP_LOGE(TAG, "add device failed: %s", esp_err_to_name(e)); return false; }
+    s_init = true;
+    return true;
+}
+
+bool ext_flash_erase_sector(uint32_t addr) { return s_init && erase_sector(addr); }
+bool ext_flash_read(uint32_t addr, void *buf, int n) { return s_init && read_data(addr, (uint8_t *)buf, n); }
+bool ext_flash_write(uint32_t addr, const void *buf, int n) { return s_init && write_data(addr, (const uint8_t *)buf, n); }
+uint32_t ext_flash_size(void) { return 16u * 1024u * 1024u; }   /* W25Q128 */
+
 bool ext_flash_selftest(void) {
-    if (!s_init) {
-        spi_bus_config_t bus = {
-            .mosi_io_num = EXT_FLASH_MOSI,
-            .miso_io_num = EXT_FLASH_MISO,
-            .sclk_io_num = EXT_FLASH_SCLK,
-            .quadwp_io_num = -1,
-            .quadhd_io_num = -1,
-            .max_transfer_sz = 4096,
-        };
-        esp_err_t e = spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO);
-        if (e != ESP_OK) { ESP_LOGE(TAG, "bus init failed: %s", esp_err_to_name(e)); return false; }
-        spi_device_interface_config_t d = {
-            .clock_speed_hz = EXT_FLASH_HZ,
-            .mode = 0,
-            .spics_io_num = EXT_FLASH_CS,
-            .queue_size = 1,
-        };
-        e = spi_bus_add_device(SPI3_HOST, &d, &s_dev);
-        if (e != ESP_OK) { ESP_LOGE(TAG, "add device failed: %s", esp_err_to_name(e)); return false; }
-        s_init = true;
-    }
+    if (!ext_flash_init()) return false;
 
     uint8_t id[3];
     ext_flash_read_jedec(id);

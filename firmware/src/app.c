@@ -6,6 +6,7 @@
 #include "gps.h"
 #include "buzzer.h"
 #include "mpu6050.h"
+#include "tstore.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -465,6 +466,16 @@ void app_init(void) {
     gnss_init(&g.gnss);
     seed_tracks();
     seed_history();
+    g.tracks[0].store_slot = -1;   /* the simulated sample lives in RAM only */
+    /* load recorded tracks from the external flash */
+    if (tstore_begin()) {
+        for (int s = 0; s < tstore_capacity() && g.ntracks < MAX_TRACKS; s++) {
+            if (tstore_load(s, &g.tracks[g.ntracks])) {
+                g.tracks[g.ntracks].store_slot = s;
+                g.ntracks++;
+            }
+        }
+    }
     gps_set_rate(g.gps_rate_hz);   /* find the module and program its output rate */
     app_go(SC_IMU_CALIB, 1);
 }

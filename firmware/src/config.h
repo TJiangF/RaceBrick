@@ -113,6 +113,12 @@
 #define IMU_BUB_LAT_AXIS 0     /* X = left/right */
 #define IMU_BUB_LAT_SIGN (-1)  /* left -> dot right */
 
+/* Racing G-meter axes (G-G plot: right positive, forward positive). */
+#define IMU_GM_LAT_AXIS  0     /* X = lateral */
+#define IMU_GM_LAT_SIGN  (-1)  /* right = + */
+#define IMU_GM_LONG_AXIS 2     /* Z = longitudinal */
+#define IMU_GM_LONG_SIGN ( 1)  /* accelerating = + */
+
 /* ---------------- interaction timing (ms), identical to the web demo ------- */
 #define LONG_PRESS_MS   600
 #define REPEAT_MS       110
@@ -131,7 +137,7 @@
 #define MAX_TRACKS      6
 #define HISTORY_RECORDS 5
 #define HISTORY_LAPS    16
-#define REC_MAX         800   /* max points while recording a real track */
+#define REC_MAX         400   /* max points while recording a real track (~800 m) */
 
 /* MPU6050 + GPS/IMU fusion (RC.CONFIG.IMU) */
 #define IMU_CALIB_MS    2500.0f

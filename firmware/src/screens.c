@@ -13,6 +13,7 @@
 #include "buzzer.h"
 #include "mpu6050.h"
 #include "rt.h"
+#include "tstore.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -640,6 +641,12 @@ static void render_naming(void) {
 static void render_track_list(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("TRACKS", 6);
+    {
+        char fs[32];
+        int used = tstore_count(), cap = tstore_capacity();
+        snprintf(fs, sizeof fs, "FLASH %d/%d  %dK FREE", used, cap, (cap - used) * 4);
+        gfx_text_right(CW - 8, 6, fs, used < cap ? PAL.dim : PAL.red, 0);
+    }
     if (!g.ntracks) hint_c("(NO TRACKS)", 60);
     int start, end;
     windowed(g.ntracks, g.cursor, 3, &start, &end);
@@ -652,6 +659,34 @@ static void render_track_list(void) {
         gfx_text(70, y + 24, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
     }
     hint_c("UP/DOWN SELECT - PUSH ENTER", 182);
+}
+
+/* ================= START LINE EDIT ================= */
+static void render_track_start(void) {
+    track_t *t = g.engine.track;
+    if (!t) return;
+    if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 200); map_set_track(&s_map, t); s_map_ready = true; }
+    map_begin(&s_map);
+    map_centerline(&s_map, PAL.centerline, 3);
+    pt_t sp = track_point_at(t, g.start_f);
+    pt_t st = track_tangent_at(t, g.start_f);
+    map_start_mark_at(&s_map, sp, st, PAL.yellow);
+    map_car_at(&s_map, sp, st, PAL.white);
+
+    int rx = 190;
+    char b[24];
+    gfx_text(rx, 8, "START LINE", PAL.cyan, 1);
+    gfx_text(rx, 28, "UP/DOWN MOVE", PAL.dim, 0);
+    u_fmt_f(b, sizeof b, g.start_f * 100.0f, 1);
+    gfx_text(rx, 48, "POS", PAL.dim, 0);
+    gfx_text(rx + 34, 48, b, PAL.white, 0);
+    gfx_text(rx + 78, 48, "%", PAL.dim, 0);
+    u_fmt_f(b, sizeof b, g.start_f * t->lengthM, 0);
+    gfx_text(rx, 64, "OFF", PAL.dim, 0);
+    gfx_text(rx + 34, 64, b, PAL.white, 0);
+    gfx_text(rx + 80, 64, "M", PAL.dim, 0);
+    gfx_text(rx, 96, "PUSH SAVE", PAL.green, 1);
+    gfx_text(rx, 116, "BACK CANCEL", PAL.dim, 0);
 }
 
 /* ================= HISTORY ================= */
@@ -1028,6 +1063,7 @@ void screens_render(void) {
     case SC_SOUND: render_sound(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
     case SC_GPS_TRACK: render_gps_track(); break;
+    case SC_TRACK_START: render_track_start(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
     default: break;
     }
@@ -1078,6 +1114,19 @@ void screens_enter(scid_t id) {
         break;
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
+    case SC_TRACK_START: {
+        track_t *t = g.engine.track;
+        g.start_f = 0;
+        if (t && t->geo && t->nscale > 0) {
+            geo_ref_t r = { t->glat0, t->glon0 };
+            float mx, my;
+            geo_meters(&r, t->line_lat, t->line_lon, &mx, &my);
+            pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+            float s = 0, dd = 0;
+            if (track_project(t, q, &s, &dd)) g.start_f = s / (float)t->N;
+        }
+        break;
+    }
     case SC_SOUND: g.sel = 0; break;
     case SC_IMU_DEBUG: g.i_gmax = 0; break;   /* keep the boot-pose zero offsets */
     case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
@@ -1181,6 +1230,24 @@ void screens_update(float dt) {
                 gps_state_t *gp = gps_get();
                 engine_update_gnss(e, dt, gp->lat, gp->lon, gp->speed_kmh,
                                    gp->has_pos && gp->fix_type >= 1);
+                /* real G for the G-meter panel */
+                float ax, ay, az, gx, gy, gz, tp;
+                if (g.imu_ok && mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) {
+                    float a3[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
+                    float gl = a3[IMU_GM_LAT_AXIS] * IMU_GM_LAT_SIGN;
+                    float gn = a3[IMU_GM_LONG_AXIS] * IMU_GM_LONG_SIGN;
+                    const float k = 0.25f;
+                    e->gLat = e->gLat * (1 - k) + gl * k;
+                    e->gLong = e->gLong * (1 - k) + gn * k;
+                    e->gTick = (e->gTick + 1) % 2;
+                    if (e->gTick == 0) {
+                        if (e->nGTrail < 70) e->gTrail[e->nGTrail++] = (gpt_t){e->gLat, e->gLong};
+                        else {
+                            memmove(&e->gTrail[0], &e->gTrail[1], sizeof(gpt_t) * 69);
+                            e->gTrail[69] = (gpt_t){e->gLat, e->gLong};
+                        }
+                    }
+                }
             } else {
                 engine_update(e, dt);
             }
@@ -1454,8 +1521,12 @@ void screens_handle(const event_t *ev) {
             t->nsec = g.session_nsec;
             for (int i = 0; i < g.session_nsec; i++) t->sections[i] = g.sessionSections[i];
             t->hasBest = false;
+            bool stored = false;
+            int slot = tstore_first_free();
+            if (slot >= 0) stored = tstore_save(slot, t);
+            t->store_slot = stored ? slot : -1;
             if (g.ntracks < MAX_TRACKS) g.tracks[g.ntracks++] = *t;
-            app_toast("TRACK SAVED");
+            app_toast(stored ? "TRACK SAVED" : "SAVED TO RAM ONLY");
             g.sessionTrack_valid = false;
             g.session_nsec = 0;
             app_go_home_to(0);
@@ -1471,10 +1542,39 @@ void screens_handle(const event_t *ev) {
             engine_init(e, t, true, &g.imu);
             g.engine_valid = true;
             g.raceTarget = SC_RACING_RECORDED;
-            g.raceBack = SC_TRACK_LIST;
-            app_go(SC_MOUNT_SELECT, 1);
+            g.raceBack = t->geo ? SC_TRACK_START : SC_TRACK_LIST;
+            app_go(t->geo ? SC_TRACK_START : SC_MOUNT_SELECT, 1);
         } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         break;
+
+    case SC_TRACK_START: {
+        if (d) {
+            g.start_f += d * 0.004f;
+            g.start_f = fmodf(g.start_f + 1.0f, 1.0f);
+            return;
+        }
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) {
+            track_t *t = g.engine.track;
+            if (t && t->geo && t->nscale > 0) {
+                pt_t q = track_point_at(t, g.start_f);
+                float mx = (q.x - t->nox) / t->nscale;
+                float my = (q.y - t->noy) / t->nscale;
+                geo_ref_t r = { t->glat0, t->glon0 };
+                double lat, lon;
+                geo_from_meters(&r, mx, my, &lat, &lon);
+                pt_t a = track_point_at(t, g.start_f - 0.004f);
+                pt_t b = track_point_at(t, g.start_f + 0.004f);
+                t->line_lat = lat;
+                t->line_lon = lon;
+                t->line_hdg = atan2f(b.y - a.y, b.x - a.x);
+                if (t->store_slot >= 0) tstore_save(t->store_slot, t);
+                app_toast("START LINE SAVED");
+            }
+            app_go(SC_MOUNT_SELECT, 1);
+        } else if (ev->button == BTN_BACK) app_go(SC_TRACK_LIST, -1);
+        break;
+    }
 
     case SC_HISTORY:
         if (!g.entered) {
@@ -1643,6 +1743,9 @@ void screens_chrome(void) {
     case SC_GPS_TRACK:
         snprintf(g.status, sizeof g.status, "GPS TRACK  %.1f M  %d PTS", rt_get()->dist, rt_get()->n);
         g.statusColor = gps_get()->fix_type >= 1 ? PAL.green : PAL.dim;
+        break;
+    case SC_TRACK_START:
+        snprintf(g.status, sizeof g.status, "START LINE  %.1f%%  PUSH SAVE", g.start_f * 100.0f);
         break;
     case SC_GPS_DEBUG: {
         gps_state_t *gp = gps_get();

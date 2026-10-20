@@ -5,3 +5,4 @@
 typedef struct { double lat0, lon0; } geo_ref_t;
 
 void geo_meters(const geo_ref_t *r, double lat, double lon, float *mx, float *my); /* x=east, y=north, metres */
+void geo_from_meters(const geo_ref_t *r, float mx, float my, double *lat, double *lon);

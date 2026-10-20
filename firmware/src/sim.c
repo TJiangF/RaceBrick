@@ -205,6 +205,7 @@ void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lo
     resample_closed(mpts, n, TRK_N, t->points);
     normalize_ex(t->points, TRK_N, &t->nscale, &t->nox, &t->noy);
     t->geo = true; t->glat0 = lat0; t->glon0 = lon0;
+    t->line_lat = lat0; t->line_lon = lon0; t->line_hdg = t->start_hdg;
     track_finalize(t);
 }
 
@@ -789,9 +790,13 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
 
     e->v = (speed_kmh / 3.6f) / (t->lengthM > 1.0f ? t->lengthM : 1.0f) * (float)t->N;
 
-    float h = t->start_hdg;
-    float along = mx * cosf(h) + my * sinf(h);   /* + = ahead of the line */
-    float latd  = -mx * sinf(h) + my * cosf(h);
+    /* start line: use its own (editable) position + heading */
+    geo_ref_t lr = { t->line_lat, t->line_lon };
+    float lx, ly;
+    geo_meters(&lr, lat, lon, &lx, &ly);
+    float h = t->line_hdg;
+    float along = lx * cosf(h) + ly * sinf(h);   /* + = ahead of the line */
+    float latd  = -lx * sinf(h) + ly * cosf(h);
 
     if (!e->gnssInit) {
         e->gnssInit = true;

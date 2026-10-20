@@ -10,3 +10,8 @@ void geo_meters(const geo_ref_t *r, double lat, double lon, float *mx, float *my
     *mx = (float)(dlon * cos(mlat) * GEO_R);
     *my = (float)(dlat * GEO_R);
 }
+
+void geo_from_meters(const geo_ref_t *r, float mx, float my, double *lat, double *lon) {
+    *lat = r->lat0 + (my / GEO_R) * (180.0 / M_PI);
+    *lon = r->lon0 + (mx / (GEO_R * cos(r->lat0 * M_PI / 180.0))) * (180.0 / M_PI);
+}
