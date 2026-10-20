@@ -5,6 +5,7 @@
 #include "battery.h"
 #include "gps.h"
 #include "buzzer.h"
+#include "mpu6050.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -268,20 +269,15 @@ static void ledfx_update(void) {
 
     switch (g.cur) {
     case SC_IMU_CALIB: {
+        /* boot progress bar: light the LEDs one by one as calibration advances */
         float p = g.imu_progress / IMU_CALIB_MS;
         if (p < 0) p = 0; if (p > 1) p = 1;
-        float b;
-        if (g.imu_phase == 1) {
-            b = (g.imu_doneTimer > 0.4f) ? 1.0f : (g.imu_doneTimer / 0.4f);  /* steady then fade */
-        } else {
-            float period = 1.2f - 1.05f * p;   /* breathing gets faster with progress */
-            if (period < 0.15f) period = 0.15f;
-            float ph = fmodf(g.now / 1000.0f, period) / period;
-            b = 0.25f + 0.75f * (0.5f + 0.5f * sinf(ph * 2.0f * (float)M_PI));
+        if (g.imu_phase == 1) p = 1;
+        int lit = (int)(p * LED_COUNT + 0.5f);
+        for (int i = 0; i < LED_COUNT; i++) {
+            if (i < lit) ws2812_set(i, 255, 255, 255);
+            else         ws2812_set(i, 0, 0, 0);
         }
-        if (b < 0) b = 0; if (b > 1) b = 1;
-        uint8_t v = (uint8_t)(b * 255);
-        for (int i = 0; i < LED_COUNT; i++) ws2812_set(i, v, v, v);
         break;
     }
     case SC_HOME: {
@@ -437,6 +433,7 @@ void app_init(void) {
     ws2812_set_brightness(g.set_ledbright);
     buzzer_set_volume(g.set_sound_vol);
     mpu_init(&g.imu);
+    g.imu_ok = mpu6050_init();
     gnss_init(&g.gnss);
     seed_tracks();
     seed_history();

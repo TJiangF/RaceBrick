@@ -59,8 +59,8 @@
  * Set BTN_ENABLE to 1 to use the real buttons.
  * With BTN_ENABLE 0 the firmware runs a scripted autoplay demo. */
 #define BTN_ENABLE   1
-#define PIN_BTN_UP   42
-#define PIN_BTN_DOWN 40
+#define PIN_BTN_UP   40   /* swapped: physical scroll direction */
+#define PIN_BTN_DOWN 42
 #define PIN_BTN_PUSH 41
 #define PIN_BTN_OK   5
 #define PIN_BTN_BACK 4

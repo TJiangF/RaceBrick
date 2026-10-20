@@ -11,6 +11,7 @@
 #include "gps.h"
 #include "ws2812.h"
 #include "buzzer.h"
+#include "mpu6050.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -112,7 +113,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[10] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "GPS DEBUG", "LOCATION"};
+    static const char *k[11] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "IMU DEBUG", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -132,7 +133,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(10, g.sel, K, &start, &end);
+    windowed(11, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -144,7 +145,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 10) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 11) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
 }
 
 /* ================= SOUND ================= */
@@ -168,6 +169,63 @@ static void render_sound(void) {
         y += h;
     }
     hint_c("UP/DOWN SELECT - PUSH ADJUST - BACK", 182);
+}
+
+/* ================= IMU DEBUG (real MPU6050) ================= */
+static void dbg_bar(int y, const char *label, float v, float half, uint16_t col) {
+    gfx_text(150, y, label, PAL.dim, 0);
+    int x0 = 176, w = 96, xc = x0 + w / 2;
+    gfx_fill(x0, y + 1, w, 6, PAL.surface2);
+    gfx_vline(xc, y - 1, 9, PAL.centerline);
+    float f = v / half; if (f > 1) f = 1; if (f < -1) f = -1;
+    int len = (int)(f * (w / 2));
+    if (len >= 0) gfx_fill(xc, y + 2, len, 4, col);
+    else          gfx_fill(xc + len, y + 2, -len, 4, col);
+    char b[12]; u_fmt_f(b, sizeof b, v, 2);
+    gfx_text(280, y, b, PAL.text, 0);
+}
+
+static void render_imu_debug(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text(6, 2, "IMU DEBUG", PAL.cyan, 1);
+    gfx_text(6, 18, g.imu_ok ? "MPU6050 OK" : "MPU6050 NOT FOUND",
+             g.imu_ok ? PAL.green : PAL.red, 1);
+
+    /* bubble level (tilt from accel X/Y) */
+    int cx = 76, cy = 112, R = 58;
+    gfx_circle(cx, cy, R, PAL.centerline);
+    gfx_circle(cx, cy, R / 2, PAL.centerline);
+    gfx_hline(cx - R, cy, 2 * R, PAL.centerline);
+    gfx_vline(cx, cy - R, 2 * R, PAL.centerline);
+    gfx_circle(cx, cy, 4, PAL.centerline);
+    if (g.imu_ok) {
+        float tx = g.i_ax, ty = g.i_ay;
+        if (tx > 1) tx = 1; if (tx < -1) tx = -1;
+        if (ty > 1) ty = 1; if (ty < -1) ty = -1;
+        int px = cx + (int)(tx * (R - 8));
+        int py = cy + (int)(ty * (R - 8));
+        gfx_disc(px, py, 7, PAL.cyan);
+        gfx_disc(px, py, 3, PAL.red);
+    }
+    gfx_text(cx - 12, cy + R + 5, "TILT", PAL.dim, 0);
+
+    /* accel (g) */
+    gfx_text(150, 34, "ACCEL g", PAL.cyan, 0);
+    dbg_bar(48, "AX", g.i_ax, 1.0f, PAL.green);
+    dbg_bar(64, "AY", g.i_ay, 1.0f, PAL.green);
+    dbg_bar(80, "AZ", g.i_az, 1.0f, PAL.cyan);
+    /* gyro (deg/s) */
+    gfx_text(150, 100, "GYRO d/s", PAL.cyan, 0);
+    dbg_bar(114, "GX", g.i_gx, 250.0f, PAL.yellow);
+    dbg_bar(130, "GY", g.i_gy, 250.0f, PAL.yellow);
+    dbg_bar(146, "GZ", g.i_gz, 250.0f, PAL.orange);
+
+    char t[16]; u_fmt_f(t, sizeof t, g.i_temp, 1);
+    gfx_text(150, 166, "TEMP", PAL.dim, 0);
+    gfx_text(180, 166, t, PAL.text, 0);
+    gfx_text(214, 166, "C", PAL.dim, 0);
+
+    gfx_text(6, 186, "PUSH TARE - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= MODE SELECT ================= */
@@ -862,6 +920,7 @@ void screens_render(void) {
     case SC_GPS_DEBUG: render_gps_debug(); break;
     case SC_LOCATION: render_location(); break;
     case SC_SOUND: render_sound(); break;
+    case SC_IMU_DEBUG: render_imu_debug(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
     default: break;
     }
@@ -914,6 +973,9 @@ void screens_enter(scid_t id) {
     }
     case SC_TRACK_LIST: g.cursor = 0; break;
     case SC_SOUND: g.sel = 0; break;
+    case SC_IMU_DEBUG:
+        g.i_ox = g.i_oy = g.i_oz = 0; g.i_ogx = g.i_ogy = g.i_ogz = 0;
+        break;
     case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
@@ -1008,6 +1070,16 @@ void screens_update(float dt) {
     case SC_GPS_DEBUG:
         gps_poll();
         break;
+    case SC_IMU_DEBUG: {
+        float ax, ay, az, gx, gy, gz, tp;
+        if (mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) {
+            g.imu_ok = true;
+            g.i_temp = tp;
+            g.i_ax = ax - g.i_ox; g.i_ay = ay - g.i_oy; g.i_az = az - g.i_oz;
+            g.i_gx = gx - g.i_ogx; g.i_gy = gy - g.i_ogy; g.i_gz = gz - g.i_ogz;
+        }
+        break;
+    }
     default:
         break;
     }
@@ -1070,7 +1142,7 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 10) % 10; return; }
+            if (d) { g.sel = (g.sel + d + 11) % 11; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
@@ -1086,8 +1158,9 @@ void screens_handle(const event_t *ev) {
                     app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
-                else if (g.sel == 8) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 9) app_go(SC_LOCATION, 1);
+                else if (g.sel == 8) app_go(SC_IMU_DEBUG, 1);
+                else if (g.sel == 9) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 10) app_go(SC_LOCATION, 1);
                 if (g.sel <= 5 || g.sel == 7) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
@@ -1290,6 +1363,15 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
         break;
 
+    case SC_IMU_DEBUG:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) {
+            g.i_ox += g.i_ax; g.i_oy += g.i_ay;               /* zero tilt */
+            g.i_ogx += g.i_gx; g.i_ogy += g.i_gy; g.i_ogz += g.i_gz;  /* zero gyro */
+            app_toast("IMU TARE");
+        } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        break;
+
     case SC_SOUND:
         if (d) { g.sel = (g.sel + d + 4) % 4; return; }
         if (ev->type != EV_PRESS) return;
@@ -1392,6 +1474,10 @@ void screens_chrome(void) {
         snprintf(g.status, sizeof g.status, "SOUND  VOL %d%%  %s", g.set_sound_vol,
                  g.set_sound_vol ? "ON" : "MUTED");
         g.statusColor = g.set_sound_vol ? PAL.green : PAL.dim;
+        break;
+    case SC_IMU_DEBUG:
+        snprintf(g.status, sizeof g.status, "IMU DEBUG  MPU6050 %s", g.imu_ok ? "OK" : "NOT FOUND");
+        g.statusColor = g.imu_ok ? PAL.green : PAL.red;
         break;
     case SC_GPS_DEBUG: {
         gps_state_t *gp = gps_get();
