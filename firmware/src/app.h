@@ -12,7 +12,7 @@ typedef enum {
     SC_IMU_CALIB, SC_HOME, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT, SC_MOUNT_SELECT,
     SC_NEW_TRACK_MARK_START, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
     SC_VEHICLE_SELECT, SC_TRACK_NAMING, SC_TRACK_LIST, SC_HISTORY, SC_HISTORY_DETAIL,
-    SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_GPS_TRACK, SC_TRACK_START, SC_CONFIRM, SC_COUNT
+    SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_GPS_TRACK, SC_TRACK_START, SC_PERF, SC_CONFIRM, SC_COUNT
 } scid_t;
 
 typedef void (*action_fn)(void);
@@ -95,6 +95,14 @@ typedef struct {
     float  rec_lap_time;       /* current lap elapsed (s) */
     float  rec_last_lap, rec_best_lap, rec_delta;
     int    rec_laps;           /* completed laps */
+
+    /* performance tests (0-100 / 100-0) */
+    int     perf_mode;         /* 0 = 0-100, 1 = 100-0 */
+    int     perf_state;        /* 0 idle, 1 armed, 2 running, 3 done */
+    int64_t perf_t0_us;
+    float   perf_time;
+    float   perf_speed0;
+    int     perf_trig_cnt;
     int prev_fix;              /* last GPS fix_type, for the 3D-fix sound */
     bool marked; float postTimer;
     int panel;

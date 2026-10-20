@@ -20,7 +20,7 @@
 
 app_t g;
 
-static const scid_t HOME_PAGES[4] = {SC_HOME, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
+static const scid_t HOME_PAGES[5] = {SC_HOME, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
 
 /* ================= records ================= */
 static void section_best_from_engine(const engine_t *e, histrec_t *r) {
@@ -126,7 +126,7 @@ void app_go(scid_t id, int dir) {
 }
 
 void app_go_home(int delta) {
-    int n = 4;
+    int n = 5;
     g.homeIndex = ((g.homeIndex + delta) % n + n) % n;
     app_go(HOME_PAGES[g.homeIndex], delta > 0 ? 1 : -1);
 }

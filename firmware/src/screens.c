@@ -16,6 +16,8 @@
 #include "tstore.h"
 #include "china_map.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -88,12 +90,84 @@ static void render_home(void) {
     gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
     if (((int)(g.now / 500)) % 2 == 0)
         gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
-    for (int i = 0; i < 4; i++) {
-        int dx = CW / 2 - 3 * 6 - 3 + i * 12;
-        gfx_fill(dx, 150, 6, 6, i == 0 ? PAL.cyan : PAL.dotoff);
+    for (int i = 0; i < 5; i++) {
+        int dx = CW / 2 - 24 + i * 12;
+        gfx_fill(dx, 150, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
     hint_c("UP/DOWN  SWITCH PAGE", 166); /* kept */
     hint_c("PUSH  START", 180);
+}
+
+/* ================= PERFORMANCE (0-100 / 100-0) ================= */
+static bool perf_read_long(float *along) {
+    float ax, ay, az, gx, gy, gz, tp;
+    if (!g.imu_ok || !mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) return false;
+    float a3[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
+    *along = a3[IMU_GM_LONG_AXIS] * IMU_GM_LONG_SIGN;
+    return true;
+}
+
+static void perf_update(float dt) {
+    (void)dt;
+    gps_state_t *gp = gps_get();
+    float spd = gp->speed_kmh;
+
+    if (g.perf_state == 1) {
+        /* fast-poll the IMU for a precise launch/brake timestamp (~2 ms) */
+        for (int k = 0; k < 8 && g.perf_state == 1; k++) {
+            float al;
+            if (perf_read_long(&al)) {
+                bool trig = (g.perf_mode == 0) ? (al > PERF_LAUNCH_G)
+                                               : (spd > 30.0f && al < -PERF_BRAKE_G);
+                if (trig) {
+                    g.perf_t0_us = esp_timer_get_time();
+                    g.perf_speed0 = spd;
+                    g.perf_time = 0;
+                    g.perf_state = 2;
+                    break;
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+    } else if (g.perf_state == 2) {
+        g.perf_time = (float)(esp_timer_get_time() - g.perf_t0_us) / 1e6f;
+        bool done = (g.perf_mode == 0) ? (spd >= 100.0f) : (spd <= 1.0f);
+        if (done) g.perf_state = 3;
+        else if (g.perf_time > 30.0f) { g.perf_state = 0; g.perf_time = 0; }
+    }
+}
+
+static void render_perf(void) {
+    gps_state_t *gp = gps_get();
+    char b[32];
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text(6, 2, "PERFORMANCE", PAL.cyan, 1);
+
+    panel_box(10, 22, 145, 28, g.perf_mode == 0, false);
+    panel_box(165, 22, 145, 28, g.perf_mode == 1, false);
+    gfx_text_center(82, 31, "0-100", g.perf_mode == 0 ? PAL.cyan : PAL.dim, 1);
+    gfx_text_center(237, 31, "100-0", g.perf_mode == 1 ? PAL.cyan : PAL.dim, 1);
+
+    gfx_text(18, 58, "SPEED", PAL.dim, 0);
+    snprintf(b, sizeof b, "%d", (int)lroundf(gp->speed_kmh));
+    gfx_text(14, 68, b, PAL.white, 5);
+    gfx_text(72, 112, "KM/H", PAL.dim, 1);
+
+    gfx_text(186, 58, "TIME", PAL.dim, 0);
+    float t = (g.perf_state == 2) ? (float)(esp_timer_get_time() - g.perf_t0_us) / 1e6f : g.perf_time;
+    snprintf(b, sizeof b, "%.3f", t);
+    gfx_text(182, 68, b, g.perf_state == 3 ? PAL.gold : PAL.white, 3);
+
+    const char *st;
+    uint16_t sc;
+    switch (g.perf_state) {
+    case 1: st = (g.perf_mode == 0) ? "ARMED - LAUNCH!" : "ARMED - BRAKE!"; sc = PAL.yellow; break;
+    case 2: st = "RUNNING"; sc = PAL.cyan; break;
+    case 3: st = "DONE"; sc = PAL.gold; break;
+    default: st = "PUSH TO ARM"; sc = PAL.dim; break;
+    }
+    gfx_text_center(CW / 2, 136, st, sc, 1);
+    gfx_text(6, 184, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
 /* ================= TRACK EDIT ================= */
@@ -1067,6 +1141,7 @@ static void render_imu_calib(void) {
 void screens_render(void) {
     switch (g.cur) {
     case SC_HOME: render_home(); break;
+    case SC_PERF: render_perf(); break;
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
     case SC_MODE_SELECT: render_mode_select(); break;
@@ -1105,6 +1180,7 @@ void screens_enter(scid_t id) {
     case SC_SETTINGS: g.sel = 0; g.entered = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
+    case SC_PERF: g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
         g.rec_line_ok = false; g.rec_armed = false; g.rec_along_prev = 0;
@@ -1225,6 +1301,9 @@ void screens_update(float dt) {
         }
         break;
     }
+    case SC_PERF:
+        perf_update(dt);
+        break;
     case SC_NEW_TRACK_MARK_START: {
         gps_state_t *gp = gps_get();
         if (g.rec_state != 1 || !gp->has_pos || gp->fix_type < 2) break;
@@ -1375,6 +1454,20 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_PUSH) app_go(SC_MODE_SELECT, 1);
         else if (ev->button == BTN_DOWN) app_go_home(1);
         else if (ev->button == BTN_UP) app_go_home(-1);
+        break;
+
+    case SC_PERF:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+            if (g.perf_state != 2) { g.perf_mode ^= 1; g.perf_state = 0; g.perf_time = 0; }
+        } else if (ev->button == BTN_PUSH) {
+            if (g.perf_state == 0 || g.perf_state == 3) {
+                g.perf_state = 1; g.perf_time = 0; g.perf_trig_cnt = 0;
+                app_toast(g.perf_mode == 0 ? "ARMED - LAUNCH" : "ARMED - BRAKE");
+            } else {
+                g.perf_state = 0; g.perf_time = 0; app_toast("CANCELLED");
+            }
+        } else if (ev->button == BTN_BACK) app_go_home(-1);
         break;
 
     case SC_TRACK_EDIT:
@@ -1766,6 +1859,10 @@ void screens_chrome(void) {
     for (int i = 0; i < LED_COUNT; i++) g.leds[i] = 0;
     switch (g.cur) {
     case SC_HOME: snprintf(g.status, sizeof g.status, "HOME - START RACING"); break;
+    case SC_PERF:
+        snprintf(g.status, sizeof g.status, "PERF %s  %s", g.perf_mode == 0 ? "0-100" : "100-0",
+                 g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");
+        break;
     case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - PUSH TO EDIT"); break;
     case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
