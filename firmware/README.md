@@ -23,12 +23,12 @@ pio device monitor -b 115200              # 串口日志
 | GNSS NEO-M9N：ESP TX / ESP RX / TP | 19 / 20 / 8（`NEO-RX`=ESP TX，`NEO-TX`=ESP RX） |
 | 蜂鸣器 BEE / WS2812 DI | 47 / 48 |
 | VBAT 检测使能 / ADC | 21 / 1（使能拉高采样，读数 ×2） |
-| 外置 Flash CS / MISO / SCK / MOSI | 39 / 38 / 37 / 36（W25Q128，SPI3） |
+| 外置 Flash CS / MISO / SCK / MOSI | 39 / 38 / 37 / 36（W25Q128，SPI3）——**当前未使用**（与 Octal PSRAM 引脚冲突，见下） |
 
 ## 已实现
 
 - 像素 UI（原始帧缓冲）：HOME / 赛道 / 设置 / 历史 / 定位 / 调试等页面与状态机。
-- ST7789（40 MHz）、外置 W25Q128 自检、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律）。
+- ST7789（40 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律）。
 - NEO-M9N：UART（自动扫描波特率找到模块），UBX 配置 1/5/10/25 Hz（Settings → GPS RATE）。
 - MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
@@ -37,8 +37,9 @@ pio device monitor -b 115200              # 串口日志
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1` 填家里 WiFi 的 SSID/密码，保存到 NVS 并连接；页面/设备显示状态与 IP。
 
 ### 内存 / Flash
-- 320×240 RGB565 帧缓冲（150 KB）放在 **8 MB PSRAM**，内部 DRAM 留给 WiFi（当前 RAM 46%）。
-- app 分区扩到 **3 MB**（`partitions.csv` + `board_build.partitions`），Flash 约 32%。
+- 320×240 RGB565 帧缓冲（150 KB）放在 **8 MB Octal PSRAM（40 MHz）**，内部 DRAM 留给 WiFi（当前 RAM 46%）。
+- app 分区 **3 MB** + `storage` 2 MB（`partitions.csv` + `board_build.partitions`），Flash 约 32%。
+- PSRAM 相关的坑已处理：UART/ADC/I2C/SPI/RMT 的 ISR 放进 IRAM，否则会在 PSRAM 存取时卡死 WDT。
 
 ## 计时精度
 - MCU 侧：`esp_timer` **1 µs** 分辨率、单调递增，时间戳足够精确。
@@ -71,7 +72,8 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - **已录制赛道**：可手动修改起点，交互类似 Section 的前后拖动。
 
 ### 存储
-- 赛道保存到**外置 W25Q128 flash**（掉电保留）：固定 5 个 4 KiB 槽，每槽一条赛道 + FNV 校验；结构约 3000 字节。
+- 赛道保存到**内部 flash 的 `storage` 分区**（2 MiB，data/spiffs）：固定 5 个 4 KiB 槽，每槽一条赛道 + FNV 校验；结构约 3000 字节。
+- **外部 W25Q128 暂时不用**：Octal PSRAM 占用 GPIO33–37，与外部 Flash 的 SCK=37 / MOSI=36 冲突（初始化 SPI3 会破坏 PSRAM）。若以后要用外部 Flash，需改板把它的引脚挪开，或改用 Quad PSRAM。
 - RAM 中最多 6 条赛道（1 条样例 + 5 条录制），开机从 flash 加载。
 - 「Recorded Track」(TRACKS) 页面显示 **`FLASH n/5`** 与剩余 KB。
 
@@ -85,7 +87,7 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - [x] Step 2：赛道地理基准（origin / 比例 / 真实周长）+ 最近线段投影。
 - [x] Step 3：真实赛道录制（NEW TRACK）：3D fix 门控，起点 PUSH 开始，跑一圈回起点 PUSH 结束并生成赛道（记录 origin/比例/真实周长/起始朝向）。当前保存在 RAM。起终线 6 m 判圈在 Step 4 使用。
 - [x] Step 4：真实 GNSS 比赛：把实时 fix 投影到赛道得到进度 s，6 m 起终线判圈，速度来自 GPS，记录圈速/最佳圈与轨迹。当前不含 IMU 融合，G-meter 暂为空。
-- [x] Step 5：赛道持久化到外置 W25Q128（5 个 4 KiB 槽，FNV 校验；写入/读回比对/擦除自检 PASS），开机自动加载；TRACKS 页右上角显示 `FLASH n/5 · xK FREE`；已录赛道可进入 **START LINE** 页用 UP/DOWN 拖动起终点、PUSH 保存（写回 flash）。
+- [x] Step 5：赛道持久化到**内部 flash `storage` 分区**（5 个 4 KiB 槽，FNV 校验），开机自动加载；TRACKS 页右上角显示 `FLASH n/5 · xK FREE`；已录赛道可进入 **START LINE** 页用 UP/DOWN 拖动起终点、PUSH 保存（写回内部 flash）。
 - [x] Step 6：真实 IMU 接入赛车 **G-meter**（G-G 图，横向/纵向按安装轴向映射，平滑 + 拖尾）。
 - [x] Step 7：GNSS 比赛鲁棒性：投影**连续性窗口**（只在上次进度附近搜索，避免自交叉/近邻路段跳段）+ **离轨剔除**（偏离赛道 >25 m 的样本忽略）。
 

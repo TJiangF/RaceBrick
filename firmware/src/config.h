@@ -75,7 +75,7 @@
 #define EXT_FLASH_SCLK  37
 #define EXT_FLASH_MOSI  36
 #define EXT_FLASH_HZ    (10 * 1000 * 1000)
-#define EXT_FLASH_TEST  1     /* run the W25Q128 self-test at boot */
+#define EXT_FLASH_TEST  0     /* TEMP: diagnose octal-PSRAM / ext-flash pin conflict */
 
 /* ---------------- other on-board peripherals (production board Rev.B) --------
  * I2C (MPU6050) Scl-io16  Sda-io17   (MPU6050 INT io15)

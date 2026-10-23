@@ -12,6 +12,7 @@
 #include "battery.h"
 #include "buzzer.h"
 #include "netcfg.h"
+#include "netcfg.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,6 +66,7 @@ void app_main(void) {
     input_init();
     buzzer_init();
     app_init();
+    if (netcfg_has_creds()) netcfg_start_ap();   /* auto-connect on later boots */
 
     ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d)", LCD_W, LCD_H);
 

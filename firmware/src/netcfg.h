@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 void netcfg_start_ap(void);      /* idempotent: start AP + web server */
+bool netcfg_has_creds(void);     /* saved home-WiFi credentials present */
 bool netcfg_running(void);
 bool netcfg_connected(void);
 const char *netcfg_ip(void);

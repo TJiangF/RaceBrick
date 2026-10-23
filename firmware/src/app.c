@@ -351,17 +351,13 @@ static void render_overlay(void) {
 void app_render(void) {
     gfx_reset_view();
     gfx_clear(PAL.stage);
-
-    /* content: screens are written in 320x200 content-local coordinates */
     gfx_set_offset(0, CONTENT_Y);
     gfx_set_scale(1.0f);
     gfx_set_clip(0, CONTENT_Y, LCD_W, CONTENT_H);
     screens_render();
 
-    /* overlay on top of content */
     if (g.overlay_active) render_overlay();
 
-    /* chrome */
     gfx_reset_view();
     screens_chrome();
     render_led_bar();

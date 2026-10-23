@@ -7,8 +7,21 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # internal DRAM is free for the WiFi/lwIP stack (AP provisioning).
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_SPEED_40M=y   # 80 MHz might be unstable; try 40 first
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# With PSRAM enabled the UART driver otherwise allocates its ring buffers from
+# external RAM and its ISR runs from flash, which hangs uart_driver_install.
+CONFIG_UART_ISR_IN_IRAM=y
+# Same PSRAM issue for the ADC oneshot driver (allocates/uses internal state).
+CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM=y
+# Keep small heap allocations in internal RAM (peripheral driver state).
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+# Driver ISRs in IRAM: with octal PSRAM the flash cache is sometimes off, and
+# flash-resident ISRs then hang/reset.
+CONFIG_I2C_ISR_IRAM_SAFE=y
+CONFIG_SPI_MASTER_ISR_IN_IRAM=y
+CONFIG_RMT_ISR_IRAM_SAFE=y
 
 # Larger app partition (WiFi stack is big; flash is 8/16 MB).
 CONFIG_PARTITION_TABLE_CUSTOM=y

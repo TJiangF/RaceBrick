@@ -73,6 +73,11 @@ static bool load_creds(char *ssid, int sc, char *pass, int pc) {
     return ok;
 }
 
+bool netcfg_has_creds(void) {
+    char ssid[33], pass[65];
+    return load_creds(ssid, sizeof ssid, pass, sizeof pass);
+}
+
 static void start_sta(const char *ssid, const char *pass) {
     wifi_config_t sta;
     memset(&sta, 0, sizeof(sta));

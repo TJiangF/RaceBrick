@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
@@ -25,6 +26,8 @@ static const char *TAG = "lcd";
 static esp_lcd_panel_io_handle_t s_io;
 static esp_lcd_panel_handle_t    s_panel;
 static SemaphoreHandle_t         s_flush_done;
+static uint16_t                 *s_bounce;      /* internal DMA strip buffer */
+#define BOUNCE_LINES 16
 
 #define BL_LEDC_MODE  LEDC_LOW_SPEED_MODE
 #define BL_LEDC_TIMER LEDC_TIMER_0
@@ -73,6 +76,8 @@ void lcd_set_brightness(int percent) {
 
 void lcd_init(void) {
     s_flush_done = xSemaphoreCreateBinary();
+    s_bounce = (uint16_t *)heap_caps_malloc((size_t)LCD_W * BOUNCE_LINES * sizeof(uint16_t),
+                                            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
 
     /* ---- SPI bus ---- */
     spi_bus_config_t buscfg = {
@@ -136,7 +141,17 @@ void lcd_set_gap(int x, int y) {
 }
 
 void lcd_flush(const uint16_t *fb) {
-    esp_lcd_panel_draw_bitmap(s_panel, 0, 0, LCD_W, LCD_H, fb);
-    /* wait for the frame to finish so the caller may safely reuse fb */
-    xSemaphoreTake(s_flush_done, portMAX_DELAY);
+    if (!s_bounce) {   /* fallback (may not work with a PSRAM framebuffer) */
+        esp_lcd_panel_draw_bitmap(s_panel, 0, 0, LCD_W, LCD_H, fb);
+        xSemaphoreTake(s_flush_done, portMAX_DELAY);
+        return;
+    }
+    /* the framebuffer lives in PSRAM; SPI DMA is happier with internal RAM, so
+     * copy it to a small internal strip buffer and send the frame in strips */
+    for (int y = 0; y < LCD_H; y += BOUNCE_LINES) {
+        int h = (LCD_H - y) < BOUNCE_LINES ? (LCD_H - y) : BOUNCE_LINES;
+        memcpy(s_bounce, fb + (size_t)y * LCD_W, (size_t)h * LCD_W * sizeof(uint16_t));
+        esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_W, y + h, s_bounce);
+        xSemaphoreTake(s_flush_done, portMAX_DELAY);
+    }
 }
