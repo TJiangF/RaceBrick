@@ -14,6 +14,7 @@
 #include "mpu6050.h"
 #include "geo.h"
 #include "tstore.h"
+#include "netcfg.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -117,7 +118,8 @@ static void perf_update(float dt) {
         for (int k = 0; k < 8 && g.perf_state == 1; k++) {
             float al;
             if (perf_read_long(&al)) {
-                bool trig = (g.perf_mode == 0) ? (al > PERF_LAUNCH_G)
+                float th = (float)g.perf_trig_g100 / 100.0f;
+                bool trig = (g.perf_mode == 0) ? (al > th)
                                                : (spd > 30.0f && al < -PERF_BRAKE_G);
                 if (trig) {
                     g.perf_t0_us = esp_timer_get_time();
@@ -173,6 +175,27 @@ static void render_perf(void) {
     else gfx_text(6, 184, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
+/* ================= WIFI SETUP (SoftAP + phone web page) ================= */
+static void render_wifi_setup(void) {
+    char st[48];
+    netcfg_status(st, sizeof st);
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text(6, 2, "WIFI SETUP", PAL.cyan, 1);
+
+    gfx_text(6, 22, "1) phone WiFi ->", PAL.dim, 0);
+    gfx_text(6, 34, netcfg_ap_ssid(), PAL.white, 1);
+    gfx_text(6, 54, "   pass: racebrick", PAL.dim, 0);
+    gfx_text(6, 74, "2) browser open:", PAL.dim, 0);
+    gfx_text(6, 86, "http://192.168.4.1", PAL.cyan, 1);
+    gfx_text(6, 106, "3) enter home SSID / password", PAL.dim, 0);
+
+    gfx_pxbox(6, 126, CW - 12, 34, PAL.line, 1, PAL.panel);
+    gfx_text(12, 133, "STATUS", PAL.dim, 0);
+    gfx_text(12, 145, st, netcfg_connected() ? PAL.green : PAL.yellow, 1);
+
+    gfx_text(6, 182, "PUSH RESTART AP - BACK EXIT", PAL.dim, 0);
+}
+
 /* ================= TRACK EDIT ================= */
 static void render_track_edit(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
@@ -192,7 +215,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[11] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI", "BLUETOOTH", "SOUND", "GPS RATE", "IMU DEBUG", "GPS DEBUG", "LOCATION"};
+    static const char *k[12] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "LOCATION"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -201,9 +224,9 @@ static void settings_val(int i, char *out) {
     case 1: strcpy(out, LED_COLOR_NAMES[g.set_ledcolor]); break;
     case 2: snprintf(out, 16, "%d%%", g.set_ledbright); break;
     case 3: strcpy(out, g.theme_light ? "LIGHT" : "DARK"); break;
-    case 4: strcpy(out, g.set_wifi ? "ON" : "OFF"); break;
     case 5: strcpy(out, g.set_bt ? "ON" : "OFF"); break;
     case 7: snprintf(out, 16, "%dHz", g.gps_rate_hz); break;
+    case 8: snprintf(out, 16, "0.%02dG", g.perf_trig_g100); break;
     default: strcpy(out, ">"); break;
     }
 }
@@ -212,7 +235,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 5, h = 32;
     int start, end;
-    windowed(11, g.sel, K, &start, &end);
+    windowed(12, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -224,7 +247,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 11) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 12) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
 }
 
 /* ================= SOUND ================= */
@@ -1096,6 +1119,7 @@ void screens_render(void) {
     switch (g.cur) {
     case SC_HOME: render_home(); break;
     case SC_PERF: render_perf(); break;
+    case SC_WIFI_SETUP: render_wifi_setup(); break;
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
     case SC_MODE_SELECT: render_mode_select(); break;
@@ -1134,6 +1158,7 @@ void screens_enter(scid_t id) {
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF: g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
+    case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
         g.rec_line_ok = false; g.rec_armed = false; g.rec_along_prev = 0;
@@ -1404,6 +1429,12 @@ void screens_handle(const event_t *ev) {
         else if (ev->button == BTN_UP) app_go_home(-1);
         break;
 
+    case SC_WIFI_SETUP:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) { netcfg_start_ap(); app_toast("AP RUNNING"); }
+        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        break;
+
     case SC_PERF:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
@@ -1441,14 +1472,14 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
-            if (d) { g.sel = (g.sel + d + 11) % 11; return; }
+            if (d) { g.sel = (g.sel + d + 12) % 12; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
                 else if (g.sel == 1) g.set_ledcolor = (g.set_ledcolor + 1) % 4;
                 else if (g.sel == 2) { g.set_ledbright = g.set_ledbright >= 100 ? 10 : g.set_ledbright + 10; ws2812_set_brightness(g.set_ledbright); }
                 else if (g.sel == 3) { g.theme_light = !g.theme_light; theme_set(g.theme_light); }
-                else if (g.sel == 4) g.set_wifi = !g.set_wifi;
+                else if (g.sel == 4) app_go(SC_WIFI_SETUP, 1);
                 else if (g.sel == 5) g.set_bt = !g.set_bt;
                 else if (g.sel == 6) app_go(SC_SOUND, 1);
                 else if (g.sel == 7) {
@@ -1457,10 +1488,13 @@ void screens_handle(const event_t *ev) {
                     app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
-                else if (g.sel == 8) app_go(SC_IMU_DEBUG, 1);
-                else if (g.sel == 9) app_go(SC_GPS_DEBUG, 1);
-                else if (g.sel == 10) app_go(SC_LOCATION, 1);
-                if (g.sel <= 5 || g.sel == 7) app_save_settings();   /* persist changes */
+                else if (g.sel == 8) {
+                    g.perf_trig_g100 = g.perf_trig_g100 >= 30 ? 10 : g.perf_trig_g100 + 5;
+                }
+                else if (g.sel == 9) app_go(SC_IMU_DEBUG, 1);
+                else if (g.sel == 10) app_go(SC_GPS_DEBUG, 1);
+                else if (g.sel == 11) app_go(SC_LOCATION, 1);
+                if (g.sel <= 5 || g.sel == 7 || g.sel == 8) app_save_settings();   /* persist changes */
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
         break;
@@ -1806,6 +1840,12 @@ void screens_chrome(void) {
         snprintf(g.status, sizeof g.status, "PERF %s  %s", g.perf_mode == 0 ? "0-100" : "100-0",
                  g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");
         break;
+    case SC_WIFI_SETUP: {
+        char st[48]; netcfg_status(st, sizeof st);
+        snprintf(g.status, sizeof g.status, "WIFI  %s", st);
+        g.statusColor = netcfg_connected() ? PAL.green : PAL.yellow;
+        break;
+    }
     case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - PUSH TO EDIT"); break;
     case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;

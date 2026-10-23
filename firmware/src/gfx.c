@@ -1,9 +1,12 @@
 #include "gfx.h"
 #include "config.h"
 #include "font5x7.h"
+#include "esp_heap_caps.h"
 #include <math.h>
 
-static uint16_t s_fb[LCD_W * LCD_H];
+/* The framebuffer lives in PSRAM (150 KB) so internal DRAM is free for WiFi;
+ * fall back to internal RAM if PSRAM is unavailable. */
+static uint16_t *s_fb = NULL;
 
 /* view transform */
 static int s_dx = 0, s_dy = 0;
@@ -11,6 +14,10 @@ static int s_cx0 = 0, s_cy0 = 0, s_cx1 = LCD_W, s_cy1 = LCD_H;
 static float s_scale = 1.0f;
 
 void gfx_init(void) {
+    size_t bytes = (size_t)LCD_W * LCD_H * sizeof(uint16_t);
+    if (!s_fb) s_fb = (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_fb) s_fb = (uint16_t *)heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+    if (!s_fb) return;
     for (int i = 0; i < LCD_W * LCD_H; i++) s_fb[i] = 0;
 }
 uint16_t *gfx_fb(void) { return s_fb; }

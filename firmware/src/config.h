@@ -139,9 +139,9 @@
 #define HISTORY_LAPS    16
 #define REC_MAX         400   /* max points while recording a real track (~800 m) */
 
-/* performance test: IMU longitudinal kick that starts the timer (g) */
-#define PERF_LAUNCH_G   0.30f
-#define PERF_BRAKE_G    0.30f
+/* performance test: default launch threshold in 0.01 g (Settings > LAUNCH G) */
+#define START_PERF_TRIG 15
+#define PERF_BRAKE_G    0.25f
 
 /* MPU6050 + GPS/IMU fusion (RC.CONFIG.IMU) */
 #define IMU_CALIB_MS    2500.0f
