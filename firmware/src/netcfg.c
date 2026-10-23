@@ -329,6 +329,7 @@ static esp_err_t h_api_control(httpd_req_t *req) {
     if (strstr(body, "cmd=home")) cmd = 1;
     else if (strstr(body, "cmd=perf")) cmd = 2;
     else if (strstr(body, "cmd=race")) cmd = 3;
+    else if (strstr(body, "cmd=debug")) cmd = 4;
     if (cmd) {
         taskENTER_CRITICAL(&s_mux);
         s_cmd = cmd;

@@ -1236,8 +1236,6 @@ void screens_render(void) {
 void screens_enter(scid_t id) {
     s_map_ready = false;
     nav_set_active(false);
-    /* auto power saving: high rate only on GNSS-dependent screens */
-    gps_set_nav_rate(screen_needs_gps(id) ? g.gps_rate_hz : 1);
     switch (id) {
     case SC_IMU_CALIB:
         g.imu_phase = 0; g.imu_ns = 0; g.imu_progress = 0; g.imu_stable = false;
@@ -1301,7 +1299,7 @@ void screens_enter(scid_t id) {
     }
     case SC_SOUND: g.sel = 0; break;
     case SC_IMU_DEBUG: g.i_gmax = 0; break;   /* keep the boot-pose zero offsets */
-    case SC_GPS_DEBUG: gps_begin(); gps_restart(); g.dbg_page = 0; break;
+    case SC_GPS_DEBUG: gps_begin(); g.dbg_page = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -1312,6 +1310,8 @@ void screens_enter(scid_t id) {
         break;
     default: break;
     }
+    /* auto power saving: apply after page init so it is not overridden */
+    gps_set_nav_rate(screen_needs_gps(id) ? g.gps_rate_hz : 1);
 }
 
 /* ================= update ================= */
