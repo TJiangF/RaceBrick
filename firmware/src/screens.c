@@ -164,7 +164,8 @@ static void render_perf(void) {
     bool has_fix = (gp->fix_type >= 1 && gp->has_pos);
     const char *st;
     uint16_t sc;
-    if (!has_fix) { st = "NEED GPS FIX"; sc = PAL.red; }
+    if (!g.entered) { st = "PUSH TO ENTER"; sc = PAL.yellow; }
+    else if (!has_fix) { st = "NEED GPS FIX"; sc = PAL.red; }
     else switch (g.perf_state) {
     case 1: st = (g.perf_mode == 0) ? "ARMED - LAUNCH!" : "ARMED - BRAKE!"; sc = PAL.yellow; break;
     case 2: st = "RUNNING"; sc = PAL.cyan; break;
@@ -172,7 +173,8 @@ static void render_perf(void) {
     default: st = "PUSH TO ARM"; sc = PAL.dim; break;
     }
     gfx_text_center(CW / 2, 136, st, sc, 1);
-    if (!has_fix) gfx_text(6, 184, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
+    if (!g.entered) gfx_text(6, 184, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
+    else if (!has_fix) gfx_text(6, 184, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
     else gfx_text(6, 184, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
@@ -182,27 +184,34 @@ static void render_nav(void) {
     char b[32];
 
     /* map image (server-rendered, heading-up, centred on us) */
-    int mw = 0, mh = 0;
-    const uint16_t *img = nav_frame_lock(&mw, &mh);
-    if (img && mw > 0) {
-        gfx_blit(0, 0, img, mw, mh, mw);
-    } else {
+    if (!g.entered) {
         gfx_fill(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapbg);
         gfx_rect(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapborder);
-        gfx_text_center(NAV_IMG_SIZE / 2, 92,
-                        nav_status() == 4 ? "NO WIFI" : (nav_status() == 5 ? "NO GPS FIX" : "MAP LOADING..."),
-                        PAL.dim, 1);
-    }
-    nav_frame_unlock();
+        gfx_text_center(NAV_IMG_SIZE / 2, 86, "NAVIGATION", PAL.cyan, 2);
+        gfx_text_center(NAV_IMG_SIZE / 2, 116, "PUSH TO START", PAL.yellow, 1);
+    } else {
+        int mw = 0, mh = 0;
+        const uint16_t *img = nav_frame_lock(&mw, &mh);
+        if (img && mw > 0) {
+            gfx_blit(0, 0, img, mw, mh, mw);
+        } else {
+            gfx_fill(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapbg);
+            gfx_rect(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapborder);
+            gfx_text_center(NAV_IMG_SIZE / 2, 92,
+                            nav_status() == 4 ? "NO WIFI" : (nav_status() == 5 ? "NO GPS FIX" : "MAP LOADING..."),
+                            PAL.dim, 1);
+        }
+        nav_frame_unlock();
 
-    /* self arrow (heading-up -> always points up) */
-    int cx = NAV_IMG_SIZE / 2, cy = NAV_IMG_SIZE / 2;
-    int ax[3] = { cx, cx - 9, cx + 9 };
-    int ay[3] = { cy - 12, cy + 9, cy + 9 };
-    gfx_poly_fill(ax, ay, 3, PAL.cyan);
-    gfx_line(cx, cy - 12, cx - 9, cy + 9, PAL.white);
-    gfx_line(cx - 9, cy + 9, cx + 9, cy + 9, PAL.white);
-    gfx_line(cx + 9, cy + 9, cx, cy - 12, PAL.white);
+        /* self arrow (heading-up -> always points up) */
+        int cx = NAV_IMG_SIZE / 2, cy = NAV_IMG_SIZE / 2;
+        int ax[3] = { cx, cx - 9, cx + 9 };
+        int ay[3] = { cy - 12, cy + 9, cy + 9 };
+        gfx_poly_fill(ax, ay, 3, PAL.cyan);
+        gfx_line(cx, cy - 12, cx - 9, cy + 9, PAL.white);
+        gfx_line(cx - 9, cy + 9, cx + 9, cy + 9, PAL.white);
+        gfx_line(cx + 9, cy + 9, cx, cy - 12, PAL.white);
+    }
 
     /* info column */
     int rx = NAV_IMG_SIZE + 4;
@@ -232,7 +241,7 @@ static void render_nav(void) {
     if (age >= 0) { snprintf(b, sizeof b, "%dms", age); gfx_text(rx, 126, b, PAL.dim, 0); }
     snprintf(b, sizeof b, "HDG %d", (int)lroundf(gp->course));
     gfx_text(rx, 140, b, PAL.dim, 0);
-    gfx_text(rx, 184, "PUSH REF - BACK", PAL.dim, 0);
+    gfx_text(rx, 184, g.entered ? "PUSH REF - BACK" : "PUSH START - BACK", PAL.dim, 0);
 }
 
 /* ================= WIFI SETUP (SoftAP + phone web page) ================= */
@@ -1208,7 +1217,7 @@ void screens_render(void) {
 /* ================= enter ================= */
 void screens_enter(scid_t id) {
     s_map_ready = false;
-    nav_set_active(id == SC_NAV);
+    nav_set_active(false);
     switch (id) {
     case SC_IMU_CALIB:
         g.imu_phase = 0; g.imu_ns = 0; g.imu_progress = 0; g.imu_stable = false;
@@ -1219,7 +1228,8 @@ void screens_enter(scid_t id) {
     case SC_SETTINGS: g.sel = 0; g.entered = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
-    case SC_PERF: g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
+    case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
+    case SC_NAV: g.entered = false; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
@@ -1492,9 +1502,16 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_NAV:
+        if (!g.entered) {
+            if (d) { app_go_home(d); return; }
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_PUSH) { g.entered = true; nav_set_active(true); nav_refresh(); }
+            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            break;
+        }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { nav_refresh(); app_toast("MAP REFRESH"); }
-        else if (ev->button == BTN_BACK) app_go_home(-1);
+        else if (ev->button == BTN_BACK) { g.entered = false; nav_set_active(false); }
         break;
 
     case SC_WIFI_SETUP:
@@ -1504,6 +1521,13 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_PERF:
+        if (!g.entered) {
+            if (d) { app_go_home(d); return; }
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_PUSH) { g.entered = true; g.perf_state = 0; g.perf_time = 0; }
+            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            break;
+        }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
             if (g.perf_state != 2) { g.perf_mode ^= 1; g.perf_state = 0; g.perf_time = 0; }
@@ -1516,7 +1540,7 @@ void screens_handle(const event_t *ev) {
             } else {
                 g.perf_state = 0; g.perf_time = 0; app_toast("CANCELLED");
             }
-        } else if (ev->button == BTN_BACK) app_go_home(-1);
+        } else if (ev->button == BTN_BACK) g.entered = false;
         break;
 
     case SC_TRACK_EDIT:

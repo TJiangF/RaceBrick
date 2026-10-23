@@ -33,10 +33,10 @@ pio device monitor -b 115200              # 串口日志
 - MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
-- 性能测试页（HOME 轮播页）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
+- 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
 
-- **实时导航页**（HOME 轮播，与 Start Race 同级）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头，右上/右侧显示速度、GPS、WiFi 状态。
+- **实时导航页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头，右上/右侧显示速度、GPS、WiFi 状态。
 
 ### 实时导航（Navigation）
 - 接口：`POST http://47.100.182.210:2020/api/v1/nav`，参数 `layer=road`、`style=pixel`、`theme=gameboy`、`format=pal16`、`coord=wgs84`、`size=200`、`size_m=400`、`heading=<GPS 航向>`。
