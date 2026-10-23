@@ -30,6 +30,8 @@ pio device monitor -b 115200              # 串口日志
 - 像素 UI（原始帧缓冲）：HOME / 赛道 / 设置 / 历史 / 定位 / 调试等页面与状态机。
 - ST7789（40 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律）。
 - NEO-M9N：UART（自动扫描波特率找到模块），UBX 配置 1/5/10/25 Hz（Settings → GPS RATE）。
+- **按页自动节能**：只有需要实时 GNSS 的页面（导航/性能/定位/比赛/录制/GPS 调试）使用设定速率，其余页面自动降到 **1 Hz**（进页即切换，切换仅发 CFG-RATE/CFG-MSG，不做波特率扫描）。
+- **1PPS 时间脉冲**：CFG-TP5 配置 1 Hz/100 ms 脉冲，NEO 的 TP 脚接 **GPIO8**，上升沿 ISR（IRAM，`esp_timer_get_time`）测周期；调试页/导航页显示 `PPS` 状态（实测 999 ms）。
 - MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。

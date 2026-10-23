@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "driver/uart.h"
+#include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -31,6 +32,47 @@ static bool ubx_send(uint8_t cls, uint8_t id, const uint8_t *payload, int n);
 
 static char s_line[128];
 static int  s_ln = 0;
+
+static int  s_cur_hz = 0;          /* last programmed nav rate */
+static bool s_rate_set = false;
+
+/* ---- 1PPS (time pulse) capture ---- */
+static volatile uint32_t s_pps_cnt = 0;
+static volatile int64_t  s_pps_last_us = 0;
+static volatile int64_t  s_pps_prev_us = 0;
+static volatile int32_t  s_pps_period_us = 0;
+static bool s_pps_inited = false;
+
+static void IRAM_ATTR pps_isr(void *arg) {
+    (void)arg;
+    int64_t t = esp_timer_get_time();
+    if (s_pps_prev_us) s_pps_period_us = (int32_t)(t - s_pps_prev_us);
+    s_pps_prev_us = t;
+    s_pps_last_us = t;
+    s_pps_cnt++;
+}
+
+bool gps_pps_ok(void) {
+    return s_pps_cnt > 0 && (esp_timer_get_time() - s_pps_last_us) < 3000000;
+}
+uint32_t gps_pps_count(void) { return s_pps_cnt; }
+int gps_pps_period_ms(void) { return s_pps_period_us > 0 ? (int)(s_pps_period_us / 1000) : 0; }
+
+static void gps_pps_init(void) {
+    if (s_pps_inited) return;
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << PIN_GPS_TP,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    gpio_config(&io);
+    gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    gpio_isr_handler_add(PIN_GPS_TP, pps_isr, NULL);
+    s_pps_inited = true;
+    ESP_LOGI(TAG, "1PPS capture on GPIO%d", PIN_GPS_TP);
+}
 
 gps_state_t *gps_get(void) { return &s_st; }
 
@@ -328,6 +370,7 @@ void gps_begin_uart_pins(int rx, int tx) {
     uart_set_pin(GPS_UART, tx, rx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     s_st.inited = true;
     s_st.source = 0;
+    gps_pps_init();
     reset_counters();
     apply_baud(BAUDS[s_baud_idx]);
     ESP_LOGI(TAG, "GPS UART ESP_RX=%d ESP_TX=%d @ %d", rx, tx, BAUDS[s_baud_idx]);
@@ -407,13 +450,14 @@ static const char *ant_str(int s) {
 
 void gps_dump(void) {
     gps_state_t *g = &s_st;
-    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  NMEA %lu  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  VER %.12s  GLL %lu",
+    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  NMEA %lu  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  PPS %dms/%lu  VER %.12s  GLL %lu",
              g->source == 1 ? "I2C" : "UART", g->fix_type, g->sats_used, g->sats_visible,
              (unsigned long)g->sentences,
              g->utc_h, g->utc_m, g->utc_s,
              g->have_monhw ? ant_str(g->ant_status) : "?",
              g->have_monhw ? (g->ant_power == 1 ? "ON" : (g->ant_power == 0 ? "OFF" : "?")) : "?",
-             g->jam_ind, g->jam_state, g->have_ver ? g->ver : "-",
+             g->jam_ind, g->jam_state, gps_pps_period_ms(), (unsigned long)gps_pps_count(),
+             g->have_ver ? g->ver : "-",
              (unsigned long)g->gll_count);
 
     /* BeiDou only.  format  B<prn>:<SNR>[*used][E=has ephemeris] */
@@ -554,6 +598,37 @@ static void ubx_cfg_msg(uint8_t id, uint8_t r_i2c, uint8_t r_u1, uint8_t r_u2, u
     ubx_send(0x06, 0x01, p, 8);
 }
 
+/* UBX-CFG-TP5: 1 Hz, 100 ms pulse, rising edge, aligned to UTC (1PPS). */
+static void ubx_tp5_1pps(void) {
+    uint8_t p[32];
+    memset(p, 0, sizeof p);
+    p[0] = 0; p[1] = 1;                             /* tpIdx 0, version 1 */
+    p[8] = 1; p[12] = 1;                            /* freqPeriod/Lock = 1 Hz */
+    p[16] = 0xA0; p[17] = 0x86; p[18] = 0x01;       /* pulseLen 100000 us */
+    p[20] = 0xA0; p[21] = 0x86; p[22] = 0x01;
+    p[28] = 0x4B;                                   /* active|lock|isFreq|polarity */
+    ubx_send(0x06, 0x05, p, 32);
+}
+
+/* Light-weight rate change: no baud scan, just NAV rate + sentence rates. */
+void gps_set_nav_rate(int hz) {
+    if (!s_st.inited || s_st.source != 0) return;
+    if (hz != 1 && hz != 5 && hz != 10 && hz != 25) hz = 1;
+    if (s_rate_set && hz == s_cur_hz) return;
+    uint16_t meas = (uint16_t)(1000 / hz);
+    uint8_t rate[6] = {(uint8_t)(meas & 0xFF), (uint8_t)(meas >> 8), 0x01, 0x00, 0x01, 0x00};
+    ubx_send(0x06, 0x08, rate, 6);
+    ubx_cfg_msg(0x00, 0, 1, 0, 0, 0);
+    ubx_cfg_msg(0x04, 0, 1, 0, 0, 0);
+    ubx_cfg_msg(0x02, 0, (uint8_t)hz, 0, 0, 0);
+    ubx_cfg_msg(0x03, 0, (uint8_t)hz, 0, 0, 0);
+    ubx_cfg_msg(0x05, 0, 0, 0, 0, 0);
+    ubx_cfg_msg(0x01, 0, 0, 0, 0, 0);
+    s_cur_hz = hz;
+    s_rate_set = true;
+    ESP_LOGI(TAG, "nav rate -> %d Hz", hz);
+}
+
 /* Probe bauds until the module answers MON-VER (or at least streams NMEA). */
 static bool gps_find_module(void) {
     for (int i = 0; i < NBAUD; i++) {
@@ -613,19 +688,9 @@ void gps_set_rate(int hz) {
 
     gps_set_baud_115200();
 
-    /* CFG-RATE: measRate (ms), navRate=1, timeRef=UTC */
-    uint16_t meas = (uint16_t)(1000 / hz);
-    uint8_t rate[6] = {(uint8_t)(meas & 0xFF), (uint8_t)(meas >> 8), 0x01, 0x00, 0x01, 0x00};
-    ubx_send(0x06, 0x08, rate, 6);
-
-    /* GGA/RMC every solution; GSA/GSV every hz-th solution (=1 Hz); VTG/GLL off */
-    ubx_cfg_msg(0x00, 0, 1, 0, 0, 0);
-    ubx_cfg_msg(0x04, 0, 1, 0, 0, 0);
-    ubx_cfg_msg(0x02, 0, (uint8_t)hz, 0, 0, 0);
-    ubx_cfg_msg(0x03, 0, (uint8_t)hz, 0, 0, 0);
-    ubx_cfg_msg(0x05, 0, 0, 0, 0, 0);
-    ubx_cfg_msg(0x01, 0, 0, 0, 0, 0);
-
+    s_rate_set = false;
+    gps_set_nav_rate(hz);
+    ubx_tp5_1pps();
     vTaskDelay(pdMS_TO_TICKS(120));
-    ESP_LOGI(TAG, "GPS rate -> %d Hz (UART 115200, GGA/RMC @%dHz, GSA/GSV 1Hz)", hz, hz);
+    ESP_LOGI(TAG, "GPS rate -> %d Hz (UART 115200, TP 1PPS on)", hz);
 }

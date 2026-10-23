@@ -79,6 +79,12 @@ void gps_cfg_gps_bds(void);     /* UBX-CFG-GNSS: enable only GPS + BeiDou */
 void gps_disable_gll(void);     /* UBX-CFG-MSG: stop GLL output (TX test) */
 void gps_restart(void);         /* UBX-CFG-RST: force a (cold) GNSS (re)start */
 void gps_set_rate(int hz);      /* 1/5/10/25 Hz output rate (UART; finds module) */
+void gps_set_nav_rate(int hz);  /* light-weight rate change (no baud scan) */
+
+/* time pulse (TP / 1PPS) capture on PIN_GPS_TP */
+bool     gps_pps_ok(void);      /* pulses seen recently */
+uint32_t gps_pps_count(void);
+int      gps_pps_period_ms(void);
 void gps_poll(void);            /* read + parse available bytes */
 void gps_dump(void);            /* log a one-line live summary + raw + sats */
 gps_state_t *gps_get(void);

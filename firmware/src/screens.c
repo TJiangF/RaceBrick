@@ -71,6 +71,17 @@ static int nav_dir(const event_t *ev) {
     return 0;
 }
 
+/* screens that need a live, high-rate GNSS fix; everything else uses 1 Hz */
+static bool screen_needs_gps(scid_t id) {
+    switch (id) {
+    case SC_NAV: case SC_PERF: case SC_GPS_DEBUG: case SC_LOCATION:
+    case SC_RACING: case SC_RACING_RECORDED: case SC_NEW_TRACK_MARK_START:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void windowed(int len, int sel, int K, int *start, int *end) {
     if (len <= K) { *start = 0; *end = len; return; }
     int st = sel - K / 2;
@@ -241,6 +252,7 @@ static void render_nav(void) {
     if (age >= 0) { snprintf(b, sizeof b, "%dms", age); gfx_text(rx, 126, b, PAL.dim, 0); }
     snprintf(b, sizeof b, "HDG %d", (int)lroundf(gp->course));
     gfx_text(rx, 140, b, PAL.dim, 0);
+    gfx_text(rx, 156, gps_pps_ok() ? "PPS OK" : "PPS --", gps_pps_ok() ? PAL.green : PAL.dim, 0);
     gfx_text(rx, 184, g.entered ? "PUSH REF - BACK" : "PUSH START - BACK", PAL.dim, 0);
 }
 
@@ -1031,6 +1043,12 @@ static void render_gps_debug(void) {
     u_fmt_f(t2, sizeof t2, (float)fabs(gp->lon), 5);
     snprintf(latlon, sizeof latlon, "%s%c %s%c", t1, gp->lat >= 0 ? 'N' : 'S', t2, gp->lon >= 0 ? 'E' : 'W');
     gfx_text(6, 58, latlon, PAL.cyan, 2);
+    if (gps_pps_ok()) {
+        char pb[20]; snprintf(pb, sizeof pb, "PPS %dms", gps_pps_period_ms());
+        gfx_text_right(CW - 8, 70, pb, PAL.green, 0);
+    } else {
+        gfx_text_right(CW - 8, 70, "PPS --", PAL.dim, 0);
+    }
 
     /* sentence summaries (no duplicated data) */
     u_fmt_f(t1, sizeof t1, gp->hdop, 1);
@@ -1218,6 +1236,8 @@ void screens_render(void) {
 void screens_enter(scid_t id) {
     s_map_ready = false;
     nav_set_active(false);
+    /* auto power saving: high rate only on GNSS-dependent screens */
+    gps_set_nav_rate(screen_needs_gps(id) ? g.gps_rate_hz : 1);
     switch (id) {
     case SC_IMU_CALIB:
         g.imu_phase = 0; g.imu_ns = 0; g.imu_progress = 0; g.imu_stable = false;
@@ -1577,6 +1597,7 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 7) {
                     g.gps_rate_hz = g.gps_rate_hz == 1 ? 5 : g.gps_rate_hz == 5 ? 10 : g.gps_rate_hz == 10 ? 25 : 1;
                     gps_set_rate(g.gps_rate_hz);
+                    gps_set_nav_rate(screen_needs_gps(g.cur) ? g.gps_rate_hz : 1);
                     app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
