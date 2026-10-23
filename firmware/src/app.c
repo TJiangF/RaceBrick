@@ -477,7 +477,8 @@ void app_init(void) {
         }
     }
     nav_start();
-    gps_set_rate(g.gps_rate_hz);   /* find the module and program its output rate */
+    /* bring the module up in its 1 Hz idle mode; a GNSS page bumps it later */
+    gps_set_rate(1);
     app_go(SC_IMU_CALIB, 1);
 }
 

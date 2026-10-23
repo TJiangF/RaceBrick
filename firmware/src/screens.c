@@ -1596,8 +1596,6 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 6) app_go(SC_SOUND, 1);
                 else if (g.sel == 7) {
                     g.gps_rate_hz = g.gps_rate_hz == 1 ? 5 : g.gps_rate_hz == 5 ? 10 : g.gps_rate_hz == 10 ? 25 : 1;
-                    gps_set_rate(g.gps_rate_hz);
-                    gps_set_nav_rate(screen_needs_gps(g.cur) ? g.gps_rate_hz : 1);
                     app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
