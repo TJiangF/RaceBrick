@@ -35,6 +35,17 @@ pio device monitor -b 115200              # 串口日志
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
 - 性能测试页（HOME 轮播页）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
+
+- **实时导航页**（HOME 轮播，与 Start Race 同级）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头，右上/右侧显示速度、GPS、WiFi 状态。
+
+### 实时导航（Navigation）
+- 接口：`POST http://47.100.182.210:2020/api/v1/nav`，参数 `layer=road`、`style=pixel`、`theme=gameboy`、`format=pal16`、`coord=wgs84`、`size=200`、`size_m=400`、`heading=<GPS 航向>`。
+- 后台任务取图 + RLE 解码到 PSRAM 双缓冲，主循环叠加箭头与信息；移动 >12 m / 转向 >12° / 每 2.5 s 触发重取（失败重试 3 次，退避 1/2 s）。
+- **图像格式对比**（200×200）：
+  - `rgb565`：80 KB/帧，无需解码、16 位色，但传输量大。
+  - `pal16`：4 色 RLE，实测 **877 字节/帧**，解码极快 → **刷新率最高**、像素风效果最佳（**已采用**）。
+  - `png`/`jpeg`：需额外解码器（inflate/JPEG），CPU/Flash 开销大、延迟高，不推荐。
+- 无 GPS fix 显示 `NO GPS`、无 WiFi 显示 `NO WIFI`；PUSH 手动刷新。
   - 页面会**扫描并列出附近 WiFi**（下拉选择，或手动输入隐藏 SSID），选好填密码即可。
   - 保存后页面**轮询状态**：`CONNECTING...` → `CONNECTED <IP>`（失败约 20s 后显示 `FAILED`）。
   - 配网成功后写入 NVS；之后**开机自动连接**（同时保留 SoftAP 作为备用）。

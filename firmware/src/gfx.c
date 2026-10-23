@@ -3,6 +3,7 @@
 #include "font5x7.h"
 #include "esp_heap_caps.h"
 #include <math.h>
+#include <string.h>
 
 /* The framebuffer lives in PSRAM (150 KB) so internal DRAM is free for WiFi;
  * fall back to internal RAM if PSRAM is unavailable. */
@@ -44,6 +45,20 @@ void gfx_pixel(int x, int y, uint16_t c) {
     y = (int)lroundf((y + s_dy) * s_scale);
     if (x < s_cx0 || x >= s_cx1 || y < s_cy0 || y >= s_cy1) return;
     s_fb[y * LCD_W + x] = c;
+}
+
+void gfx_blit(int x, int y, const uint16_t *src, int w, int h, int stride) {
+    for (int r = 0; r < h; r++) {
+        int dy = y + r + s_dy;
+        if (dy < s_cy0 || dy >= s_cy1) continue;
+        int sx = x + s_dx;
+        int x0 = sx, x1 = sx + w;
+        if (x0 < s_cx0) x0 = s_cx0;
+        if (x1 > s_cx1) x1 = s_cx1;
+        if (x1 <= x0) continue;
+        const uint16_t *s = src + (size_t)r * stride + (x0 - sx);
+        memcpy(&s_fb[(size_t)dy * LCD_W + x0], s, (size_t)(x1 - x0) * sizeof(uint16_t));
+    }
 }
 
 void gfx_fill(int x, int y, int w, int h, uint16_t c) {

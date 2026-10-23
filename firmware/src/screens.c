@@ -15,6 +15,7 @@
 #include "geo.h"
 #include "tstore.h"
 #include "netcfg.h"
+#include "nav.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -91,8 +92,8 @@ static void render_home(void) {
     gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
     if (((int)(g.now / 500)) % 2 == 0)
         gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
-    for (int i = 0; i < 5; i++) {
-        int dx = CW / 2 - 24 + i * 12;
+    for (int i = 0; i < 6; i++) {
+        int dx = CW / 2 - 30 + i * 12;
         gfx_fill(dx, 150, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
     hint_c("UP/DOWN  SWITCH PAGE", 166); /* kept */
@@ -173,6 +174,65 @@ static void render_perf(void) {
     gfx_text_center(CW / 2, 136, st, sc, 1);
     if (!has_fix) gfx_text(6, 184, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
     else gfx_text(6, 184, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
+}
+
+/* ================= NAVIGATION (real-time pixel road map) ================= */
+static void render_nav(void) {
+    gps_state_t *gp = gps_get();
+    char b[32];
+
+    /* map image (server-rendered, heading-up, centred on us) */
+    int mw = 0, mh = 0;
+    const uint16_t *img = nav_frame_lock(&mw, &mh);
+    if (img && mw > 0) {
+        gfx_blit(0, 0, img, mw, mh, mw);
+    } else {
+        gfx_fill(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapbg);
+        gfx_rect(0, 0, NAV_IMG_SIZE, NAV_IMG_SIZE, PAL.mapborder);
+        gfx_text_center(NAV_IMG_SIZE / 2, 92,
+                        nav_status() == 4 ? "NO WIFI" : (nav_status() == 5 ? "NO GPS FIX" : "MAP LOADING..."),
+                        PAL.dim, 1);
+    }
+    nav_frame_unlock();
+
+    /* self arrow (heading-up -> always points up) */
+    int cx = NAV_IMG_SIZE / 2, cy = NAV_IMG_SIZE / 2;
+    int ax[3] = { cx, cx - 9, cx + 9 };
+    int ay[3] = { cy - 12, cy + 9, cy + 9 };
+    gfx_poly_fill(ax, ay, 3, PAL.cyan);
+    gfx_line(cx, cy - 12, cx - 9, cy + 9, PAL.white);
+    gfx_line(cx - 9, cy + 9, cx + 9, cy + 9, PAL.white);
+    gfx_line(cx + 9, cy + 9, cx, cy - 12, PAL.white);
+
+    /* info column */
+    int rx = NAV_IMG_SIZE + 4;
+    gfx_text(rx, 2, "NAV", PAL.cyan, 1);
+    snprintf(b, sizeof b, "%d", (int)lroundf(gp->speed_kmh));
+    gfx_text(rx, 18, b, PAL.white, 4);
+    gfx_text(rx, 50, "KM/H", PAL.dim, 1);
+
+    const char *fx = gp->fix_type == 2 ? "3D FIX" : (gp->fix_type == 1 ? "2D FIX" : "NO FIX");
+    gfx_text(rx, 70, fx, gp->fix_type >= 1 ? PAL.green : PAL.red, 0);
+    snprintf(b, sizeof b, "SAT %d", gp->sats_used);
+    gfx_text(rx, 84, b, PAL.dim, 0);
+    gfx_text(rx, 98, netcfg_connected() ? "WIFI OK" : "NO WIFI",
+             netcfg_connected() ? PAL.green : PAL.red, 0);
+
+    const char *ms; uint16_t mc;
+    switch (nav_status()) {
+    case 1: ms = "MAP OK"; mc = PAL.green; break;
+    case 2: ms = "MAP ERR"; mc = PAL.red; break;
+    case 3: ms = "DECODE ERR"; mc = PAL.red; break;
+    case 4: ms = "NO WIFI"; mc = PAL.red; break;
+    case 5: ms = "NO GPS"; mc = PAL.orange; break;
+    default: ms = "MAP..."; mc = PAL.dim; break;
+    }
+    gfx_text(rx, 112, ms, mc, 0);
+    int age = nav_age_ms();
+    if (age >= 0) { snprintf(b, sizeof b, "%dms", age); gfx_text(rx, 126, b, PAL.dim, 0); }
+    snprintf(b, sizeof b, "HDG %d", (int)lroundf(gp->course));
+    gfx_text(rx, 140, b, PAL.dim, 0);
+    gfx_text(rx, 184, "PUSH REF - BACK", PAL.dim, 0);
 }
 
 /* ================= WIFI SETUP (SoftAP + phone web page) ================= */
@@ -1119,6 +1179,7 @@ void screens_render(void) {
     switch (g.cur) {
     case SC_HOME: render_home(); break;
     case SC_PERF: render_perf(); break;
+    case SC_NAV: render_nav(); break;
     case SC_WIFI_SETUP: render_wifi_setup(); break;
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
@@ -1147,6 +1208,7 @@ void screens_render(void) {
 /* ================= enter ================= */
 void screens_enter(scid_t id) {
     s_map_ready = false;
+    nav_set_active(id == SC_NAV);
     switch (id) {
     case SC_IMU_CALIB:
         g.imu_phase = 0; g.imu_ns = 0; g.imu_progress = 0; g.imu_stable = false;
@@ -1427,6 +1489,12 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_PUSH) app_go(SC_MODE_SELECT, 1);
         else if (ev->button == BTN_DOWN) app_go_home(1);
         else if (ev->button == BTN_UP) app_go_home(-1);
+        break;
+
+    case SC_NAV:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) { nav_refresh(); app_toast("MAP REFRESH"); }
+        else if (ev->button == BTN_BACK) app_go_home(-1);
         break;
 
     case SC_WIFI_SETUP:
@@ -1839,6 +1907,11 @@ void screens_chrome(void) {
     case SC_PERF:
         snprintf(g.status, sizeof g.status, "PERF %s  %s", g.perf_mode == 0 ? "0-100" : "100-0",
                  g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");
+        break;
+    case SC_NAV:
+        snprintf(g.status, sizeof g.status, "NAV  %.0f KM/H  %s  %s",
+                 gps_get()->speed_kmh, netcfg_connected() ? "WIFI" : "NO WIFI",
+                 nav_status() == 1 ? "MAP OK" : "MAP...");
         break;
     case SC_WIFI_SETUP: {
         char st[48]; netcfg_status(st, sizeof st);

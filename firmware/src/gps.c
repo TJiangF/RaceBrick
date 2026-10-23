@@ -152,6 +152,7 @@ static void handle_line(const char *raw) {
             if (f[3][0]) { s_st.lat = nmea_deg(f[3], f[4]); s_st.has_pos = true; }
             if (f[5][0]) s_st.lon = nmea_deg(f[5], f[6]);
             s_st.speed_kmh = atof(f[7]) * 1.852f;
+            if (nf > 8 && f[8][0]) s_st.course = atof(f[8]);
             if (nf > 9 && f[9][0] && strlen(f[9]) >= 6) {
                 s_st.day = nmea_u2(f[9]); s_st.month = nmea_u2(f[9] + 2); s_st.year = 2000 + nmea_u2(f[9] + 4);
             }

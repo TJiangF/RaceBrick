@@ -14,6 +14,8 @@ void gfx_set_scale(float s);
 
 void gfx_clear(uint16_t c);
 void gfx_pixel(int x, int y, uint16_t c);
+/* Copy a raw RGB565 image into the framebuffer (scale must be 1). */
+void gfx_blit(int x, int y, const uint16_t *src, int w, int h, int stride);
 void gfx_fill(int x, int y, int w, int h, uint16_t c);
 void gfx_rect(int x, int y, int w, int h, uint16_t c);      /* 1px outline */
 void gfx_rect2(int x, int y, int w, int h, int t, uint16_t c);

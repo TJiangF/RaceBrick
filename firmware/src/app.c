@@ -7,6 +7,7 @@
 #include "buzzer.h"
 #include "mpu6050.h"
 #include "tstore.h"
+#include "nav.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -20,7 +21,7 @@
 
 app_t g;
 
-static const scid_t HOME_PAGES[5] = {SC_HOME, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
+static const scid_t HOME_PAGES[6] = {SC_HOME, SC_NAV, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
 
 /* ================= records ================= */
 static void section_best_from_engine(const engine_t *e, histrec_t *r) {
@@ -126,7 +127,7 @@ void app_go(scid_t id, int dir) {
 }
 
 void app_go_home(int delta) {
-    int n = 5;
+    int n = 6;
     g.homeIndex = ((g.homeIndex + delta) % n + n) % n;
     app_go(HOME_PAGES[g.homeIndex], delta > 0 ? 1 : -1);
 }
@@ -475,6 +476,7 @@ void app_init(void) {
             }
         }
     }
+    nav_start();
     gps_set_rate(g.gps_rate_hz);   /* find the module and program its output rate */
     app_go(SC_IMU_CALIB, 1);
 }
