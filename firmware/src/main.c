@@ -11,6 +11,7 @@
 #include "gps.h"
 #include "battery.h"
 #include "buzzer.h"
+#include "netcfg.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -90,6 +91,12 @@ void app_main(void) {
 
         event_t ev;
         while (input_pop(&ev)) app_dispatch(&ev);
+
+        /* remote navigation commands from the phone (HTTP /api/control) */
+        int rcmd = netcfg_take_cmd();
+        if (rcmd == 1) app_go(SC_HOME, 1);
+        else if (rcmd == 2) app_go(SC_PERF, 1);
+        else if (rcmd == 3) app_go(SC_MODE_SELECT, 1);
 
         app_update(dt);
         app_render();
