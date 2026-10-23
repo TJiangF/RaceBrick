@@ -38,6 +38,8 @@ static char s_ap_ssid[24] = "RaceBrick";
 #define SCAN_MAX 16
 static wifi_ap_record_t s_aps[SCAN_MAX];
 static int s_naps = 0;
+static int64_t s_scan_us = 0;
+#define SCAN_FRESH_US 3000000   /* reuse a scan up to 3 s old */
 
 bool netcfg_running(void) { return s_started; }
 bool netcfg_connected(void) { return s_connected; }
@@ -130,17 +132,21 @@ static void do_scan(void) {
     memset(&sc, 0, sizeof(sc));
     s_naps = 0;
     if (!s_started) return;
-    if (esp_wifi_scan_start(&sc, true) != ESP_OK) return;
+    esp_err_t err = esp_wifi_scan_start(&sc, true);
+    if (err != ESP_OK) { ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err)); return; }
     uint16_t num = 0;
     esp_wifi_scan_get_ap_num(&num);
     if (num > SCAN_MAX) num = SCAN_MAX;
     uint16_t got = num;
     if (got) esp_wifi_scan_get_ap_records(&got, s_aps);
     s_naps = got;
+    s_scan_us = esp_timer_get_time();
+    ESP_LOGI(TAG, "scan: %d APs", s_naps);
 }
 
 static esp_err_t h_api_scan(httpd_req_t *req) {
-    if (s_naps == 0) do_scan();
+    /* refresh when the cached list is empty or stale so the page is live */
+    if (s_naps == 0 || esp_timer_get_time() - s_scan_us > SCAN_FRESH_US) do_scan();
     /* sorted indices by RSSI, skip hidden */
     int idx[SCAN_MAX], cnt = 0;
     for (int i = 0; i < s_naps; i++)
@@ -174,15 +180,16 @@ static esp_err_t h_api_rescan(httpd_req_t *req) {
 
 /* ---------------- pages / status ---------------- */
 static const char *PAGE =
-    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<title>RaceBrick WiFi</title></head>"
     "<body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
     "<h2 style=\"color:#4cf\">RaceBrick WiFi Setup</h2>"
     "<form method=\"POST\" action=\"/save\">"
-    "<label>WiFi network</label><br>"
+    "<label>WIFI</label><br>"
     "<select id=\"ssid\" name=\"ssid\" onchange=\"document.getElementById('ssidm').value=''\" "
     "style=\"width:100%;padding:10px;font-size:16px\"></select>"
-    "<input id=\"ssidm\" name=\"ssidm\" placeholder=\"or type SSID (hidden)\" "
+    "<input id=\"ssidm\" name=\"ssidm\" placeholder=\"or type WIFI name\" "
     "style=\"width:100%;padding:10px;font-size:16px;margin-top:8px\">"
     "<div style=\"margin:10px 0\"><button type=\"button\" onclick=\"rescan()\">Scan again</button></div>"
     "<label>Password</label><br>"
@@ -201,7 +208,8 @@ static const char *PAGE =
     "</script></body></html>";
 
 static const char *SAVEPAGE =
-    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
     "<body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
     "<h2 id=\"h\" style=\"color:#4cf\">Connecting...</h2>"
     "<p id=\"s\" style=\"font-size:16px\"></p>"
