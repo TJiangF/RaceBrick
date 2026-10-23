@@ -34,7 +34,11 @@ pio device monitor -b 115200              # 串口日志
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
 - 性能测试页（HOME 轮播页）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
-- WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1` 填家里 WiFi 的 SSID/密码，保存到 NVS 并连接；页面/设备显示状态与 IP。
+- WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
+  - 页面会**扫描并列出附近 WiFi**（下拉选择，或手动输入隐藏 SSID），选好填密码即可。
+  - 保存后页面**轮询状态**：`CONNECTING...` → `CONNECTED <IP>`（失败约 20s 后显示 `FAILED`）。
+  - 配网成功后写入 NVS；之后**开机自动连接**（同时保留 SoftAP 作为备用）。
+  - 同一 WiFi 下的手机可用 `http://<STA_IP>/api/status`、`/api/tracks`、`/api/scan`、`POST /api/control`。
 
 ### 内存 / Flash
 - 320×240 RGB565 帧缓冲（150 KB）放在 **8 MB Octal PSRAM（40 MHz）**，内部 DRAM 留给 WiFi（当前 RAM 46%）。

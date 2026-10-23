@@ -6,6 +6,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -30,15 +31,13 @@ static httpd_handle_t s_httpd = NULL;
 static bool s_started = false;
 static bool s_connecting = false;
 static bool s_connected = false;
+static int64_t s_connect_t0 = 0;
 static char s_ip[20] = "";
 static char s_ap_ssid[24] = "RaceBrick";
 
-static void setstr(uint8_t *dst, size_t cap, const char *src) {
-    size_t n = strlen(src);
-    if (n >= cap) n = cap - 1;
-    memcpy(dst, src, n);
-    dst[n] = 0;
-}
+#define SCAN_MAX 16
+static wifi_ap_record_t s_aps[SCAN_MAX];
+static int s_naps = 0;
 
 bool netcfg_running(void) { return s_started; }
 bool netcfg_connected(void) { return s_connected; }
@@ -46,13 +45,20 @@ const char *netcfg_ip(void) { return s_ip; }
 const char *netcfg_ap_ssid(void) { return s_ap_ssid; }
 
 void netcfg_status(char *buf, int cap) {
-    if (s_connected) snprintf(buf, cap, "CONNECTED  %s", s_ip);
-    else if (s_connecting) snprintf(buf, cap, "CONNECTING...");
-    else if (s_started) snprintf(buf, cap, "AP: %s", s_ap_ssid);
-    else snprintf(buf, cap, "NOT STARTED");
+    if (s_connected) {
+        snprintf(buf, cap, "CONNECTED %s", s_ip);
+    } else if (s_connecting) {
+        int sec = (int)((esp_timer_get_time() - s_connect_t0) / 1000000);
+        if (sec > 20) snprintf(buf, cap, "FAILED - CHECK SSID/PASSWORD");
+        else snprintf(buf, cap, "CONNECTING... %ds", sec);
+    } else if (s_started) {
+        snprintf(buf, cap, "AP: %s", s_ap_ssid);
+    } else {
+        snprintf(buf, cap, "NOT STARTED");
+    }
 }
 
-/* ---------------- credentials (NVS namespace "wifi") ---------------- */
+/* ---------------- credentials ---------------- */
 static void save_creds(const char *ssid, const char *pass) {
     nvs_handle_t h;
     if (nvs_open("wifi", NVS_READWRITE, &h) != ESP_OK) return;
@@ -78,6 +84,13 @@ bool netcfg_has_creds(void) {
     return load_creds(ssid, sizeof ssid, pass, sizeof pass);
 }
 
+static void setstr(uint8_t *dst, size_t cap, const char *src) {
+    size_t n = strlen(src);
+    if (n >= cap) n = cap - 1;
+    memcpy(dst, src, n);
+    dst[n] = 0;
+}
+
 static void start_sta(const char *ssid, const char *pass) {
     wifi_config_t sta;
     memset(&sta, 0, sizeof(sta));
@@ -87,6 +100,7 @@ static void start_sta(const char *ssid, const char *pass) {
     esp_wifi_set_config(WIFI_IF_STA, &sta);
     s_connected = false;
     s_connecting = true;
+    s_connect_t0 = esp_timer_get_time();
     esp_wifi_connect();
     ESP_LOGI(TAG, "connecting to '%s'...", ssid);
 }
@@ -99,7 +113,7 @@ static void wifi_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
             if (s_connecting) esp_wifi_connect();
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_connected = false;
-            if (s_connecting) esp_wifi_connect();   /* keep retrying */
+            if (s_connecting) esp_wifi_connect();
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
@@ -110,18 +124,97 @@ static void wifi_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     }
 }
 
-/* ---------------- web page ---------------- */
+/* ---------------- scan ---------------- */
+static void do_scan(void) {
+    wifi_scan_config_t sc;
+    memset(&sc, 0, sizeof(sc));
+    s_naps = 0;
+    if (!s_started) return;
+    if (esp_wifi_scan_start(&sc, true) != ESP_OK) return;
+    uint16_t num = 0;
+    esp_wifi_scan_get_ap_num(&num);
+    if (num > SCAN_MAX) num = SCAN_MAX;
+    uint16_t got = num;
+    if (got) esp_wifi_scan_get_ap_records(&got, s_aps);
+    s_naps = got;
+}
+
+static esp_err_t h_api_scan(httpd_req_t *req) {
+    if (s_naps == 0) do_scan();
+    /* sorted indices by RSSI, skip hidden */
+    int idx[SCAN_MAX], cnt = 0;
+    for (int i = 0; i < s_naps; i++)
+        if (s_aps[i].ssid[0]) idx[cnt++] = i;
+    for (int i = 1; i < cnt; i++)
+        for (int j = i; j > 0 && s_aps[idx[j]].rssi > s_aps[idx[j - 1]].rssi; j--) {
+            int t = idx[j]; idx[j] = idx[j - 1]; idx[j - 1] = t;
+        }
+    char b[1024];
+    int n = snprintf(b, sizeof b, "[");
+    for (int k = 0; k < cnt && n < (int)sizeof(b) - 80; k++) {
+        wifi_ap_record_t *a = &s_aps[idx[k]];
+        char es[40]; int e = 0;
+        for (const char *p = (const char *)a->ssid; *p && e < 38; p++) {
+            if (*p == '"' || *p == '\\') es[e++] = '\\';
+            es[e++] = *p;
+        }
+        es[e] = 0;
+        n += snprintf(b + n, sizeof(b) - n, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"auth\":%d}",
+                      k ? "," : "", es, a->rssi, a->authmode != WIFI_AUTH_OPEN ? 1 : 0);
+    }
+    n += snprintf(b + n, sizeof(b) - n, "]");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, b, n);
+}
+
+static esp_err_t h_api_rescan(httpd_req_t *req) {
+    do_scan();
+    return h_api_scan(req);
+}
+
+/* ---------------- pages / status ---------------- */
 static const char *PAGE =
-    "<!DOCTYPE html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\">"
-    "<title>RaceBrick WiFi</title></head><body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
+    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+    "<title>RaceBrick WiFi</title></head>"
+    "<body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
     "<h2 style=\"color:#4cf\">RaceBrick WiFi Setup</h2>"
     "<form method=\"POST\" action=\"/save\">"
-    "SSID<br><input name=\"ssid\" autocomplete=\"off\" style=\"width:100%;padding:10px;font-size:16px\"><br><br>"
-    "Password<br><input name=\"pass\" type=\"password\" style=\"width:100%;padding:10px;font-size:16px\"><br><br>"
+    "<label>WiFi network</label><br>"
+    "<select id=\"ssid\" name=\"ssid\" onchange=\"document.getElementById('ssidm').value=''\" "
+    "style=\"width:100%;padding:10px;font-size:16px\"></select>"
+    "<input id=\"ssidm\" name=\"ssidm\" placeholder=\"or type SSID (hidden)\" "
+    "style=\"width:100%;padding:10px;font-size:16px;margin-top:8px\">"
+    "<div style=\"margin:10px 0\"><button type=\"button\" onclick=\"rescan()\">Scan again</button></div>"
+    "<label>Password</label><br>"
+    "<input name=\"pass\" type=\"password\" style=\"width:100%;padding:10px;font-size:16px\"><br><br>"
     "<button style=\"padding:12px 22px;font-size:16px\">Connect</button>"
-    "</form><p id=\"s\" style=\"color:#9cf\"></p>"
-    "<script>setInterval(function(){fetch('/status').then(function(r){return r.text()}).then(function(t){"
-    "document.getElementById('s').textContent=t})},1000)</script></body></html>";
+    "</form>"
+    "<script>"
+    "function fill(l){var s=document.getElementById('ssid');s.innerHTML='';"
+    "if(!l.length){s.innerHTML='<option value=\"\">(no networks found)</option>';return;}"
+    "l.forEach(function(a){var o=document.createElement('option');o.value=a.ssid;"
+    "o.textContent=a.ssid+'  '+a.rssi+'dBm'+(a.auth?'  (locked)':'');s.appendChild(o);});}"
+    "function rescan(){document.getElementById('ssid').innerHTML='<option>scanning...</option>';"
+    "fetch('/api/rescan').then(r=>r.json()).then(fill).catch(function(){"
+    "document.getElementById('ssid').innerHTML='<option>(scan failed)</option>';});}"
+    "fetch('/api/scan').then(r=>r.json()).then(function(l){if(l&&l.length)fill(l);else rescan();}).catch(function(){});"
+    "</script></body></html>";
+
+static const char *SAVEPAGE =
+    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+    "<body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
+    "<h2 id=\"h\" style=\"color:#4cf\">Connecting...</h2>"
+    "<p id=\"s\" style=\"font-size:16px\"></p>"
+    "<p style=\"color:#888\">If it fails, check the password and try again.</p>"
+    "<p><a href=\"/\" style=\"color:#9cf\">back</a></p>"
+    "<script>"
+    "function poll(){fetch('/status').then(r=>r.text()).then(function(t){"
+    "document.getElementById('s').textContent=t;"
+    "if(t.indexOf('CONNECTED')===0){document.getElementById('h').textContent='Connected';"
+    "document.getElementById('s').textContent=t+'  ->  switch your phone to this WiFi, open http://'+t.split(' ').pop();}"
+    "});}"
+    "setInterval(poll,1000);poll();"
+    "</script></body></html>";
 
 static void urldecode(char *s) {
     char *d = s;
@@ -176,22 +269,18 @@ static esp_err_t h_save(httpd_req_t *req) {
     if (r <= 0) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no body"); return ESP_FAIL; }
     body[r] = 0;
 
-    char ssid[33], pass[65];
+    char ssid[33], ssidm[33], pass[65];
     getfield(body, "ssid", ssid, sizeof ssid);
+    getfield(body, "ssidm", ssidm, sizeof ssidm);
     getfield(body, "pass", pass, sizeof pass);
-    if (!ssid[0]) { httpd_resp_send(req, "SSID required", HTTPD_RESP_USE_STRLEN); return ESP_OK; }
+    const char *use = ssidm[0] ? ssidm : ssid;
+    if (!use[0]) { httpd_resp_send(req, "SSID required", HTTPD_RESP_USE_STRLEN); return ESP_OK; }
 
-    save_creds(ssid, pass);
-    start_sta(ssid, pass);
+    save_creds(use, pass);
+    start_sta(use, pass);
 
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req,
-        "<!DOCTYPE html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\"></head>"
-        "<body style=\"font-family:sans-serif;margin:22px;background:#111;color:#eee\">"
-        "<h2 style=\"color:#4cf\">Saving...</h2><p>Connecting to your WiFi. You can close this page.</p>"
-        "<p><a href=\"/\" style=\"color:#9cf\">back</a></p></body></html>",
-        HTTPD_RESP_USE_STRLEN);
-    return ESP_OK;
+    return httpd_resp_send(req, SAVEPAGE, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t h_api_status(httpd_req_t *req) {
@@ -252,12 +341,16 @@ static void start_httpd(void) {
     httpd_uri_t u4 = { .uri = "/api/status", .method = HTTP_GET, .handler = h_api_status };
     httpd_uri_t u5 = { .uri = "/api/tracks", .method = HTTP_GET, .handler = h_api_tracks };
     httpd_uri_t u6 = { .uri = "/api/control", .method = HTTP_POST, .handler = h_api_control };
+    httpd_uri_t u7 = { .uri = "/api/scan", .method = HTTP_GET, .handler = h_api_scan };
+    httpd_uri_t u8 = { .uri = "/api/rescan", .method = HTTP_GET, .handler = h_api_rescan };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
     httpd_register_uri_handler(s_httpd, &u4);
     httpd_register_uri_handler(s_httpd, &u5);
     httpd_register_uri_handler(s_httpd, &u6);
+    httpd_register_uri_handler(s_httpd, &u7);
+    httpd_register_uri_handler(s_httpd, &u8);
 }
 
 void netcfg_start_ap(void) {
@@ -289,18 +382,15 @@ void netcfg_start_ap(void) {
     esp_wifi_set_config(WIFI_IF_AP, &ap);
 
     char ssid[33], pass[65];
-    if (load_creds(ssid, sizeof ssid, pass, sizeof pass)) {
-        wifi_config_t sta;
-        memset(&sta, 0, sizeof(sta));
-        setstr(sta.sta.ssid, sizeof(sta.sta.ssid), ssid);
-        setstr(sta.sta.password, sizeof(sta.sta.password), pass);
-        sta.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-        esp_wifi_set_config(WIFI_IF_STA, &sta);
-        s_connecting = true;
-    }
+    bool have_creds = load_creds(ssid, sizeof ssid, pass, sizeof pass);
 
     ESP_ERROR_CHECK(esp_wifi_start());
-    start_httpd();
     s_started = true;
-    ESP_LOGI(TAG, "SoftAP '%s' up, open http://192.168.4.1", s_ap_ssid);
+
+    /* scan while the STA is idle (scanning while connecting returns nothing) */
+    do_scan();
+    start_httpd();
+    ESP_LOGI(TAG, "SoftAP '%s' up, open http://192.168.4.1 (scan: %d APs)", s_ap_ssid, s_naps);
+
+    if (have_creds) start_sta(ssid, pass);   /* connect after the scan */
 }
