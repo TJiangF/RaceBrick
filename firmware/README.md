@@ -41,7 +41,12 @@ pio device monitor -b 115200              # 串口日志
 - **实时导航页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头，右上/右侧显示速度、GPS、WiFi 状态。
 
 ### 实时导航（Navigation）
-- 接口：`POST http://47.100.182.210:2020/api/v1/nav`，参数 `layer=road`、`style=pixel`、`theme=gameboy`、`format=pal16`、`coord=wgs84`、`size=200`、`size_m=400`、`heading=<GPS 航向>`。
+- 接口：`POST http://47.100.182.210:2020/api/v1/nav`，通用参数 `format=pal16`、`coord=wgs84`、`size=200`、`size_m=400`、`heading=<平滑航向>`；风格用 `mode` 选择：
+  - `"mode":"road","theme":"gameboy"` → 像素风路网（palCnt=4，实测 877 B/帧）
+  - `"mode":"satellite"` → 卫星原图（palCnt=16，约 27 KB/帧）
+  - `"mode":"blend","sat_opacity":30|60|90` → 卫星按透明度叠在路网上（palCnt=16，约 27 KB/帧；100 = 纯卫星）
+- **PUSH 菜单**（进入导航页后）：`REFRESH` 立即刷新；`STYLE` → `ROAD PIXEL` / `SATELLITE` / `BLEND 30%` / `BLEND 60%` / `BLEND 90%`，选择后立即重取并写入 NVS（重启保留）。未进入时 PUSH 启动、UP/DOWN 切轮播页。
+- 航向：GPS COG 在 <1.5 km/h 时无效，静止保持上次航向，运动时 ~0.35 s 低通平滑，避免地图乱转。
 - 后台任务取图 + RLE 解码到 PSRAM 双缓冲，主循环叠加箭头与信息；移动 >12 m / 转向 >12° / 每 2.5 s 触发重取（失败重试 3 次，退避 1/2 s）。
 - **图像格式对比**（200×200）：
   - `rgb565`：80 KB/帧，无需解码、16 位色，但传输量大。

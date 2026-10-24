@@ -36,6 +36,8 @@ static volatile int64_t s_last_us = 0;
 static uint32_t s_seq = 0;
 static double s_last_lat = 0, s_last_lon = 0;
 static float  s_last_hdg = 0;
+static int    s_mode = 0;     /* 0=road 1=satellite 2=blend */
+static int    s_sat = 60;     /* blend satellite opacity */
 static bool   s_req = false;
 static int64_t s_req_us = 0;
 
@@ -182,13 +184,17 @@ static void nav_task(void *arg) {
         s_force = false;
 
         s_seq++;
+        char modejson[72];
+        if (s_mode == 1) snprintf(modejson, sizeof modejson, "\"mode\":\"satellite\"");
+        else if (s_mode == 2) snprintf(modejson, sizeof modejson,
+                                       "\"mode\":\"blend\",\"sat_opacity\":%d", s_sat);
+        else snprintf(modejson, sizeof modejson, "\"mode\":\"road\",\"theme\":\"gameboy\"");
         char json[256];
         int jl = snprintf(json, sizeof json,
             "{\"device_id\":\"esp32s3-1\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
             "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"format\":\"pal16\","
-            "\"coord\":\"wgs84\",\"layer\":\"road\",\"style\":\"pixel\","
-            "\"theme\":\"gameboy\",\"process\":true}",
-            (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE);
+            "%s,\"coord\":\"wgs84\"}",
+            (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE, modejson);
 
         int bodyLen = -1;
         for (int attempt = 0; attempt < 3 && bodyLen < 0; attempt++) {
@@ -209,7 +215,8 @@ static void nav_task(void *arg) {
                 s_status = 1;
                 s_frames++;
                 s_last_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes", s_frames, w, h, bodyLen);
+                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d",
+                         s_frames, w, h, bodyLen, s_mode, s_sat);
             } else {
                 s_status = 3;
                 ESP_LOGW(TAG, "decode failed (%d bytes)", bodyLen);
@@ -237,6 +244,17 @@ void nav_start(void) {
 void nav_set_active(bool on) {
     s_active = on;
     if (on) s_force = true;
+}
+
+void nav_set_mode(int mode, int sat_opacity) {
+    if (mode < 0 || mode > 2) mode = 0;
+    if (sat_opacity < 0) sat_opacity = 0;
+    else if (sat_opacity > 100) sat_opacity = 100;
+    if (mode != s_mode || sat_opacity != s_sat) s_force = true;
+    s_mode = mode;
+    s_sat = sat_opacity;
+    ESP_LOGI(TAG, "mode -> %s%s", mode == 0 ? "road" : mode == 1 ? "satellite" : "blend",
+             mode == 2 ? "" : "");
 }
 
 void nav_refresh(void) { s_force = true; }

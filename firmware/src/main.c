@@ -12,7 +12,7 @@
 #include "battery.h"
 #include "buzzer.h"
 #include "netcfg.h"
-#include "netcfg.h"
+#include "nav.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -100,6 +100,7 @@ void app_main(void) {
         else if (rcmd == 2) app_go(SC_PERF, 1);
         else if (rcmd == 3) app_go(SC_MODE_SELECT, 1);
         else if (rcmd == 4) app_go(SC_GPS_DEBUG, 1);
+        else if (rcmd == 5) { app_go(SC_NAV, 1); g.entered = true; nav_set_active(true); nav_refresh(); }
 
         app_update(dt);
         app_render();

@@ -190,6 +190,41 @@ static void render_perf(void) {
 }
 
 /* ================= NAVIGATION (real-time pixel road map) ================= */
+static int nav_style_idx(void) {
+    if (g.nav_mode == 1) return 1;                 /* satellite */
+    if (g.nav_mode == 2) return g.nav_sat <= 30 ? 2 : (g.nav_sat <= 60 ? 3 : 4);
+    return 0;                                      /* road */
+}
+
+static void nav_apply_style(int i) {
+    if (i == 0) g.nav_mode = 0;
+    else if (i == 1) g.nav_mode = 1;
+    else { g.nav_mode = 2; g.nav_sat = i == 2 ? 30 : (i == 3 ? 60 : 90); }
+    nav_set_mode(g.nav_mode, g.nav_sat);
+    app_save_settings();
+}
+
+static void draw_nav_menu(void) {
+    if (!g.nav_menu) return;
+    static const char *it_main[2] = {"REFRESH", "STYLE"};
+    static const char *it_style[5] = {"ROAD PIXEL", "SATELLITE", "BLEND 30%", "BLEND 60%", "BLEND 90%"};
+    bool style = (g.nav_menu == 2);
+    const char **items = style ? it_style : it_main;
+    int n = style ? 5 : 2;
+    int bw = 176, rh = 18, top = 24;
+    int bh = top + n * rh + 16;
+    int bx = (CW - bw) / 2, by = (CH - bh) / 2;
+    gfx_fill(bx, by, bw, bh, PAL.stage);
+    gfx_rect(bx, by, bw, bh, PAL.cyan);
+    gfx_text(bx + 8, by + 7, style ? "STYLE" : "NAV", PAL.cyan, 1);
+    for (int i = 0; i < n; i++) {
+        int y = by + top + i * rh;
+        if (i == g.nav_sel) gfx_fill(bx + 4, y - 2, bw - 8, rh - 2, PAL.seltint);
+        gfx_text(bx + 12, y, items[i], i == g.nav_sel ? PAL.yellow : PAL.text, 1);
+    }
+    gfx_text(bx + 8, by + bh - 11, "UP/DN  PUSH OK", PAL.dim, 0);
+}
+
 static void render_nav(void) {
     gps_state_t *gp = gps_get();
     char b[32];
@@ -253,7 +288,9 @@ static void render_nav(void) {
     snprintf(b, sizeof b, "HDG %d", (int)lroundf(nav_heading()));
     gfx_text(rx, 140, b, PAL.dim, 0);
     gfx_text(rx, 156, gps_pps_ok() ? "PPS OK" : "PPS --", gps_pps_ok() ? PAL.green : PAL.dim, 0);
-    gfx_text(rx, 184, g.entered ? "PUSH REF - BACK" : "PUSH START - BACK", PAL.dim, 0);
+    gfx_text(rx, 184, g.entered ? "PUSH MENU - BACK" : "PUSH START - BACK", PAL.dim, 0);
+
+    draw_nav_menu();
 }
 
 /* ================= WIFI SETUP (SoftAP + phone web page) ================= */
@@ -1247,7 +1284,7 @@ void screens_enter(scid_t id) {
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
-    case SC_NAV: g.entered = false; break;
+    case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
@@ -1522,6 +1559,29 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_NAV:
+        if (g.nav_menu) {
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_BACK) {
+                g.nav_menu = (g.nav_menu == 2) ? 1 : 0;
+                g.nav_sel = (g.nav_menu == 1) ? 1 : 0;
+                return;
+            }
+            int cnt = (g.nav_menu == 2) ? 5 : 2;
+            if (d) { g.nav_sel = (g.nav_sel + d + cnt) % cnt; return; }
+            if (ev->button == BTN_PUSH) {
+                if (g.nav_menu == 1) {
+                    if (g.nav_sel == 0) { nav_refresh(); app_toast("MAP REFRESH"); g.nav_menu = 0; }
+                    else { g.nav_menu = 2; g.nav_sel = nav_style_idx(); }
+                } else {
+                    int i = g.nav_sel;
+                    nav_apply_style(i);
+                    app_toast(i == 0 ? "ROAD PIXEL" : i == 1 ? "SATELLITE" :
+                              i == 2 ? "BLEND 30%" : i == 3 ? "BLEND 60%" : "BLEND 90%");
+                    g.nav_menu = 0;
+                }
+            }
+            return;
+        }
         if (!g.entered) {
             if (d) { app_go_home(d); return; }
             if (ev->type != EV_PRESS) return;
@@ -1530,8 +1590,8 @@ void screens_handle(const event_t *ev) {
             break;
         }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { nav_refresh(); app_toast("MAP REFRESH"); }
-        else if (ev->button == BTN_BACK) { g.entered = false; nav_set_active(false); }
+        if (ev->button == BTN_PUSH) { g.nav_menu = 1; g.nav_sel = 0; }
+        else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); }
         break;
 
     case SC_WIFI_SETUP:

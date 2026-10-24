@@ -385,6 +385,8 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
     if (nvs_get_i32(h, "sndfix", &v) == ESP_OK) g.set_snd_fix = v ? 1 : 0;
     if (nvs_get_i32(h, "gpshz", &v) == ESP_OK) g.gps_rate_hz = v;
+    if (nvs_get_i32(h, "navmode", &v) == ESP_OK) g.nav_mode = v;
+    if (nvs_get_i32(h, "navsat", &v) == ESP_OK) g.nav_sat = v;
     if (nvs_get_i32(h, "ptrig", &v) == ESP_OK) g.perf_trig_g100 = v;
     nvs_close(h);
 }
@@ -403,6 +405,8 @@ void app_save_settings(void) {
     nvs_set_i32(h, "sndcal", g.set_snd_calib);
     nvs_set_i32(h, "sndfix", g.set_snd_fix);
     nvs_set_i32(h, "gpshz", g.gps_rate_hz);
+    nvs_set_i32(h, "navmode", g.nav_mode);
+    nvs_set_i32(h, "navsat", g.nav_sat);
     nvs_set_i32(h, "ptrig", g.perf_trig_g100);
     nvs_commit(h);
     nvs_close(h);
@@ -420,6 +424,8 @@ void app_init(void) {
     g.set_sound_vol = START_SOUND_VOL;
     g.set_snd_confirm = true; g.set_snd_calib = true; g.set_snd_fix = true;
     g.gps_rate_hz = 10;
+    g.nav_mode = 0;
+    g.nav_sat = 60;
     g.perf_trig_g100 = START_PERF_TRIG;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     /* load persisted settings */
@@ -477,6 +483,7 @@ void app_init(void) {
         }
     }
     nav_start();
+    nav_set_mode(g.nav_mode, g.nav_sat);
     /* bring the module up in its 1 Hz idle mode; a GNSS page bumps it later */
     gps_set_rate(1);
     app_go(SC_IMU_CALIB, 1);

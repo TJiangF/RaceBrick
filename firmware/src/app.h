@@ -69,6 +69,10 @@ typedef struct {
     int set_brightness, set_ledcolor, set_ledbright; bool set_wifi, set_bt;
     int set_sound_vol; bool set_snd_confirm, set_snd_calib, set_snd_fix;
     int gps_rate_hz;           /* GPS output rate: 1 / 5 / 10 / 25 Hz */
+    int nav_mode;              /* nav style: 0=road 1=satellite 2=blend */
+    int nav_sat;               /* blend satellite opacity 0..100 */
+    int nav_menu;              /* 0 closed, 1 main menu, 2 style menu */
+    int nav_sel;
 
     /* real MPU6050 (IMU debug page) */
     bool  imu_ok;
