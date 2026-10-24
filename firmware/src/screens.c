@@ -273,10 +273,13 @@ static void render_nav(void) {
     gfx_text(rx, 98, netcfg_connected() ? "WIFI OK" : "NO WIFI",
              netcfg_connected() ? PAL.green : PAL.red, 0);
 
-    const char *ms; uint16_t mc;
+    const char *ms; uint16_t mc; char eb[20];
     switch (nav_status()) {
     case 1: ms = "MAP OK"; mc = PAL.green; break;
-    case 2: ms = "MAP ERR"; mc = PAL.red; break;
+    case 2:
+        if (nav_http_code()) { snprintf(eb, sizeof eb, "HTTP %d", nav_http_code()); ms = eb; }
+        else ms = "MAP ERR";
+        mc = PAL.red; break;
     case 3: ms = "DECODE ERR"; mc = PAL.red; break;
     case 4: ms = "NO WIFI"; mc = PAL.red; break;
     case 5: ms = "NO GPS"; mc = PAL.orange; break;

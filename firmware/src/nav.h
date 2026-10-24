@@ -12,6 +12,7 @@ void nav_set_active(bool on);    /* enable fetching while the nav screen is open
 void nav_refresh(void);          /* request a new tile now */
 float nav_heading(void);         /* smoothed heading used by the map (deg) */
 void nav_set_mode(int mode, int sat_opacity);  /* 0=road 1=satellite 2=blend */
+int  nav_http_code(void);        /* HTTP status of the last fetch (0 = comms) */
 
 /* status: 0 idle, 1 ok, 2 http error, 3 decode error, 4 no wifi, 5 no fix */
 int  nav_status(void);

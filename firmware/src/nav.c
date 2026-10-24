@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "esp_random.h"
 #include "esp_mac.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -30,6 +31,8 @@ static volatile bool s_active = false;
 static volatile bool s_force = false;
 static volatile bool s_have = false;
 static volatile int  s_status = 0;
+static volatile int  s_http_code = 0;
+static int           s_fail = 0;
 static volatile int  s_frames = 0;
 static volatile int  s_bytes = 0;
 static volatile int  s_w = 0, s_h = 0;
@@ -45,6 +48,7 @@ static bool   s_req = false;
 static int64_t s_req_us = 0;
 
 int nav_status(void) { return s_status; }
+int nav_http_code(void) { return s_http_code; }
 int nav_frames(void) { return s_frames; }
 int nav_last_bytes(void) { return s_bytes; }
 int nav_age_ms(void) { return s_last_us ? (int)((esp_timer_get_time() - s_last_us) / 1000) : -1; }
@@ -78,7 +82,8 @@ static bool  s_hdg_ok = false;
 #define HDG_MIN_KMH 1.5f
 
 static float hdg_update(float raw, float kmh, float dt) {
-    if (kmh < HDG_MIN_KMH) return s_hdg_ok ? s_hdg : raw;
+    /* never moved yet: COG is pure noise, hold north-up instead of spinning */
+    if (kmh < HDG_MIN_KMH) return s_hdg_ok ? s_hdg : 0.0f;
     if (!s_hdg_ok) { s_hdg = raw; s_hdg_ok = true; return s_hdg; }
     if (dt > 0.5f) dt = 0.5f;
     float k = 1.0f - expf(-dt / 0.35f);      /* ~0.35 s time constant */
@@ -90,6 +95,7 @@ float nav_heading(void) { return s_hdg_ok ? s_hdg : 0.0f; }
 
 /* ---- HTTP POST, read the pal16 body ---- */
 static int http_fetch(const char *json, int jlen) {
+    s_http_code = 0;
     esp_http_client_config_t cfg = {
         .url = NAV_URL,
         .method = HTTP_METHOD_POST,
@@ -107,6 +113,7 @@ static int http_fetch(const char *json, int jlen) {
         if (wr == jlen) {
             int clen = esp_http_client_fetch_headers(c);
             int code = esp_http_client_get_status_code(c);
+            s_http_code = code;
             if (code == 200) {
                 int total = 0;
                 if (clen > 0) {
@@ -179,8 +186,14 @@ static void nav_task(void *arg) {
         if (!(gp->fix_type >= 1 && gp->has_pos)) { s_status = 5; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
         /* rate-limit: satellite/blend tiles are ~27 KB and server-rendered, so
          * asking for a new seq on every 12 m / 12 deg change overloads it */
-        int64_t min_us = (int64_t)(s_mode == 0 ? 1200 : 2200) * 1000;
-        if (s_req && !s_force && now - s_req_us < min_us) {
+        int64_t wait_us = (int64_t)(s_mode == 0 ? 1200 : 2200) * 1000;
+        if (s_fail) {   /* back off while the backend is erroring */
+            int sh = s_fail > 3 ? 3 : s_fail - 1;
+            int64_t b = ((int64_t)5 * 1000000) << sh;   /* 5/10/20/40 s */
+            if (b > 30000000) b = 30000000;
+            if (b > wait_us) wait_us = b;
+        }
+        if (s_req && !s_force && now - s_req_us < wait_us) {
             vTaskDelay(pdMS_TO_TICKS(80));
             continue;
         }
@@ -211,6 +224,8 @@ static void nav_task(void *arg) {
         for (int attempt = 0; attempt < 3 && bodyLen < 0; attempt++) {
             if (attempt) vTaskDelay(pdMS_TO_TICKS(1000 << (attempt - 1)));
             bodyLen = http_fetch(json, jl);
+            /* don't hammer a rate-limited / failing backend */
+            if (bodyLen < 0 && (s_http_code == 429 || s_http_code == 502 || s_http_code == 503)) break;
         }
         s_req_us = esp_timer_get_time();
         s_last_lat = lat; s_last_lon = lon; s_last_hdg = hd; s_req = true;
@@ -225,16 +240,21 @@ static void nav_task(void *arg) {
                 xSemaphoreGive(s_lock);
                 s_status = 1;
                 s_frames++;
+                s_fail = 0;
                 s_last_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d",
-                         s_frames, w, h, bodyLen, s_mode, s_sat);
+                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d, heap %u",
+                         s_frames, w, h, bodyLen, s_mode, s_sat,
+                         (unsigned)esp_get_free_heap_size());
             } else {
                 s_status = 3;
+                s_fail++;
                 ESP_LOGW(TAG, "decode failed (%d bytes)", bodyLen);
             }
         } else {
             s_status = 2;
-            ESP_LOGW(TAG, "fetch failed");
+            s_fail++;
+            ESP_LOGW(TAG, "fetch failed (HTTP %d, heap %u)", s_http_code,
+                     (unsigned)esp_get_free_heap_size());
         }
         vTaskDelay(pdMS_TO_TICKS(80));
     }
