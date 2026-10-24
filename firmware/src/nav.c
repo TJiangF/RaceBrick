@@ -9,6 +9,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "esp_random.h"
+#include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -34,6 +36,7 @@ static volatile int  s_w = 0, s_h = 0;
 static volatile int64_t s_last_us = 0;
 
 static uint32_t s_seq = 0;
+static char s_devid[24] = "esp32s3-1";
 static double s_last_lat = 0, s_last_lon = 0;
 static float  s_last_hdg = 0;
 static int    s_mode = 0;     /* 0=road 1=satellite 2=blend */
@@ -115,6 +118,7 @@ static int http_fetch(const char *json, int jlen) {
                         total += r;
                     }
                     if (total == clen) ret = total;
+                    else ESP_LOGW(TAG, "short body %d/%d", total, clen);
                 } else {   /* chunked fallback */
                     for (;;) {
                         int r = esp_http_client_read(c, (char *)s_body + total, NAV_BODY_MAX - total);
@@ -173,6 +177,13 @@ static void nav_task(void *arg) {
         float hd = hdg_update(gp->course, gp->speed_kmh, dt);
         if (!netcfg_connected()) { s_status = 4; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
         if (!(gp->fix_type >= 1 && gp->has_pos)) { s_status = 5; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
+        /* rate-limit: satellite/blend tiles are ~27 KB and server-rendered, so
+         * asking for a new seq on every 12 m / 12 deg change overloads it */
+        int64_t min_us = (int64_t)(s_mode == 0 ? 1200 : 2200) * 1000;
+        if (s_req && !s_force && now - s_req_us < min_us) {
+            vTaskDelay(pdMS_TO_TICKS(80));
+            continue;
+        }
         double lat = gp->lat, lon = gp->lon;
         bool need = !s_req || s_force;
         if (s_req && !need) {
@@ -191,10 +202,10 @@ static void nav_task(void *arg) {
         else snprintf(modejson, sizeof modejson, "\"mode\":\"road\",\"theme\":\"gameboy\"");
         char json[256];
         int jl = snprintf(json, sizeof json,
-            "{\"device_id\":\"esp32s3-1\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
+            "{\"device_id\":\"%s\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
             "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"format\":\"pal16\","
             "%s,\"coord\":\"wgs84\"}",
-            (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE, modejson);
+            s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE, modejson);
 
         int bodyLen = -1;
         for (int attempt = 0; attempt < 3 && bodyLen < 0; attempt++) {
@@ -231,6 +242,13 @@ static void nav_task(void *arg) {
 
 void nav_start(void) {
     if (s_task) return;
+    /* unique id + non-zero seq: the server caches by (device_id, seq) for 600 s,
+     * so a seq restarting at 0 after reboot would serve stale tiles */
+    s_seq = esp_random();
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK)
+        snprintf(s_devid, sizeof s_devid, "esp32s3-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    ESP_LOGI(TAG, "device %s  seq base %lu", s_devid, (unsigned long)s_seq);
     s_front = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_SIZE * NAV_IMG_SIZE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_back  = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_SIZE * NAV_IMG_SIZE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_body  = (uint8_t *)heap_caps_malloc(NAV_BODY_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
