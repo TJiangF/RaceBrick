@@ -250,7 +250,7 @@ static void render_nav(void) {
     gfx_text(rx, 112, ms, mc, 0);
     int age = nav_age_ms();
     if (age >= 0) { snprintf(b, sizeof b, "%dms", age); gfx_text(rx, 126, b, PAL.dim, 0); }
-    snprintf(b, sizeof b, "HDG %d", (int)lroundf(gp->course));
+    snprintf(b, sizeof b, "HDG %d", (int)lroundf(nav_heading()));
     gfx_text(rx, 140, b, PAL.dim, 0);
     gfx_text(rx, 156, gps_pps_ok() ? "PPS OK" : "PPS --", gps_pps_ok() ? PAL.green : PAL.dim, 0);
     gfx_text(rx, 184, g.entered ? "PUSH REF - BACK" : "PUSH START - BACK", PAL.dim, 0);

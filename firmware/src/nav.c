@@ -64,6 +64,25 @@ static float wrap180(float d) {
     return d;
 }
 
+/* Stable heading for the heading-up map.
+ * GPS course-over-ground is only meaningful while moving; when slow it is
+ * random noise, which made the map/arrow spin. Hold the last heading below
+ * ~1.5 km/h and low-pass the rest (like a nav app's compass smoothing). */
+static float s_hdg = 0;
+static bool  s_hdg_ok = false;
+#define HDG_MIN_KMH 1.5f
+
+static float hdg_update(float raw, float kmh, float dt) {
+    if (kmh < HDG_MIN_KMH) return s_hdg_ok ? s_hdg : raw;
+    if (!s_hdg_ok) { s_hdg = raw; s_hdg_ok = true; return s_hdg; }
+    if (dt > 0.5f) dt = 0.5f;
+    float k = 1.0f - expf(-dt / 0.35f);      /* ~0.35 s time constant */
+    s_hdg = wrap180(s_hdg + wrap180(raw - s_hdg) * k);
+    return s_hdg;
+}
+
+float nav_heading(void) { return s_hdg_ok ? s_hdg : 0.0f; }
+
 /* ---- HTTP POST, read the pal16 body ---- */
 static int http_fetch(const char *json, int jlen) {
     esp_http_client_config_t cfg = {
@@ -141,14 +160,18 @@ static bool pal16_decode(const uint8_t *b, int len, uint16_t *out, int *ow, int 
 
 static void nav_task(void *arg) {
     (void)arg;
+    int64_t tprev = 0;
     for (;;) {
-        if (!s_active) { vTaskDelay(pdMS_TO_TICKS(200)); continue; }
+        if (!s_active) { tprev = 0; vTaskDelay(pdMS_TO_TICKS(200)); continue; }
         gps_state_t *gp = gps_get();
-        if (!netcfg_connected()) { s_status = 4; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
-        if (!(gp->fix_type >= 1 && gp->has_pos)) { s_status = 5; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
-        double lat = gp->lat, lon = gp->lon;
-        float hd = gp->course;
+        /* keep the filtered heading warm even when no fetch is due */
         int64_t now = esp_timer_get_time();
+        float dt = tprev ? (float)(now - tprev) * 1e-6f : 0.1f;
+        tprev = now;
+        float hd = hdg_update(gp->course, gp->speed_kmh, dt);
+        if (!netcfg_connected()) { s_status = 4; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
+        if (!(gp->fix_type >= 1 && gp->has_pos)) { s_status = 5; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
+        double lat = gp->lat, lon = gp->lon;
         bool need = !s_req || s_force;
         if (s_req && !need) {
             if (dist_m(s_last_lat, s_last_lon, lat, lon) > 12.0f) need = true;
