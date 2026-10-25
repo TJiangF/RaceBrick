@@ -14,10 +14,13 @@
 #include "app.h"
 #include "gps.h"
 #include "tstore.h"
+#include "gfx.h"
 
 static const char *TAG = "netcfg";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static int s_cmd = 0;
+static int s_goto = -1;
+static int s_goto_enter = 0;
 
 int netcfg_take_cmd(void) {
     int c;
@@ -25,6 +28,14 @@ int netcfg_take_cmd(void) {
     c = s_cmd; s_cmd = 0;
     taskEXIT_CRITICAL(&s_mux);
     return c;
+}
+
+int netcfg_take_goto(int *enter) {
+    int n;
+    taskENTER_CRITICAL(&s_mux);
+    n = s_goto; s_goto = -1; *enter = s_goto_enter; s_goto_enter = 0;
+    taskEXIT_CRITICAL(&s_mux);
+    return n;
 }
 
 static httpd_handle_t s_httpd = NULL;
@@ -340,10 +351,49 @@ static esp_err_t h_api_control(httpd_req_t *req) {
     return httpd_resp_send(req, cmd ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
 }
 
+/* ---- debug/inspection endpoints ---- */
+static esp_err_t h_api_goto(httpd_req_t *req) {
+    char q[64] = {0}, v[16];
+    int n = -1, e = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK) {
+        if (httpd_query_key_value(q, "n", v, sizeof v) == ESP_OK) n = atoi(v);
+        if (httpd_query_key_value(q, "e", v, sizeof v) == ESP_OK) e = atoi(v);
+    }
+    if (n < 0 || n >= SC_COUNT) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad n");
+        return ESP_FAIL;
+    }
+    taskENTER_CRITICAL(&s_mux);
+    s_goto = n; s_goto_enter = e;
+    taskEXIT_CRITICAL(&s_mux);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"ok\":1}", HTTPD_RESP_USE_STRLEN);
+}
+
+/* raw 320x240 RGB565 framebuffer (native little-endian) for UI inspection.
+ * ?f=1 freezes the UI (no redraw) for a tear-free dump; ?f=0 unfreezes. */
+static esp_err_t h_api_fb(httpd_req_t *req) {
+    char q[32] = {0}, v[8];
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
+        httpd_query_key_value(q, "f", v, sizeof v) == ESP_OK) {
+        if (atoi(v) == 1) {
+            g_ui_freeze = true;
+            vTaskDelay(pdMS_TO_TICKS(80));   /* let the in-flight frame finish */
+        } else {
+            g_ui_freeze = false;
+            httpd_resp_set_type(req, "text/plain");
+            return httpd_resp_send(req, "ok", 2);
+        }
+    }
+    httpd_resp_set_type(req, "application/octet-stream");
+    return httpd_resp_send(req, (const char *)gfx_fb(), LCD_W * LCD_H * 2);
+}
+
 static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 4096;
+    cfg.max_uri_handlers = 12;   /* default 8; we have /, /status, /save + 9 API routes */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };
     httpd_uri_t u2 = { .uri = "/status", .method = HTTP_GET, .handler = h_status };
@@ -353,6 +403,8 @@ static void start_httpd(void) {
     httpd_uri_t u6 = { .uri = "/api/control", .method = HTTP_POST, .handler = h_api_control };
     httpd_uri_t u7 = { .uri = "/api/scan", .method = HTTP_GET, .handler = h_api_scan };
     httpd_uri_t u8 = { .uri = "/api/rescan", .method = HTTP_GET, .handler = h_api_rescan };
+    httpd_uri_t u9 = { .uri = "/api/goto", .method = HTTP_GET, .handler = h_api_goto };
+    httpd_uri_t u10 = { .uri = "/api/fb", .method = HTTP_GET, .handler = h_api_fb };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -361,6 +413,8 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u6);
     httpd_register_uri_handler(s_httpd, &u7);
     httpd_register_uri_handler(s_httpd, &u8);
+    httpd_register_uri_handler(s_httpd, &u9);
+    httpd_register_uri_handler(s_httpd, &u10);
 }
 
 void netcfg_start_ap(void) {

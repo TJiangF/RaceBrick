@@ -102,9 +102,19 @@ void app_main(void) {
         else if (rcmd == 4) app_go(SC_GPS_DEBUG, 1);
         else if (rcmd == 5) { app_go(SC_NAV, 1); g.entered = true; nav_set_active(true); nav_refresh(); }
 
+        int gent = 0;
+        int gid = netcfg_take_goto(&gent);
+        if (gid >= 0) {
+            app_go((scid_t)gid, 1);
+            if (gid == SC_NAV) { g.entered = true; nav_set_active(true); nav_refresh(); }
+            else if (gent) g.entered = true;
+        }
+
         app_update(dt);
-        app_render();
-        lcd_flush(gfx_fb());
+        if (!g_ui_freeze) {
+            app_render();
+            lcd_flush(gfx_fb());
+        }
 
         int64_t spent = esp_timer_get_time() - now;
         int64_t frame_us = (int64_t)(target_dt * 1e6f);

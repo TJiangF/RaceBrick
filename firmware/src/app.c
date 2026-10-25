@@ -20,6 +20,7 @@
 #include "freertos/task.h"
 
 app_t g;
+volatile bool g_ui_freeze = false;
 
 static const scid_t HOME_PAGES[6] = {SC_HOME, SC_NAV, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
 
@@ -200,36 +201,16 @@ void app_update(float dt) {
 }
 
 /* ================= chrome ================= */
-static void render_led_bar(void) {
-    gfx_fill(0, 0, LCD_W, LED_H, PAL.devicebg);
-    const int gap = 3, h = 11, y = (LED_H - h) / 2;
-    int pad = 84;                                  /* leave the top-left for the clock */
-    int w = (LCD_W - pad - 6 - 9 * gap) / LED_COUNT;
-    for (int i = 0; i < LED_COUNT; i++) {
-        uint16_t c = PAL.ledoff;
-        if (g.leds[i] == 1) c = PAL.red;
-        else if (g.leds[i] == 2) c = PAL.green;
-        gfx_fill(pad + i * (w + gap), y, w, h, c);
-    }
-}
-
-/* top-left clock: GPS UTC time + 8h (China time), shown on every screen */
-static void render_clock(void) {
-    gps_state_t *gp = gps_get();
-    char t[12];
-    if (!gp->has_time) {
-        gfx_text(4, (LED_H - 11) / 2, "--:--:--", PAL.dim, 1);
-        return;
-    }
-    int hh = gp->utc_h + 8;
-    if (hh >= 24) hh -= 24;
-    snprintf(t, sizeof t, "%02d:%02d:%02d", hh, gp->utc_m, gp->utc_s);
-    gfx_text(4, (LED_H - 11) / 2, t, PAL.cyan, 1);
-}
-
-static void render_status(void) {
-    gfx_fill(0, STATUS_Y, LCD_W, STATUS_H, PAL.statusbg);
-    gfx_text(6, STATUS_Y + (STATUS_H - 7) / 2, g.status, g.statusColor, 1);
+/* No top clock / LED bar / bottom status bar: pages use the full 240 px.
+ * The LED effects live on the real WS2812 strip (ledfx_update), and the
+ * per-page status is a compact overlay for screens that need it. */
+static void render_status_overlay(void) {
+    if (!g.status[0] || g.cur == SC_NAV) return;   /* nav has its own info column */
+    int w = gfx_text_w(g.status, 0) + 10;
+    if (w > 240) w = 240;
+    int x = 4, y = LCD_H - 14;
+    gfx_pxbox(x, y, w, 13, PAL.line, 1, PAL.statusbg);
+    gfx_text(x + 5, y + 3, g.status, g.statusColor, 0);
 }
 
 static void draw_multiline_center(int cx, int y, const char *s, uint16_t c, int scale, int lineH) {
@@ -316,7 +297,7 @@ static void render_battery(void) {
     if (pct > 100) pct = 100;
     snprintf(s, sizeof s, "%sV %d%%", v, pct);
     int w = gfx_text_w(s, 0) + 6;
-    int x = LCD_W - 4 - w, y = CONTENT_Y + 1;
+    int x = LCD_W - 4 - w, y = LCD_H - 14;
     gfx_pxbox(x, y, w, 12, PAL.line, 1, PAL.panel);
     uint16_t c = mv < 3400 ? PAL.red : (mv < 3600 ? PAL.orange : PAL.green);
     gfx_text(x + 3, y + 3, s, c, 0);
@@ -327,7 +308,7 @@ static void render_toast(void) {
     int w = gfx_text_w(g.toastMsg, 1) + 16;
     if (w > LCD_W - 20) w = LCD_W - 20;
     int x = (LCD_W - w) / 2;
-    int h = 18, y = STATUS_Y - h - 6;
+    int h = 18, y = LCD_H - h - 24;
     gfx_pxbox(x, y, w, h, PAL.cyan, 1, PAL.surface);
     gfx_text_center(LCD_W / 2, y + 6, g.toastMsg, PAL.white, 1);
 }
@@ -361,9 +342,7 @@ void app_render(void) {
 
     gfx_reset_view();
     screens_chrome();
-    render_led_bar();
-    render_clock();
-    render_status();
+    render_status_overlay();
     render_battery();
     render_toast();
     ledfx_update();

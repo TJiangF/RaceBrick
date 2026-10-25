@@ -20,7 +20,7 @@ static const char *TAG = "nav";
 
 #define NAV_URL        "http://47.100.182.210:2020/api/v1/nav"
 #define NAV_SIZE_M     400        /* ground side length (m) */
-#define NAV_BODY_MAX   (48 * 1024)
+#define NAV_BODY_MAX   (72 * 1024)   /* 240x240 pal16 worst case fits */
 
 static uint16_t *s_front = NULL, *s_back = NULL;
 static uint8_t  *s_body = NULL;
@@ -221,19 +221,24 @@ static void nav_task(void *arg) {
             s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE, modejson);
 
         int bodyLen = -1;
+        int64_t t0 = esp_timer_get_time();
         for (int attempt = 0; attempt < 3 && bodyLen < 0; attempt++) {
             if (attempt) vTaskDelay(pdMS_TO_TICKS(1000 << (attempt - 1)));
             bodyLen = http_fetch(json, jl);
             /* don't hammer a rate-limited / failing backend */
             if (bodyLen < 0 && (s_http_code == 429 || s_http_code == 502 || s_http_code == 503)) break;
         }
+        int64_t t1 = esp_timer_get_time();
         s_req_us = esp_timer_get_time();
         s_last_lat = lat; s_last_lon = lon; s_last_hdg = hd; s_req = true;
         s_bytes = bodyLen;
 
         if (bodyLen > 0) {
             int w = 0, h = 0;
-            if (pal16_decode(s_body, bodyLen, s_back, &w, &h)) {
+            int64_t t2 = esp_timer_get_time();
+            bool dec = pal16_decode(s_body, bodyLen, s_back, &w, &h);
+            int64_t t3 = esp_timer_get_time();
+            if (dec) {
                 xSemaphoreTake(s_lock, portMAX_DELAY);
                 uint16_t *t = s_front; s_front = s_back; s_back = t;
                 s_w = w; s_h = h; s_have = true;
@@ -242,8 +247,9 @@ static void nav_task(void *arg) {
                 s_frames++;
                 s_fail = 0;
                 s_last_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d, heap %u",
+                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d, req=%dms dec=%dms, heap %u",
                          s_frames, w, h, bodyLen, s_mode, s_sat,
+                         (int)((t1 - t0) / 1000), (int)((t3 - t2) / 1000),
                          (unsigned)esp_get_free_heap_size());
             } else {
                 s_status = 3;

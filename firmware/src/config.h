@@ -26,11 +26,9 @@
  * 240x320 GRAM (native portrait 240x320 -> landscape 320x240). */
 #define LCD_W   320
 #define LCD_H   240
-#define LED_H   18
-#define STATUS_H 22
-#define CONTENT_Y LED_H
-#define CONTENT_H (LCD_H - LED_H - STATUS_H) /* 200 */
-#define STATUS_Y (LCD_H - STATUS_H)          /* 218 */
+/* no top/bottom chrome any more: pages own the full panel */
+#define CONTENT_Y 0
+#define CONTENT_H LCD_H                       /* 240 */
 
 /* 1 = boot into the daylight theme (Settings > THEME toggles at runtime) */
 #define START_THEME_LIGHT 0

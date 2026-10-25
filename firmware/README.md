@@ -40,18 +40,25 @@ pio device monitor -b 115200              # 串口日志
 
 - **实时导航页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头，右上/右侧显示速度、GPS、WiFi 状态。
 
+### 页面布局（240px 全高）
+- 移除顶部时钟 + 10 颗模拟 LED、以及底部状态栏；320×240 全部给页面内容。
+- LED 效果全部由真实 WS2812 实现；底部状态改为**左下角小胶囊**，电量在右下角，Toast 浮层。
+- 列表随高度增加可见行数（Settings 6 行、Track List 4、History 4、History Detail 5、Track Edit 4），地图页地图高度 226。
+- 调试接口：`GET /api/fb[?f=1]` 导出 320×240 RGB565 帧缓冲（`f=1` 冻结渲染避免撕裂），`GET /api/goto?n=<scid>&e=1` 跳页。
+
 ### 实时导航（Navigation）
-- 接口：`POST http://47.100.182.210:2020/api/v1/nav`，通用参数 `format=pal16`、`coord=wgs84`、`size=200`、`size_m=400`、`heading=<平滑航向>`；风格用 `mode` 选择：
+- 接口：`POST http://47.100.182.210:2020/api/v1/nav`，通用参数 `format=pal16`、`coord=wgs84`、`size=240`、`size_m=400`、`heading=<平滑航向>`；风格用 `mode` 选择：
   - `"mode":"road","theme":"gameboy"` → 像素风路网（palCnt=4，实测 877 B/帧）
-  - `"mode":"satellite"` → 卫星原图（palCnt=16，约 27 KB/帧）
-  - `"mode":"blend","sat_opacity":30|60|90` → 卫星按透明度叠在路网上（palCnt=16，约 27 KB/帧；100 = 纯卫星）
+  - `"mode":"satellite"` → 卫星原图（palCnt=16，240×240 实测约 37 KB/帧）
+  - `"mode":"blend","sat_opacity":30|60|90` → 卫星按透明度叠在路网上（palCnt=16，约 37 KB/帧；100 = 纯卫星）
 - **PUSH 菜单**（进入导航页后）：`REFRESH` 立即刷新；`STYLE` → `ROAD PIXEL` / `SATELLITE` / `BLEND 30%` / `BLEND 60%` / `BLEND 90%`，选择后立即重取并写入 NVS（重启保留）。未进入时 PUSH 启动、UP/DOWN 切轮播页。
 - 航向：GPS COG 在 <1.5 km/h 时无效；运动时 ~0.35 s 低通平滑，静止保持上次航向，从未移动过则正北朝上（不转）。
-- 失败处理：保留上一帧；429/502/503 立即停止本次重试，失败后 5/10/20/30 s 指数退避；状态栏显示 `HTTP xxx`。road/blend 依赖天地图，若服务端 `TILE_FETCH_FAILED/302010`（tk 限流）会 502，可先用 SATELLITE。
+- 失败处理：保留上一帧；429/502/503 立即停止本次重试，失败后 5/10/20/30 s 指数退避；信息栏显示 `HTTP xxx`。road/blend 依赖天地图，若服务端 `TILE_FETCH_FAILED/302010`（tk 限流）会 502，可先用 SATELLITE。
 - 后台任务取图 + RLE 解码到 PSRAM 双缓冲，主循环叠加箭头与信息；移动 >12 m / 转向 >12° / 每 2.5 s 触发重取（失败重试 3 次，退避 1/2 s）。
-- **图像格式对比**（200×200）：
-  - `rgb565`：80 KB/帧，无需解码、16 位色，但传输量大。
-  - `pal16`：4 色 RLE，实测 **877 字节/帧**，解码极快 → **刷新率最高**、像素风效果最佳（**已采用**）。
+- **刷新率（240×240 satellite 实测）**：请求 0.5–0.9 s、解码 9–17 ms；帧间隔 ≈ 限流 + 请求 + 80 ms 循环。限流 road 1.2 s / satellite-blend 2.2 s（手动刷新可立即），实际 road ≈2 s、satellite ≈3–4 s/帧。放开限流理论上限约 1–2 fps（受服务端渲染/天地图配额限制）。
+- **图像格式对比**（240×240）：
+  - `rgb565`：115 KB/帧，无需解码、16 位色，但传输量大。
+  - `pal16`：RLE，road 4 色实测 **877 字节/帧**、satellite 16 色约 37 KB/帧，解码极快 → **刷新率最高**（**已采用**）。
   - `png`/`jpeg`：需额外解码器（inflate/JPEG），CPU/Flash 开销大、延迟高，不推荐。
 - 无 GPS fix 显示 `NO GPS`、无 WiFi 显示 `NO WIFI`；PUSH 手动刷新。
   - 页面会**扫描并列出附近 WiFi**（下拉选择，或手动输入隐藏 SSID），选好填密码即可。

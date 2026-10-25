@@ -139,6 +139,7 @@ typedef struct {
 } app_t;
 
 extern app_t g;
+extern volatile bool g_ui_freeze;   /* debug: stop rendering for a stable framebuffer dump */
 
 void app_go(scid_t id, int dir);
 void app_go_home(int delta);

@@ -13,5 +13,8 @@ const char *netcfg_ap_ssid(void);
 void netcfg_status(char *buf, int cap);
 
 /* Remote commands from the phone, polled by the main loop:
- * 1 = HOME, 2 = PERFORMANCE, 3 = START RACE, 0 = none. */
+ * 1 = HOME, 2 = PERFORMANCE, 3 = START RACE, 4 = GPS DEBUG, 5 = NAV, 0 = none. */
 int  netcfg_take_cmd(void);
+
+/* Debug: jump to any screen id (see scid_t). Returns -1 when none pending. */
+int  netcfg_take_goto(int *enter);

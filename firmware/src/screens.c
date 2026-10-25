@@ -26,6 +26,7 @@
 
 #define CW LCD_W
 #define CH CONTENT_H
+#define HINT_Y (CH - 30)   /* generic bottom hint, above the status pill */
 
 static tmap_t s_map;
 static bool   s_map_ready;
@@ -97,18 +98,18 @@ static const char *fix_str(int fix) {
 /* ================= HOME ================= */
 static void render_home(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    gfx_text_center(CW / 2, 40, "RACE", PAL.white, 3);
-    gfx_text_center(CW / 2, 68, "CHRONO", PAL.cyan, 2);
-    int bw = 190, bh = 34, bx = (CW - bw) / 2, by = 100;
+    gfx_text_center(CW / 2, 44, "RACE", PAL.white, 3);
+    gfx_text_center(CW / 2, 76, "CHRONO", PAL.cyan, 2);
+    int bw = 190, bh = 34, bx = (CW - bw) / 2, by = 116;
     gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
     if (((int)(g.now / 500)) % 2 == 0)
         gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
     for (int i = 0; i < 6; i++) {
         int dx = CW / 2 - 30 + i * 12;
-        gfx_fill(dx, 150, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
+        gfx_fill(dx, 170, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
-    hint_c("UP/DOWN  SWITCH PAGE", 166); /* kept */
-    hint_c("PUSH  START", 180);
+    hint_c("UP/DOWN  SWITCH PAGE", 200);
+    hint_c("PUSH  START", 214);
 }
 
 /* ================= PERFORMANCE (0-100 / 100-0) ================= */
@@ -157,20 +158,20 @@ static void render_perf(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     gfx_text(6, 2, "PERFORMANCE", PAL.cyan, 1);
 
-    panel_box(10, 22, 145, 28, g.perf_mode == 0, false);
-    panel_box(165, 22, 145, 28, g.perf_mode == 1, false);
-    gfx_text_center(82, 31, "0-100", g.perf_mode == 0 ? PAL.cyan : PAL.dim, 1);
-    gfx_text_center(237, 31, "100-0", g.perf_mode == 1 ? PAL.cyan : PAL.dim, 1);
+    panel_box(10, 24, 145, 30, g.perf_mode == 0, false);
+    panel_box(165, 24, 145, 30, g.perf_mode == 1, false);
+    gfx_text_center(82, 34, "0-100", g.perf_mode == 0 ? PAL.cyan : PAL.dim, 1);
+    gfx_text_center(237, 34, "100-0", g.perf_mode == 1 ? PAL.cyan : PAL.dim, 1);
 
-    gfx_text(18, 58, "SPEED", PAL.dim, 0);
+    gfx_text(18, 68, "SPEED", PAL.dim, 0);
     snprintf(b, sizeof b, "%d", (int)lroundf(gp->speed_kmh));
-    gfx_text(14, 68, b, PAL.white, 5);
-    gfx_text(72, 112, "KM/H", PAL.dim, 1);
+    gfx_text(14, 80, b, PAL.white, 5);
+    gfx_text(72, 126, "KM/H", PAL.dim, 1);
 
-    gfx_text(186, 58, "TIME", PAL.dim, 0);
+    gfx_text(186, 68, "TIME", PAL.dim, 0);
     float t = (g.perf_state == 2) ? (float)(esp_timer_get_time() - g.perf_t0_us) / 1e6f : g.perf_time;
     snprintf(b, sizeof b, "%.3f", t);
-    gfx_text(182, 68, b, g.perf_state == 3 ? PAL.gold : PAL.white, 3);
+    gfx_text(182, 80, b, g.perf_state == 3 ? PAL.gold : PAL.white, 4);
 
     bool has_fix = (gp->fix_type >= 1 && gp->has_pos);
     const char *st;
@@ -183,10 +184,10 @@ static void render_perf(void) {
     case 3: st = "DONE"; sc = PAL.gold; break;
     default: st = "PUSH TO ARM"; sc = PAL.dim; break;
     }
-    gfx_text_center(CW / 2, 136, st, sc, 1);
-    if (!g.entered) gfx_text(6, 184, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
-    else if (!has_fix) gfx_text(6, 184, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
-    else gfx_text(6, 184, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
+    gfx_text_center(CW / 2, 170, st, sc, 1);
+    if (!g.entered) gfx_text(6, HINT_Y, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
+    else if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
+    else gfx_text(6, HINT_Y, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
 /* ================= NAVIGATION (real-time pixel road map) ================= */
@@ -291,7 +292,8 @@ static void render_nav(void) {
     snprintf(b, sizeof b, "HDG %d", (int)lroundf(nav_heading()));
     gfx_text(rx, 140, b, PAL.dim, 0);
     gfx_text(rx, 156, gps_pps_ok() ? "PPS OK" : "PPS --", gps_pps_ok() ? PAL.green : PAL.dim, 0);
-    gfx_text(rx, 184, g.entered ? "PUSH MENU - BACK" : "PUSH START - BACK", PAL.dim, 0);
+    gfx_text(rx, 184, g.entered ? "PUSH MENU" : "PUSH START", PAL.dim, 0);
+    gfx_text(rx, 196, "BACK EXIT", PAL.dim, 0);
 
     draw_nav_menu();
 }
@@ -310,11 +312,11 @@ static void render_wifi_setup(void) {
     gfx_text(6, 86, "http://192.168.4.1", PAL.cyan, 1);
     gfx_text(6, 106, "3) enter home SSID / password", PAL.dim, 0);
 
-    gfx_pxbox(6, 126, CW - 12, 34, PAL.line, 1, PAL.panel);
-    gfx_text(12, 133, "STATUS", PAL.dim, 0);
-    gfx_text(12, 145, st, netcfg_connected() ? PAL.green : PAL.yellow, 1);
+    gfx_pxbox(6, 150, CW - 12, 40, PAL.line, 1, PAL.panel);
+    gfx_text(12, 157, "STATUS", PAL.dim, 0);
+    gfx_text(12, 172, st, netcfg_connected() ? PAL.green : PAL.yellow, 1);
 
-    gfx_text(6, 182, "PUSH RESTART AP - BACK EXIT", PAL.dim, 0);
+    gfx_text(6, HINT_Y, "PUSH RESTART AP - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= TRACK EDIT ================= */
@@ -323,15 +325,15 @@ static void render_track_edit(void) {
     title_c("TRACK EDIT", 6);
     hint_c("EDIT ON PHONE APP", 20);
     int y = 36;
-    for (int i = 0; i < g.ntracks && i < 3; i++) {
+    for (int i = 0; i < g.ntracks && i < 4; i++) {
         bool on = g.entered && i == g.sel;
-        panel_box(12, y, CW - 24, 44, on, false);
-        gfx_text(22, y + 8, g.tracks[i].name, PAL.white, 1);
-        gfx_text(22, y + 24, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
-        y += 48;
+        panel_box(12, y, CW - 24, 36, on, false);
+        gfx_text(22, y + 5, g.tracks[i].name, PAL.white, 1);
+        gfx_text(22, y + 20, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
+        y += 40;
     }
     if (!g.ntracks) hint_c("(NO TRACKS)", 60);
-    hint_c(g.entered ? "PUSH VIEW - BACK EXIT" : "PUSH EDIT - UP/DOWN PAGE", 182);
+    hint_c(g.entered ? "PUSH VIEW - BACK EXIT" : "PUSH EDIT - UP/DOWN PAGE", HINT_Y);
 }
 
 /* ================= SETTINGS ================= */
@@ -354,7 +356,7 @@ static void settings_val(int i, char *out) {
 static void render_settings(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("SETTINGS", 2);
-    const int K = 5, h = 32;
+    const int K = 6, h = 32;
     int start, end;
     windowed(12, g.sel, K, &start, &end);
     int y = 20;
@@ -376,8 +378,8 @@ static void render_sound(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("SOUND", 2);
     static const char *keys[4] = {"VOLUME", "CONFIRM", "CALIB", "3D FIX"};
-    const int h = 32;
-    int y = 24;
+    const int h = 40;
+    int y = 30;
     for (int i = 0; i < 4; i++) {
         bool on = i == g.sel;
         panel_box(10, y, CW - 20, h - 4, on, false);
@@ -391,12 +393,12 @@ static void render_sound(void) {
         gfx_text_right(CW - 18, y + 7, v, PAL.cyan, 2);
         y += h;
     }
-    hint_c("UP/DOWN SELECT - PUSH ADJUST - BACK", 182);
+    hint_c("UP/DOWN SELECT - PUSH ADJUST - BACK", HINT_Y);
 }
 
 /* ================= IMU DEBUG (real MPU6050) ================= */
 static void dbg_bar(int y, const char *label, float v, float half, uint16_t col) {
-    gfx_text(150, y, label, PAL.dim, 0);
+    gfx_text(160, y, label, PAL.dim, 0);
     int x0 = 176, w = 96, xc = x0 + w / 2;
     gfx_fill(x0, y + 1, w, 6, PAL.surface2);
     gfx_vline(xc, y - 1, 9, PAL.centerline);
@@ -415,7 +417,7 @@ static void render_imu_debug(void) {
              g.imu_ok ? PAL.green : PAL.red, 1);
 
     /* bubble level (tilt from accel X/Y) */
-    int cx = 76, cy = 112, R = 58;
+    int cx = 84, cy = 128, R = 68;
     gfx_circle(cx, cy, R, PAL.centerline);
     gfx_circle(cx, cy, R / 2, PAL.centerline);
     gfx_hline(cx - R, cy, 2 * R, PAL.centerline);
@@ -435,15 +437,15 @@ static void render_imu_debug(void) {
     gfx_text(cx - 12, cy + R + 5, "TILT", PAL.dim, 0);
 
     /* G force, calibrated to the boot pose (0 at rest) */
-    gfx_text(150, 34, "G FORCE", PAL.cyan, 0);
-    dbg_bar(46, "GX", g.i_ax, 2.0f, PAL.green);
-    dbg_bar(62, "GY", g.i_ay, 2.0f, PAL.green);
-    dbg_bar(78, "GZ", g.i_az, 2.0f, PAL.cyan);
+    gfx_text(160, 34, "G FORCE", PAL.cyan, 0);
+    dbg_bar(48, "GX", g.i_ax, 2.0f, PAL.green);
+    dbg_bar(68, "GY", g.i_ay, 2.0f, PAL.green);
+    dbg_bar(88, "GZ", g.i_az, 2.0f, PAL.cyan);
     /* rotation rate */
-    gfx_text(150, 94, "RATE d/s", PAL.cyan, 0);
-    dbg_bar(106, "RX", g.i_gx, 250.0f, PAL.yellow);
-    dbg_bar(122, "RY", g.i_gy, 250.0f, PAL.yellow);
-    dbg_bar(138, "RZ", g.i_gz, 250.0f, PAL.orange);
+    gfx_text(160, 108, "RATE d/s", PAL.cyan, 0);
+    dbg_bar(122, "RX", g.i_gx, 250.0f, PAL.yellow);
+    dbg_bar(142, "RY", g.i_gy, 250.0f, PAL.yellow);
+    dbg_bar(162, "RZ", g.i_gz, 250.0f, PAL.orange);
 
     char t[16];
     {
@@ -451,18 +453,18 @@ static void render_imu_debug(void) {
         float h1 = a3[(g.i_vaxis + 1) % 3], h2 = a3[(g.i_vaxis + 2) % 3];
         u_fmt_f(t, sizeof t, sqrtf(h1 * h1 + h2 * h2), 2);
     }
-    gfx_text(150, 158, "|G|", PAL.dim, 0);
-    gfx_text(172, 158, t, PAL.white, 0);
+    gfx_text(160, 180, "|G|", PAL.dim, 0);
+    gfx_text(182, 180, t, PAL.white, 0);
     u_fmt_f(t, sizeof t, g.i_gmax, 2);
-    gfx_text(228, 158, "PEAK", PAL.dim, 0);
-    gfx_text(256, 158, t, PAL.gold, 0);
+    gfx_text(228, 180, "PEAK", PAL.dim, 0);
+    gfx_text(256, 180, t, PAL.gold, 0);
 
     u_fmt_f(t, sizeof t, g.i_temp, 1);
-    gfx_text(150, 174, "TEMP", PAL.dim, 0);
-    gfx_text(180, 174, t, PAL.text, 0);
-    gfx_text(214, 174, "C", PAL.dim, 0);
+    gfx_text(160, 196, "TEMP", PAL.dim, 0);
+    gfx_text(190, 196, t, PAL.text, 0);
+    gfx_text(224, 196, "C", PAL.dim, 0);
 
-    gfx_text(6, 186, "PUSH TARE - BACK EXIT", PAL.dim, 0);
+    gfx_text(6, 216, "PUSH TARE - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= MODE SELECT ================= */
@@ -474,18 +476,18 @@ static void mode_box(int y, const char *name, const char *sub, bool sel) {
 static void render_mode_select(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("SELECT MODE", 6);
-    mode_box(40, "NEW TRACK", "MAP + RACE MODE", g.sel == 0);
-    mode_box(112, "RECORDED TRACK", "KNOWN TRACK", g.sel == 1);
-    hint_c("UP/DOWN SELECT - PUSH ENTER - BACK", 182);
+    mode_box(52, "NEW TRACK", "MAP + RACE MODE", g.sel == 0);
+    mode_box(128, "RECORDED TRACK", "KNOWN TRACK", g.sel == 1);
+    hint_c("UP/DOWN SELECT - PUSH ENTER - BACK", HINT_Y);
 }
 
 /* ================= MOUNT SELECT ================= */
 static void render_mount_select(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("MOUNTING", 6);
-    mode_box(40, "FIXED (CHASSIS)", "RIGID - TRUST IMU", g.sel == 0);
-    mode_box(112, "NOT FIXED (WHEEL)", "ROTATES - TRUST GPS", g.sel == 1);
-    hint_c("UP/DOWN SELECT - PUSH START - BACK", 182);
+    mode_box(52, "FIXED (CHASSIS)", "RIGID - TRUST IMU", g.sel == 0);
+    mode_box(128, "NOT FIXED (WHEEL)", "ROTATES - TRUST GPS", g.sel == 1);
+    hint_c("UP/DOWN SELECT - PUSH START - BACK", HINT_Y);
 }
 
 /* ================= NEW TRACK - MARK START ================= */
@@ -504,7 +506,7 @@ static void render_record_track(void) {
     }
 
     /* live recorded path */
-    int mx = 4, my = 36, mw = 184, mh = 126;
+    int mx = 4, my = 36, mw = 184, mh = 160;
     gfx_fill(mx, my, mw, mh, PAL.mapbg);
     gfx_rect(mx, my, mw, mh, PAL.mapborder);
     if (g.rec_n > 1) {
@@ -575,9 +577,9 @@ static void render_record_track(void) {
     else { hint = "WAIT 3D FIX"; hc = PAL.orange; }
     gfx_text(rx, 112, hint, hc, 1);
     if (gp->fix_type < 2)
-        gfx_text(6, 170, "DOWN: GPS DEBUG   BACK CANCEL", PAL.orange, 0);
+        gfx_text(6, 210, "DOWN: GPS DEBUG   BACK CANCEL", PAL.orange, 0);
     else
-        gfx_text(6, 170, "PUSH START/FINISH   BACK CANCEL", PAL.dim, 0);
+        gfx_text(6, 210, "PUSH START/FINISH   BACK CANCEL", PAL.dim, 0);
 }
 
 /* ================= RACING ================= */
@@ -590,7 +592,7 @@ static void render_panel_dots(void) {
 
 static void racing_map(bool recorded, engine_t *e, float dt) {
     if (!s_map_ready) {
-        map_init(&s_map, 0, 0, 150, 200);
+        map_init(&s_map, 0, 0, 150, 226);
         if (recorded && e->track) map_set_track(&s_map, e->track);
         s_map_ready = true;
     }
@@ -629,7 +631,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
         u_fmt_delta(b2, sizeof b2, e->diff, 3);
         uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
         gfx_text(rx, 44, b2, dc, 2);
-        int shown = e->nLaps < 3 ? e->nLaps : 3;
+        int shown = e->nLaps < 4 ? e->nLaps : 4;
         for (int k = 0; k < shown; k++) {
             int idx = e->nLaps - 1 - k;
             lap_t *lap = &e->laps[idx];
@@ -658,16 +660,16 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
         char bb[32]; snprintf(bb, sizeof bb, "BEST %s", b);
         gfx_text_right(CW - 12, 8, bb, PAL.gold, 1);
         u_fmt_time(b, sizeof b, e->elapsed);
-        gfx_text_center(CW / 2, 60, b, PAL.white, 5);
+        gfx_text_center(CW / 2, 86, b, PAL.white, 5);
         u_fmt_delta(b2, sizeof b2, e->diff, 3);
         uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
-        gfx_text_center(CW / 2, 108, b2, dc, 3);
+        gfx_text_center(CW / 2, 142, b2, dc, 3);
         if (e->nLaps) {
             u_fmt_time(b, sizeof b, e->laps[e->nLaps - 1].time);
             snprintf(bb, sizeof bb, "LAST %s", b);
         } else snprintf(bb, sizeof bb, "LAST --:--.---");
-        gfx_text_center(CW / 2, 150, bb, PAL.dim, 1);
-        hint_c("UP/DOWN SWITCH PANEL", 178);
+        gfx_text_center(CW / 2, 198, bb, PAL.dim, 1);
+        hint_c("UP/DOWN SWITCH PANEL", HINT_Y);
     } else if (g.panel == 2) {
         int sx = (int)lroundf(engine_speed_kmh(e));
         snprintf(b, sizeof b, "%d", sx);
@@ -734,16 +736,15 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                 start = sections[i];
             }
         }
-        hint_c("PUSH END RACE - UP/DOWN PANEL", 182);
+        hint_c("PUSH END RACE - UP/DOWN PANEL", HINT_Y);
     }
-    render_panel_dots();
 }
 
 /* ================= LAP SELECT ================= */
 static void render_lap_select(void) {
     char b[24];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 200); if (g.engine.track) map_set_track(&s_map, g.engine.track); s_map_ready = true; }
+    if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 226); if (g.engine.track) map_set_track(&s_map, g.engine.track); s_map_ready = true; }
     map_begin(&s_map);
     map_centerline(&s_map, PAL.centerline, 2);
     for (int i = 0; i < g.engine.nLaps; i++)
@@ -765,15 +766,16 @@ static void render_lap_select(void) {
     int nsel = 0;
     for (int i = 0; i < g.engine.nLaps; i++) if (g.lapChecked[i]) nsel++;
     snprintf(b, sizeof b, "PICKED %d / MIN 2", nsel);
-    gfx_text(182, 158, b, PAL.dim, 0);
-    gfx_text(182, 174, "PUSH CHECK - 2xPUSH GO", PAL.dim, 0);
+    gfx_text(182, 190, b, PAL.dim, 0);
+    gfx_text(182, 206, "PUSH CHECK - 2xPUSH GO", PAL.dim, 0);
 }
 
 /* ================= SECTION MARKING ================= */
 static void render_section(void) {
     char b[32];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 200); map_set_track(&s_map, &g.sessionTrack); s_map_ready = true; }
+    if (g.sessionTrack.N <= 0) { title_c("SECTION", 6); hint_c("NO ACTIVE TRACK", 100); return; }
+    if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 226); map_set_track(&s_map, &g.sessionTrack); s_map_ready = true; }
     map_begin(&s_map);
     map_centerline(&s_map, PAL.centerline, 2);
     map_start_line(&s_map, 0, PAL.white);
@@ -792,10 +794,10 @@ static void render_section(void) {
         snprintf(b, sizeof b, "CAND %d%%", (int)(g.sec_cand * 100));
         gfx_text(182, 72, b, PAL.yellow, 1);
     }
-    gfx_text(182, 120, "UP/DOWN MOVE", PAL.dim, 1);
-    gfx_text(182, 134, "PUSH MARK", PAL.dim, 1);
-    gfx_text(182, 148, "2xPUSH FINISH", PAL.dim, 1);
-    gfx_text(182, 162, "BACK EXIT", PAL.dim, 1);
+    gfx_text(182, 168, "UP/DOWN MOVE", PAL.dim, 1);
+    gfx_text(182, 184, "PUSH MARK", PAL.dim, 1);
+    gfx_text(182, 200, "2xPUSH FINISH", PAL.dim, 1);
+    gfx_text(182, 216, "BACK EXIT", PAL.dim, 1);
 }
 
 /* ================= VEHICLE SELECT ================= */
@@ -806,10 +808,10 @@ static void render_vehicle(void) {
         int cx = 160 + (i - g.sel) * 120;
         if (cx < -60 || cx > CW + 60) continue;
         bool on = i == g.sel;
-        map_draw_vehicle(cx - 36, 46, 72, 56, on ? VEH_COLORS[i] : PAL.glyphoff, PAL.yellow);
-        gfx_text_center(cx, 112, VEH_NAMES[i], on ? PAL.cyan : PAL.dim, 1);
+        map_draw_vehicle(cx - 36, 64, 72, 56, on ? VEH_COLORS[i] : PAL.glyphoff, PAL.yellow);
+        gfx_text_center(cx, 130, VEH_NAMES[i], on ? PAL.cyan : PAL.dim, 1);
     }
-    hint_c("UP/DOWN SELECT - PUSH CONFIRM", 182);
+    hint_c("UP/DOWN SELECT - PUSH CONFIRM", HINT_Y);
 }
 
 /* ================= TRACK NAMING ================= */
@@ -817,19 +819,19 @@ static void render_naming(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("NAME TRACK", 6);
     char big[2] = {g.avail[g.sel], 0};
-    gfx_text_center(CW / 2, 36, big, PAL.cyan, 8);
+    gfx_text_center(CW / 2, 40, big, PAL.cyan, 8);
     int step = 8, total = g.navail * step;
     int x0 = (CW - total) / 2;
     for (int i = 0; i < g.navail; i++) {
         char ch[2] = {g.avail[i], 0};
         if (i == g.sel) {
-            gfx_fill(x0 + i * step - 1, 136, 8, 14, PAL.cyan);
-            gfx_text(x0 + i * step, 140, ch, PAL.white, 0);
+            gfx_fill(x0 + i * step - 1, 156, 8, 14, PAL.cyan);
+            gfx_text(x0 + i * step, 160, ch, PAL.white, 0);
         } else {
-            gfx_text(x0 + i * step, 140, ch, PAL.glyphoff, 0);
+            gfx_text(x0 + i * step, 160, ch, PAL.glyphoff, 0);
         }
     }
-    hint_c("UP/DOWN LETTER - PUSH SAVE", 182);
+    hint_c("UP/DOWN LETTER - PUSH SAVE", HINT_Y);
 }
 
 /* ================= TRACK LIST ================= */
@@ -844,23 +846,23 @@ static void render_track_list(void) {
     }
     if (!g.ntracks) hint_c("(NO TRACKS)", 60);
     int start, end;
-    windowed(g.ntracks, g.cursor, 3, &start, &end);
+    windowed(g.ntracks, g.cursor, 4, &start, &end);
     for (int i = start; i < end; i++) {
-        int y = 24 + (i - start) * 50;
+        int y = 22 + (i - start) * 44;
         bool cur = i == g.cursor;
-        gfx_pxbox(12, y, CW - 24, 46, cur ? PAL.white : PAL.line, 1, PAL.panel);
-        map_draw_thumb(20, y + 8, 40, 30, &g.tracks[i], PAL.dim);
-        gfx_text(70, y + 8, g.tracks[i].name, PAL.white, 1);
-        gfx_text(70, y + 24, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
+        gfx_pxbox(12, y, CW - 24, 40, cur ? PAL.white : PAL.line, 1, PAL.panel);
+        map_draw_thumb(20, y + 6, 36, 28, &g.tracks[i], PAL.dim);
+        gfx_text(70, y + 5, g.tracks[i].name, PAL.white, 1);
+        gfx_text(70, y + 20, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
     }
-    hint_c("UP/DOWN SELECT - PUSH ENTER", 182);
+    hint_c("UP/DOWN SELECT - PUSH ENTER", HINT_Y);
 }
 
 /* ================= START LINE EDIT ================= */
 static void render_track_start(void) {
     track_t *t = g.engine.track;
     if (!t) return;
-    if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 200); map_set_track(&s_map, t); s_map_ready = true; }
+    if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
     map_centerline(&s_map, PAL.centerline, 3);
     pt_t sp = track_point_at(t, g.start_f);
@@ -880,15 +882,15 @@ static void render_track_start(void) {
     gfx_text(rx, 64, "OFF", PAL.dim, 0);
     gfx_text(rx + 34, 64, b, PAL.white, 0);
     gfx_text(rx + 80, 64, "M", PAL.dim, 0);
-    gfx_text(rx, 96, "PUSH SAVE", PAL.green, 1);
-    gfx_text(rx, 116, "BACK CANCEL", PAL.dim, 0);
+    gfx_text(rx, 120, "PUSH SAVE", PAL.green, 1);
+    gfx_text(rx, 140, "BACK CANCEL", PAL.dim, 0);
 }
 
 /* ================= HISTORY ================= */
 static void render_history(void) {
     char b[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    map_init(&s_map, 0, 0, 176, 200);
+    map_init(&s_map, 0, 0, 176, 226);
     map_begin(&s_map);
     if (g.nlog) {
         histrec_t *rec = &g.log[g.nlog - 1 - g.sel];
@@ -897,7 +899,7 @@ static void render_history(void) {
     }
     title_c("RACE LOG", 6);
     int start, end;
-    windowed(g.nlog, g.sel, 3, &start, &end);
+    windowed(g.nlog, g.sel, 4, &start, &end);
     for (int i = start; i < end; i++) {
         int y = 24 + (i - start) * 40;
         bool on = g.entered && i == g.sel;
@@ -910,8 +912,8 @@ static void render_history(void) {
         gfx_text_right(310, y + 20, b, PAL.dim, 0);
     }
     if (!g.nlog) hint_c("(NO RECORDS)", 60);
-    gfx_text(182, 158, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
-    gfx_text(182, 174, "BACK EXIT", PAL.dim, 1);
+    gfx_text(182, 196, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
+    gfx_text(182, HINT_Y, "BACK EXIT", PAL.dim, 1);
 }
 
 /* ================= HISTORY DETAIL ================= */
@@ -919,7 +921,7 @@ static void render_history_detail(void) {
     char b[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
     histrec_t *r = (g.hist_rec >= 0 && g.hist_rec < g.nlog) ? &g.log[g.hist_rec] : NULL;
-    map_init(&s_map, 0, 0, 176, 200);
+    map_init(&s_map, 0, 0, 176, 226);
     map_begin(&s_map);
     if (r) {
         int sel = g.sel < r->lapCount ? g.sel : 0;
@@ -939,7 +941,7 @@ static void render_history_detail(void) {
     snprintf(sb, sizeof sb, "%dL - %s", r->lapCount, b);
     gfx_text(182, 22, sb, PAL.cyan, 1);
     int start, end;
-    windowed(r->lapCount, g.sel, 4, &start, &end);
+    windowed(r->lapCount, g.sel, 5, &start, &end);
     for (int i = start; i < end; i++) {
         int y = 38 + (i - start) * 20;
         bool best = r->hasBest && r->lapIndex[i] == r->bestIndex;
@@ -952,9 +954,9 @@ static void render_history_detail(void) {
         u_fmt_time(b, sizeof b, r->lapTime[i]);
         gfx_text_right(310, y + 5, b, best ? PAL.white : PAL.text2, 1);
     }
-    gfx_text(182, 122, "SECTION BEST", PAL.gold, 1);
+    gfx_text(182, 158, "SECTION BEST", PAL.gold, 1);
     for (int i = 0; i < r->nsec && i < 3; i++) {
-        int y = 136 + i * 16;
+        int y = 172 + i * 16;
         snprintf(b, sizeof b, "S%d", i + 1);
         gfx_text(182, y, b, PAL.white, 1);
         if (r->secValid[i]) {
@@ -1104,7 +1106,7 @@ static void render_gps_debug(void) {
     gfx_text(6, 128, l, PAL.white, 1);
 
     /* bottom box: live raw NMEA (latest sentence, wrapped over 2 lines) */
-    gfx_pxbox(4, 142, CW - 8, CH - 146, PAL.line, 1, PAL.surface);
+    gfx_pxbox(4, 142, CW - 8, CH - 162, PAL.line, 1, PAL.surface);
     const char *raw = gp->raw_n ? gp->raw[0] : "";
     int len = (int)strlen(raw);
     if (len == 0) {
@@ -1158,8 +1160,8 @@ static void render_location(void) {
         gfx_text(px + 4, py - 12, "YOU", PAL.yellow, 0);
     }
 
-    /* GPS info */
-    int ty = my + mh + 4;
+    /* GPS info (bottom of the tall canvas) */
+    int ty = CH - 60;
     const char *region = (gp->lat > 18 && gp->lat < 54 && gp->lon > 73 && gp->lon < 135) ? "CHINA" : "WORLD";
     u_fmt_f(b, sizeof b, (float)gp->lat, 5);
     u_fmt_f(b2, sizeof b2, (float)gp->lon, 5);
@@ -1187,8 +1189,8 @@ static void render_location(void) {
 
 /* ================= IMU CALIB ================= */
 static void imu_bubble(void) {
-    gfx_fill(0, 0, 176, 200, PAL.stage);
-    float cx = 88, cy = 100, R = 68;
+    gfx_fill(0, 0, 176, CH, PAL.stage);
+    float cx = 88, cy = 112, R = 74;
     float scale = R / 0.15f;
     gfx_circle((int)cx, (int)cy, (int)(0.05f * scale), PAL.gmring);
     gfx_circle((int)cx, (int)cy, (int)(0.10f * scale), PAL.gmring);
@@ -1236,9 +1238,9 @@ static void render_imu_calib(void) {
     gfx_fill(rx + 1, 93, (int)(118 * g.imu_progress / IMU_CALIB_MS), 6, PAL.cyan);
     snprintf(b, sizeof b, "%d%%", (int)(g.imu_progress / IMU_CALIB_MS * 100));
     gfx_text_center(rx + 60, 104, b, PAL.cyan, 1);
-    gfx_text(rx, 128, "PUSH DONE  2xPUSH REDO", PAL.dim, 0);
-    gfx_text(rx, 142, "BACK SKIP", PAL.dim, 0);
-    gfx_text(rx, 178, "PLACE DEVICE LEVEL", PAL.dim, 0);
+    gfx_text(rx, 150, "PUSH DONE  2xPUSH REDO", PAL.dim, 0);
+    gfx_text(rx, 166, "BACK SKIP", PAL.dim, 0);
+    gfx_text(rx, 210, "PLACE DEVICE LEVEL", PAL.dim, 0);
 }
 
 /* ================= dispatch ================= */

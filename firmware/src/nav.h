@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define NAV_IMG_SIZE 200
+#define NAV_IMG_SIZE 240
 
 void nav_start(void);            /* allocate buffers + start worker task */
 void nav_set_active(bool on);    /* enable fetching while the nav screen is open */
