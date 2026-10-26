@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.Typeface
 import kotlin.math.cos
@@ -261,7 +263,9 @@ object PreviewRenderer {
                 turnIcon,
                 null,
                 RectF(w * 0.025f, h * 0.065f, w * 0.025f + size, h * 0.065f + size),
-                Paint(Paint.FILTER_BITMAP_FLAG),
+                Paint(Paint.FILTER_BITMAP_FLAG).apply {
+                    colorFilter = PorterDuffColorFilter(hudColor, PorterDuff.Mode.SRC_IN)
+                },
             )
         } else {
             c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, hudColor, true))

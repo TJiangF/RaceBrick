@@ -46,7 +46,7 @@ class BleClient(
         const val TYPE_FRAME = 5   // 手机整帧：320×240 16 色 RLE
 
         private const val BULK_HEADER = 15
-        private const val MAX_WRITE = 500
+        private const val MAX_WRITE = 512
     }
 
     private val app = context.applicationContext
@@ -171,6 +171,15 @@ class BleClient(
                 return
             }
             g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+            if (Build.VERSION.SDK_INT >= 26) {
+                runCatching {
+                    g.setPreferredPhy(
+                        BluetoothDevice.PHY_LE_2M,
+                        BluetoothDevice.PHY_LE_2M,
+                        BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+                    )
+                }
+            }
             enableNotify(g, txChar!!)
             runCatching { g.requestMtu(517) }
             if (g.device.bondState != BluetoothDevice.BOND_BONDED) {
@@ -203,6 +212,10 @@ class BleClient(
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             // NO_RESPONSE 写回调在不同协议栈上不可靠，统一由 pump 的固定节拍推进
+        }
+
+        override fun onPhyUpdate(g: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
+            onStatus("BLE PHY tx=$txPhy rx=$rxPhy (status=$status)")
         }
     }
 
@@ -266,14 +279,14 @@ class BleClient(
     /** 大块通道是否空闲（没有排队、也没有正在写）。整帧发送用它丢帧，避免越积越多。 */
     fun bulkIdle(): Boolean = !writing && synchronized(lock) { bulk.isEmpty() }
 
-    fun sendBulk(type: Int, id: Int, data: ByteArray) {
-        if (data.isEmpty()) return
-        // 没连圆屏/没配对时不发，数据由 MainActivity 缓存，连上后自动补发
-        if (!verified) return
+    fun sendBulk(type: Int, id: Int, data: ByteArray): Boolean {
+        if (data.isEmpty()) return false
+        // 没连设备/没验证时不发，数据由 MainActivity 缓存，连上后自动补发
+        if (!verified) return false
         val cap = payloadCap()
-        if (cap < 40) return
+        if (cap < 40) return false
         val parts = (data.size + cap - 1) / cap
-        if (parts > 4000) return
+        if (parts > 4000) return false
         for (p in 0 until parts) {
             val off = p * cap
             val len = min(cap, data.size - off)
@@ -298,6 +311,7 @@ class BleClient(
             enqueue(bulk, pkt)
         }
         handler.post { pump() }
+        return true
     }
 
     private fun enqueue(q: ArrayDeque<ByteArray>, bytes: ByteArray) {
@@ -320,11 +334,12 @@ class BleClient(
         writing = true
         val ok = runCatching { write(g, c, bytes) }.getOrDefault(false)
         if (!ok) writing = false
-        // 有些协议栈 NO_RESPONSE 不回写回调，固定节拍继续发
+        // NO_RESPONSE 不会回调；空闲时用短节拍把 320x240 整帧尽快发完，
+        // 写失败时退回 20 ms，避免把 Android BLE 队列打爆。
         handler.postDelayed({
             if (writing) writing = false
             pump()
-        }, 20)
+        }, if (ok) 6L else 20L)
     }
 
     @SuppressLint("MissingPermission")

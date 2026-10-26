@@ -56,7 +56,11 @@ class MainActivity : AppCompatActivity() {
     private var encodingFrame = false
     private var sendFrames = true
     private var frameId = 0
+    private var frameGen = 0L
     private var lastFrameBytes: ByteArray? = null
+    private var lastFrameId = 0
+    private var lastFrameGen = 0L
+    private var lastSentGen = -1L
     private var lastEncodeAt = 0L
     private var lastFrameLogAt = 0L
 
@@ -99,6 +103,21 @@ class MainActivity : AppCompatActivity() {
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+
+    // Keep the BLE pipe busy with the newest frame: stale frames are dropped.
+    private val framePump = object : Runnable {
+        override fun run() {
+            if (navigating && sendFrames && ble.verified && ble.bulkIdle()) {
+                val bytes = lastFrameBytes
+                if (bytes != null && lastFrameGen != lastSentGen) {
+                    if (ble.sendBulk(BleClient.TYPE_FRAME, lastFrameId, bytes)) {
+                        lastSentGen = lastFrameGen
+                    }
+                }
+            }
+            main.postDelayed(this, 100)
+        }
+    }
     private val logLines = ArrayDeque<String>()
 
     private var frame: GeoFrame? = null
@@ -152,10 +171,9 @@ class MainActivity : AppCompatActivity() {
             onReady = {
                 runOnUiThread {
                     log("RaceBrick 通过验证，开始同步")
+                    lastSentGen = -1L
                     sendPosition()
-                    if (sendFrames) {
-                        lastFrameBytes?.let { ble.sendBulk(BleClient.TYPE_FRAME, frameId, it) }
-                    } else {
+                    if (!sendFrames) {
                         lastRaster?.let { sendRasterBytes(it) }
                         lastRoute?.let { sendRouteBytes(it) }
                     }
@@ -186,7 +204,7 @@ class MainActivity : AppCompatActivity() {
                 val old = turnIcon
                 turnIcon = icon
                 if (old != null && old !== icon && !old.isRecycled) old.recycle()
-                if (ble.verified) ble.send("$dir,$dist")
+                if (ble.verified && !sendFrames) ble.send("$dir,$dist")
                 status("下一步 $dir，还有 $dist 米")
                 updatePreview()
             }
@@ -197,13 +215,13 @@ class MainActivity : AppCompatActivity() {
                 this@MainActivity.lights = lights
                 val eta = java.util.Calendar.getInstance().apply { add(java.util.Calendar.SECOND, remainS) }
                 val hhmm = eta.get(java.util.Calendar.HOUR_OF_DAY) * 100 + eta.get(java.util.Calendar.MINUTE)
-                if (ble.verified) ble.send("#e,$remainM,$hhmm,$lights")
+                if (ble.verified && !sendFrames) ble.send("#e,$remainM,$hhmm,$lights")
                 status("剩余 ${formatDistance(remainM)}，约 ${remainS / 60} 分钟")
                 updatePreview()
             }
             override fun onLightDistance(dist: Int) {
                 lightDist = dist
-                if (ble.verified) ble.send(if (dist >= 0) "#g,$dist" else "#g")
+                if (ble.verified && !sendFrames) ble.send(if (dist >= 0) "#g,$dist" else "#g")
             }
             override fun onLanes(background: IntArray, recommended: IntArray) {
                 laneBg = background
@@ -221,7 +239,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onArrive() {
                 navigating = false
-                if (ble.verified) ble.send("A,0")
+                if (ble.verified && !sendFrames) ble.send("A,0")
                 status("已到达目的地")
                 log("已到达")
             }
@@ -287,12 +305,16 @@ class MainActivity : AppCompatActivity() {
             sendFrames = !sendFrames
             btnSendFrames.text = if (sendFrames) "整帧发送：开" else "整帧发送：关"
             log(if (sendFrames) "整帧发送开启（type 5，320×240，RaceBrick）" else "整帧发送关闭")
-            if (sendFrames) lastFrameBytes?.let { ble.sendBulk(BleClient.TYPE_FRAME, frameId, it) }
+            lastSentGen = -1L
+            if (sendFrames) main.post(framePump)
         }
         btnZoom.setOnClickListener {
             zoomIndex = (zoomIndex + 1) % zoomLevels.size
             applyZoom(zoomLevels[zoomIndex])
         }
+
+        tvSign.text = "版本：${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" + tvSign.text
+        main.post(framePump)
     }
 
     private fun requestPermissions() {
@@ -341,6 +363,11 @@ class MainActivity : AppCompatActivity() {
         lastRoute = null
         lastRoutePts = null
         lastFrameBytes = null
+        lastFrameId = 0
+        lastFrameGen = 0L
+        lastSentGen = -1L
+        frameGen = 0L
+        frameId = 0
         blockCx = 0.0
         blockCy = 0.0
         navigating = true
@@ -371,7 +398,7 @@ class MainActivity : AppCompatActivity() {
         navigating = false
         nav.stop()
         haveBlock = false
-        if (ble.verified) ble.send("C")
+        if (ble.verified && !sendFrames) ble.send("C")
         log("已停止导航")
     }
 
@@ -413,7 +440,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendPosition(f: GeoFrame, lat: Double, lng: Double, hdg: Float, kmh: Int) {
-        if (!ble.verified) return
+        if (!ble.verified || sendFrames) return
         val x = f.x(lng)
         val y = f.y(lat)
         ble.send("#p,${f.id},${(x * 10).roundToInt()},${(y * 10).roundToInt()},${hdg.roundToInt()},$kmh")
@@ -715,9 +742,10 @@ class MainActivity : AppCompatActivity() {
 
         // 手机整帧：320×240 → 16 色 → RLE。约 1 秒一帧，编码放在后台线程。
         val now = System.currentTimeMillis()
-        if (!encodingFrame && now - lastEncodeAt >= 900) {
+        if (!encodingFrame && now - lastEncodeAt >= 650) {
             lastEncodeAt = now
             val id = (++frameId) and 0xFF
+            val gen = ++frameGen
             val copy = bmp.copy(Bitmap.Config.ARGB_8888, false)
             if (copy == null) {
                 encodingFrame = false
@@ -729,10 +757,9 @@ class MainActivity : AppCompatActivity() {
                         val bytes = FrameCodec.encode(id, idx)
                         main.post {
                             lastFrameBytes = bytes
+                            lastFrameId = id
+                            lastFrameGen = gen
                             encodingFrame = false
-                            if (sendFrames && ble.verified && ble.bulkIdle()) {
-                                ble.sendBulk(BleClient.TYPE_FRAME, id, bytes)
-                            }
                             if (System.currentTimeMillis() - lastFrameLogAt > 3000) {
                                 lastFrameLogAt = System.currentTimeMillis()
                                 log("整帧 ${bytes.size / 1024} KB（${FrameCodec.W}×${FrameCodec.H}）")
@@ -776,6 +803,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         searchHandler.removeCallbacksAndMessages(null)
+        main.removeCallbacks(framePump)
         runCatching { turnIcon?.recycle() }
         turnIcon = null
         runCatching { sdkBase?.recycle(); effectBase?.recycle(); currentPreview?.recycle() }

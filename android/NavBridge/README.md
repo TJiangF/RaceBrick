@@ -6,7 +6,9 @@ Android MVP：用高德 SDK 算路/导航，把 320×240 全帧（地图 + 路�
 协议对齐 [MotoNav](https://github.com/zyn950929/MotoNav) 的 UART 服务（`6e400001...`、`M` 大块头、`#p` 定位、`R/L/S` 转向）。
 RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面全屏显示。
 
-> 状态：已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；尚未做真机/圆屏联调。仅供个人非商业使用。
+> 状态：已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；模拟导航和 HUD 已在 Android 模拟器验证。仅供个人非商业使用。
+>
+> 每次重新出包前递增 `app/build.gradle.kts` 的 `versionCode` / `versionName`；首页会显示版本号。
 
 ## 功能
 

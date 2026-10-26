@@ -20,8 +20,9 @@ android {
         applicationId = "com.example.navbridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.7.0"
+        // 每次重新出包必须递增，便于区分设备上旧包/新包。
+        versionCode = 12
+        versionName = "0.8.0"
 
         buildConfigField("String", "AMAP_KEY", "\"$amapKey\"")
         manifestPlaceholders["AMAP_KEY"] = amapKey

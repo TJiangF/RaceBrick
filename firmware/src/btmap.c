@@ -284,6 +284,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             s_subscribed = false;
             s_last_gps_us = 0;
             reset_rx();
+            struct ble_gap_upd_params up = {
+                .itvl_min = 6, .itvl_max = 12, .latency = 0,
+                .supervision_timeout = 400, .min_ce_len = 0, .max_ce_len = 0,
+            };
+            ble_gap_update_params(s_conn, &up);
+            ble_gap_set_prefered_le_phy(s_conn, BLE_GAP_LE_PHY_2M_MASK,
+                                        BLE_GAP_LE_PHY_2M_MASK,
+                                        BLE_GAP_LE_PHY_CODED_ANY);
             ESP_LOGI(TAG, "connected (handle %u)", s_conn);
         } else {
             s_connected = false;
@@ -319,6 +327,17 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         return 0;
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "mtu %d", event->mtu.value);
+        return 0;
+    case BLE_GAP_EVENT_CONN_UPDATE: {
+        struct ble_gap_conn_desc desc;
+        if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0)
+            ESP_LOGI(TAG, "conn itvl %.2f ms latency %u",
+                     desc.conn_itvl * 1.25f, desc.conn_latency);
+        return 0;
+    }
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+        ESP_LOGI(TAG, "phy update status=%d tx=%d rx=%d", event->phy_updated.status,
+                 event->phy_updated.tx_phy, event->phy_updated.rx_phy);
         return 0;
     case BLE_GAP_EVENT_REPEAT_PAIRING: {
         struct ble_gap_conn_desc desc;

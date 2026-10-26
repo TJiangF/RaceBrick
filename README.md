@@ -76,6 +76,8 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 
 高德 Key 绑定包名 `com.example.navbridge` + 签名 SHA1，申请方法见 [`android/NavBridge/README.md`](android/NavBridge/README.md)。
 
+> 每次重新出包请递增 `android/NavBridge/app/build.gradle.kts` 里的 `versionCode` 并更新 `versionName`；App 首页会显示版本号，便于区分设备上装的是哪一版。
+
 ### 已验证
 
 - 固件编译、烧录、BLE 广播与 WiFi 共存正常（NimBLE + ESP32-S3）。
@@ -90,6 +92,7 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 - BLE 与 WiFi 共用 2.4 GHz 射频：WiFi 拉图时同时 BLE 投屏会互相占用空口，画面可能降速。
 - 当前只支持一个 BLE 连接；断开后自动重新广播。
 - 手机端“整帧发送”关闭时会退回旧的底图/路线分包，RaceBrick 的 `PHONE MAP` 只处理 type 5，不看旧的分包。
+- 整帧模式下不再发送旧的 `#p/#e/#g` 文本控制消息，避免它们抢占 BLE 控制队列；分片上限 512 B、正常发送节拍 6 ms，设备协商 2M PHY / 15 ms 连接间隔。
 
 ---
 

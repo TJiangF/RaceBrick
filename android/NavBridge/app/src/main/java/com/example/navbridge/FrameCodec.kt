@@ -24,7 +24,7 @@ object FrameCodec {
         0xFF4A4A4A.toInt(), // 3
         0xFF44FF44.toInt(), // 4 亮绿（与 LOCATION 页速度一致）
         0xFF8F8F8F.toInt(), // 5
-        0xFFB0B0B0.toInt(), // 6
+        0xFF1E88E5.toInt(), // 6 蓝色 HUD（像素风文本）
         0xFFD0D0D0.toInt(), // 7
         0xFFF0F0F0.toInt(), // 8 白
         0xFF2E6B3A.toInt(), // 9 绿地
