@@ -8,6 +8,7 @@
 #include "mpu6050.h"
 #include "tstore.h"
 #include "nav.h"
+#include "netcfg.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -289,18 +290,34 @@ static void ledfx_update(void) {
 
 static void render_battery(void) {
     int mv = battery_mv();
-    if (mv <= 0) return;
+    bool wifi = netcfg_connected();
+    uint16_t wc = wifi ? PAL.green : PAL.red;
+    int y = LCD_H - 14;
+
+    if (mv <= 0) {
+        const char *s = "WIFI";
+        int w = gfx_text_w(s, 0) + 6;
+        int x = LCD_W - 4 - w;
+        gfx_pxbox(x, y, w, 12, PAL.line, 1, PAL.panel);
+        gfx_text(x + 3, y + 3, s, wc, 0);
+        return;
+    }
+
     char v[12], s[24];
     u_fmt_f(v, sizeof v, mv / 1000.0f, 2);
     int pct = (mv - 3300) * 100 / (4200 - 3300);
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     snprintf(s, sizeof s, "%sV %d%%", v, pct);
-    int w = gfx_text_w(s, 0) + 6;
-    int x = LCD_W - 4 - w, y = LCD_H - 14;
+    int tw = gfx_text_w(s, 0);
+    int w = tw + 14;
+    int x = LCD_W - 4 - w;
     gfx_pxbox(x, y, w, 12, PAL.line, 1, PAL.panel);
+    gfx_vline(x + 4, y + 7, 3, wc);
+    gfx_vline(x + 6, y + 5, 5, wc);
+    gfx_vline(x + 8, y + 3, 7, wc);
     uint16_t c = mv < 3400 ? PAL.red : (mv < 3600 ? PAL.orange : PAL.green);
-    gfx_text(x + 3, y + 3, s, c, 0);
+    gfx_text(x + 11, y + 3, s, c, 0);
 }
 
 static void render_toast(void) {
@@ -367,6 +384,7 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "navmode", &v) == ESP_OK) g.nav_mode = v;
     if (nvs_get_i32(h, "navsat", &v) == ESP_OK) g.nav_sat = v;
     if (nvs_get_i32(h, "navzoom", &v) == ESP_OK) g.nav_zoom = v;
+    if (nvs_get_i32(h, "navfull", &v) == ESP_OK) g.nav_full = v ? 1 : 0;
     if (nvs_get_i32(h, "ptrig", &v) == ESP_OK) g.perf_trig_g100 = v;
     nvs_close(h);
 }
@@ -388,6 +406,7 @@ void app_save_settings(void) {
     nvs_set_i32(h, "navmode", g.nav_mode);
     nvs_set_i32(h, "navsat", g.nav_sat);
     nvs_set_i32(h, "navzoom", g.nav_zoom);
+    nvs_set_i32(h, "navfull", g.nav_full);
     nvs_set_i32(h, "ptrig", g.perf_trig_g100);
     nvs_commit(h);
     nvs_close(h);
@@ -408,6 +427,7 @@ void app_init(void) {
     g.nav_mode = 0;
     g.nav_sat = 60;
     g.nav_zoom = 100;
+    g.nav_full = 0;
     g.perf_trig_g100 = START_PERF_TRIG;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     /* load persisted settings */
@@ -468,6 +488,7 @@ void app_init(void) {
     nav_set_mode(g.nav_mode, g.nav_sat);
     nav_set_zoom(g.nav_zoom);
     g.nav_zoom = nav_zoom_pct();
+    nav_set_fullscreen(g.nav_full != 0);
     /* bring the module up in its 1 Hz idle mode; a GNSS page bumps it later */
     gps_set_rate(1);
     app_go(SC_IMU_CALIB, 1);

@@ -9,7 +9,7 @@
 | 文件 | 作用 |
 |---|---|
 | `firmware/src/nav.c` / `nav.h` | 后台拉图任务、请求调度、pal16 解码、双缓冲 |
-| `firmware/src/screens.c` | 导航页渲染、PUSH 菜单（Refresh / Style / Zoom +/-） |
+| `firmware/src/screens.c` | 导航页渲染、PUSH 菜单（Refresh / Style / Zoom / Fullscreen） |
 | `firmware/src/netcfg.c` / `.h` | WiFi/HTTP 服务、调试接口 |
 | `firmware/src/main.c` | 主循环、远程命令 |
 | `firmware/src/config.h` | 屏幕几何（320×240） |
@@ -23,13 +23,21 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
  航向滤波 → 是否取新图 → POST /api/v1/nav
         → pal16 解码到 s_back → 加锁交换 s_front/s_back
         ▼
- 主循环 render_nav(): gfx_blit 240×240 + 中心箭头 + 右侧信息栏 → lcd_flush
+ 主循环 render_nav(): gfx_blit（240×240 或全屏 320×240）+ 中心箭头 + 速度/状态 → lcd_flush
 ```
 
 - 仅在导航页激活时工作（`nav_set_active(true)`）；无 WiFi → 状态 4，无 GPS（`fix_type<1`）→ 状态 5。
-- 上屏与请求仍为 **240×240**（`NAV_IMG_SIZE`）；服务端协议已支持 16–512 可变尺寸。
-- `zoom` 只改变**地面覆盖范围**（`size_m / zoom`），不改变像素尺寸，所以缓冲仍保持 240×240。
-- 两张 **240×240 RGB565（115,200 B/张）** 缓冲 + **72 KB** 响应体，全部在 PSRAM。
+- 普通导航上屏 **240×240**（`NAV_IMG_SIZE`）；FULLSCREEN 模式请求并显示 **320×240**。
+- `zoom` 只改变**地面覆盖范围**（`size_m / zoom`），不改变像素尺寸。
+- 两张 **320×240 RGB565（153,600 B/张）** 缓冲（普通模式只用左上 240×240）+ **96 KB** 响应体，全部在 PSRAM。
+
+### 导航页 UI
+
+- 普通模式：左侧 240×240 地图；速度（亮绿色）在右上角；GPS/地图状态在右下角。
+- 全屏模式（PUSH → FULLSCREEN）：320×240 地图铺满整页；速度仍在右上角，其余状态用白底胶囊框叠在右下角。
+- WiFi 状态并入右下角电池胶囊左侧：绿色信号格=已连接，红色=未连接。
+- 不再显示 HDG、PPS、zoom 数值、独立 WIFI/MAP OK 行；保留 GPS 质量与地图新鲜度。
+- 相关实现：`screens.c` `render_nav()`、`app.c` `render_battery()`。
 
 ## 3. 请求
 
@@ -40,7 +48,8 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
   "device_id": "esp32s3-0E259C",
   "seq": 3940360031,
   "lng": 121.4337500, "lat": 31.1987500,
-  "size_m": 400, "heading": 90.0, "size": 240, "zoom": 1.50,
+  "size_m": 400, "heading": 90.0, "size": 240,
+  "width": 240, "height": 240, "zoom": 1.50,
   "format": "pal16", "coord": "wgs84",
   "mode": "road", "theme": "gameboy"
 }
@@ -50,7 +59,7 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
 |---|---|
 | `device_id` | 由 MAC 派生（每台唯一） |
 | `seq` | 启动用 `esp_random()` 作基址；**新请求 +1，重试复用同一 seq** |
-| `size` / `size_m` | 240 px / 400 m 基准；实际地面宽度 = `size_m / zoom` |
+| `size` / `width` / `height` | 普通 240×240；全屏 320×240。`size_m` 为基准地面宽度 |
 | `zoom` | 缩放倍率；设备范围 **0.5–4.0，步进 0.5**，`>1` 放大 |
 | `heading` | 平滑后的航向；服务端按此旋转成 heading-up |
 | `format` | 固定 `pal16` |
@@ -78,11 +87,12 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
 RLE：`byte = (run-1)<<4 | idx`；当 `(byte>>4)==15` 时，下一字节 `run = 16 + next`。
 
 服务端响应头新增：`X-Nav-Zoom-Factor`（请求倍率）、`X-Nav-Span-M`（实际地面宽度）；
-解码应以 `X-Nav-Width/Height` 或包头 `w/h` 为准（协议支持可变 `size`，设备当前固定 240）。
+解码应以 `X-Nav-Width/Height` 或包头 `w/h` 为准；设备支持 240×240 与 320×240。
 
-解码校验：`w,h ≤ 240`、`palCnt ≤ 16`、解完必须正好 `w*h` 像素，否则判解码失败。
+解码校验：`w ≤ 320`、`h ≤ 240`、`palCnt ≤ 16`、解完必须正好 `w*h` 像素，否则判解码失败。
 
 实测大小：road **877 B**/帧；satellite/blend（240×240）**约 37.4–37.9 KB**/帧。
+全屏 320×240 约 1.33× 面积，卫星包预计约 50 KB（在 96 KB 上限内）。
 
 ## 5. 调度、限流与容错
 
@@ -131,13 +141,13 @@ RLE：`byte = (run-1)<<4 | idx`；当 `(byte>>4)==15` 时，下一字节 `run = 
 - `GET /api/fb?f=1` → 153,600 B 原生 RGB565 帧缓冲（冻结渲染，防撕裂）；`/api/fb?f=0` 解冻。
 - `GET /api/goto?n=<scid>&e=1` 跳页（`SC_NAV=23`，枚举见 `app.h`）。
 - `POST /api/control`：`cmd=home|perf|race|debug|nav`。
-- 串口：`frame N: 240x240, <bytes>, mode=x/y z=<zoom>, req=<ms> dec=<ms>, heap <n>`；失败：`fetch failed (HTTP <n>, heap <n>)`。
+- 串口：`frame N: 320x240, <bytes>, mode=x/y z=<zoom> full=1, req=<ms> dec=<ms>, heap <n>`；失败：`fetch failed (HTTP <n>, heap <n>)`。
 - 直接验证服务端：
 ```bash
 curl -s -X POST http://47.100.182.210:2020/api/v1/nav \
   -H 'Content-Type: application/json' \
   -d '{"device_id":"probe","seq":1,"lng":121.43375,"lat":31.19875,
-       "size_m":400,"heading":0,"size":240,"zoom":1.0,"format":"pal16",
+       "size_m":400,"width":240,"height":240,"zoom":1.0,"format":"pal16",
        "mode":"satellite","coord":"wgs84"}' -D - -o /tmp/nav.bin
 ```
 
@@ -145,7 +155,8 @@ curl -s -X POST http://47.100.182.210:2020/api/v1/nav \
 
 | 需求 | 位置 |
 |---|---|
-| 图幅/像素 | `nav.h` `NAV_IMG_SIZE`；`nav.c` `NAV_SIZE_M` |
+| 图幅/像素 | `nav.h` `NAV_IMG_SIZE` / `NAV_FULL_W` / `NAV_FULL_H`；`nav.c` `NAV_SIZE_M` |
+| 全屏开关/持久化 | `nav.c` `nav_set_fullscreen()`；`app.c` NVS key `navfull` |
 | 缩放范围/步进 | `nav.h` `NAV_ZOOM_MIN_PCT` / `MAX` / `STEP` |
 | 缩放持久化 | `app.c` NVS key `navzoom` |
 | 响应体上限 | `nav.c` `NAV_BODY_MAX`（现 72 KB） |
@@ -156,4 +167,5 @@ curl -s -X POST http://47.100.182.210:2020/api/v1/nav \
 | URL | `nav.c` `NAV_URL` |
 | 解码 | `nav.c` `pal16_decode()` |
 | 导航页布局/菜单/缩放 | `screens.c` `render_nav()` / `draw_nav_menu()` / `nav_apply_zoom()` |
+| WiFi/电池指示 | `app.c` `render_battery()` |
 | 调试接口 | `netcfg.c` `h_api_fb` / `h_api_goto` |

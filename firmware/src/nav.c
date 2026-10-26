@@ -21,7 +21,7 @@ static const char *TAG = "nav";
 
 #define NAV_URL        "http://47.100.182.210:2020/api/v1/nav"
 #define NAV_SIZE_M     400        /* base ground side length (m), divided by zoom */
-#define NAV_BODY_MAX   (72 * 1024)   /* 240x240 pal16 worst case fits */
+#define NAV_BODY_MAX   (96 * 1024)   /* 320x240 pal16 worst case fits */
 #define NAV_HTTP_TIMEOUT_MS 8000
 #define NAV_HTTP_RX_BUF 4096
 
@@ -48,6 +48,7 @@ static float  s_last_hdg = 0;
 static int    s_mode = 0;     /* 0=road 1=satellite 2=blend */
 static int    s_sat = 60;     /* blend satellite opacity */
 static int    s_zoom = 100;   /* percent of base span; 100 = 1.0x */
+static bool   s_full = false; /* request 320x240 and fill the whole page */
 static bool   s_req = false;
 static int64_t s_req_us = 0;
 
@@ -190,7 +191,9 @@ static bool pal16_decode(const uint8_t *b, int len, uint16_t *out, int *ow, int 
     int w = b[0] | (b[1] << 8);
     int h = b[2] | (b[3] << 8);
     int pc = b[4] | (b[5] << 8);
-    if (w <= 0 || h <= 0 || w > NAV_IMG_SIZE || h > NAV_IMG_SIZE || pc <= 0 || pc > 16) return false;
+    if (w <= 0 || h <= 0 || w > NAV_IMG_MAX_W || h > NAV_IMG_MAX_H ||
+        (size_t)w * (size_t)h > (size_t)NAV_IMG_MAX_W * NAV_IMG_MAX_H ||
+        pc <= 0 || pc > 16) return false;
     const uint8_t *p = b + 6, *end = b + len;
     if (p + pc * 2 > end) return false;
     uint16_t pal[16];
@@ -257,12 +260,15 @@ static void nav_task(void *arg) {
         else if (s_mode == 2) snprintf(modejson, sizeof modejson,
                                        "\"mode\":\"blend\",\"sat_opacity\":%d", s_sat);
         else snprintf(modejson, sizeof modejson, "\"mode\":\"road\",\"theme\":\"gameboy\"");
-        char json[300];
+        int req_w = s_full ? NAV_FULL_W : NAV_IMG_SIZE;
+        int req_h = s_full ? NAV_FULL_H : NAV_IMG_SIZE;
+        char json[340];
         int jl = snprintf(json, sizeof json,
             "{\"device_id\":\"%s\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
-            "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"zoom\":%.2f,"
-            "\"format\":\"pal16\",%s,\"coord\":\"wgs84\"}",
-            s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE,
+            "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"width\":%d,\"height\":%d,"
+            "\"zoom\":%.2f,\"format\":\"pal16\",%s,\"coord\":\"wgs84\"}",
+            s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd,
+            req_w > req_h ? req_w : req_h, req_w, req_h,
             s_zoom / 100.0f, modejson);
 
         int bodyLen = -1;
@@ -292,8 +298,8 @@ static void nav_task(void *arg) {
                 s_frames++;
                 s_fail = 0;
                 s_last_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d z=%d, req=%dms dec=%dms, heap %u",
-                         s_frames, w, h, bodyLen, s_mode, s_sat, s_zoom,
+                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d z=%d full=%d, req=%dms dec=%dms, heap %u",
+                         s_frames, w, h, bodyLen, s_mode, s_sat, s_zoom, s_full,
                          (int)((t1 - t0) / 1000), (int)((t3 - t2) / 1000),
                          (unsigned)esp_get_free_heap_size());
             } else {
@@ -320,8 +326,8 @@ void nav_start(void) {
     if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK)
         snprintf(s_devid, sizeof s_devid, "esp32s3-%02X%02X%02X", mac[3], mac[4], mac[5]);
     ESP_LOGI(TAG, "device %s  seq base %lu", s_devid, (unsigned long)s_seq);
-    s_front = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_SIZE * NAV_IMG_SIZE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    s_back  = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_SIZE * NAV_IMG_SIZE * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_front = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_MAX_W * NAV_IMG_MAX_H * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_back  = (uint16_t *)heap_caps_malloc((size_t)NAV_IMG_MAX_W * NAV_IMG_MAX_H * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_body  = (uint8_t *)heap_caps_malloc(NAV_BODY_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_lock  = xSemaphoreCreateMutex();
     if (!s_front || !s_back || !s_body || !s_lock) { ESP_LOGE(TAG, "alloc failed"); return; }
@@ -349,6 +355,14 @@ void nav_set_zoom(int pct) {
 }
 
 int nav_zoom_pct(void) { return s_zoom; }
+
+void nav_set_fullscreen(bool on) {
+    if (on != s_full) {
+        s_full = on;
+        s_force = true;
+    }
+    ESP_LOGI(TAG, "fullscreen %s", s_full ? "on" : "off");
+}
 
 void nav_set_mode(int mode, int sat_opacity) {
     if (mode < 0 || mode > 2) mode = 0;

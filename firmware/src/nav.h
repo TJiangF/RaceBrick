@@ -5,7 +5,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define NAV_IMG_SIZE 240      /* displayed/downloaded square size, px */
+#define NAV_IMG_SIZE 240      /* normal in-column square size, px */
+#define NAV_FULL_W   320      /* fullscreen map (logical landscape panel) */
+#define NAV_FULL_H   240
+#define NAV_IMG_MAX_W 320     /* largest decoded frame (fullscreen) */
+#define NAV_IMG_MAX_H 240
 
 /* Relative zoom applied to the base ground span (NAV_SIZE_M in nav.c).
  * 100 = base, >100 = zoom in. Range-limited so the server never gets asked
@@ -21,6 +25,7 @@ float nav_heading(void);         /* smoothed heading used by the map (deg) */
 void nav_set_mode(int mode, int sat_opacity);  /* 0=road 1=satellite 2=blend */
 void nav_set_zoom(int pct);      /* zoom in/out, clamped to NAV_ZOOM_MIN/MAX */
 int  nav_zoom_pct(void);         /* current zoom (100 = base) */
+void nav_set_fullscreen(bool on);/* fetch 320x240 and use the whole page */
 int  nav_http_code(void);        /* HTTP status of the last fetch (0 = comms) */
 
 /* status: 0 idle, 1 ok, 2 http error, 3 decode error, 4 no wifi, 5 no fix */

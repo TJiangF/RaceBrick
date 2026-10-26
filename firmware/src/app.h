@@ -72,6 +72,7 @@ typedef struct {
     int nav_mode;              /* nav style: 0=road 1=satellite 2=blend */
     int nav_sat;               /* blend satellite opacity 0..100 */
     int nav_zoom;              /* ground zoom percent: 100 = base */
+    int nav_full;              /* 1 = fullscreen map (320x240) */
     int nav_menu;              /* 0 closed, 1 main menu, 2 style menu */
     int nav_sel;
 
