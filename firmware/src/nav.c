@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "esp_http_client.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
@@ -19,8 +20,10 @@
 static const char *TAG = "nav";
 
 #define NAV_URL        "http://47.100.182.210:2020/api/v1/nav"
-#define NAV_SIZE_M     400        /* ground side length (m) */
+#define NAV_SIZE_M     400        /* base ground side length (m), divided by zoom */
 #define NAV_BODY_MAX   (72 * 1024)   /* 240x240 pal16 worst case fits */
+#define NAV_HTTP_TIMEOUT_MS 8000
+#define NAV_HTTP_RX_BUF 4096
 
 static uint16_t *s_front = NULL, *s_back = NULL;
 static uint8_t  *s_body = NULL;
@@ -44,6 +47,7 @@ static double s_last_lat = 0, s_last_lon = 0;
 static float  s_last_hdg = 0;
 static int    s_mode = 0;     /* 0=road 1=satellite 2=blend */
 static int    s_sat = 60;     /* blend satellite opacity */
+static int    s_zoom = 100;   /* percent of base span; 100 = 1.0x */
 static bool   s_req = false;
 static int64_t s_req_us = 0;
 
@@ -93,56 +97,91 @@ static float hdg_update(float raw, float kmh, float dt) {
 
 float nav_heading(void) { return s_hdg_ok ? s_hdg : 0.0f; }
 
-/* ---- HTTP POST, read the pal16 body ---- */
-static int http_fetch(const char *json, int jlen) {
-    s_http_code = 0;
-    esp_http_client_config_t cfg = {
-        .url = NAV_URL,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 12000,
-        .buffer_size = 2048,
-        .buffer_size_tx = 1024,
-    };
-    esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    if (!c) return -1;
-    esp_http_client_set_header(c, "Content-Type", "application/json");
+/* ---- HTTP POST, read the pal16 body ----
+ * The client is created once and reused. With `keep_alive_enable` the TCP
+ * connection survives between frames, which removes the connect/handshake
+ * cost from every request (the main source of latency jitter here). */
+typedef struct {
+    uint8_t *buf;
+    int cap;
+    int len;
+    bool overflow;
+} http_rx_t;
 
-    int ret = -1;
-    if (esp_http_client_open(c, jlen) == ESP_OK) {
-        int wr = esp_http_client_write(c, json, jlen);
-        if (wr == jlen) {
-            int clen = esp_http_client_fetch_headers(c);
-            int code = esp_http_client_get_status_code(c);
-            s_http_code = code;
-            if (code == 200) {
-                int total = 0;
-                if (clen > 0) {
-                    while (total < clen && total < NAV_BODY_MAX) {
-                        int want = clen - total;
-                        if (want > NAV_BODY_MAX - total) want = NAV_BODY_MAX - total;
-                        int r = esp_http_client_read(c, (char *)s_body + total, want);
-                        if (r <= 0) break;
-                        total += r;
-                    }
-                    if (total == clen) ret = total;
-                    else ESP_LOGW(TAG, "short body %d/%d", total, clen);
-                } else {   /* chunked fallback */
-                    for (;;) {
-                        int r = esp_http_client_read(c, (char *)s_body + total, NAV_BODY_MAX - total);
-                        if (r <= 0) break;
-                        total += r;
-                        if (total >= NAV_BODY_MAX) break;
-                    }
-                    if (total > 0) ret = total;
-                }
+static esp_http_client_handle_t s_http = NULL;
+static http_rx_t s_rx = { .buf = NULL, .cap = 0, .len = 0, .overflow = false };
+
+static esp_err_t http_event(esp_http_client_event_t *ev) {
+    if (ev->event_id == HTTP_EVENT_ON_DATA && ev->user_data) {
+        http_rx_t *rx = (http_rx_t *)ev->user_data;
+        if (ev->data_len > 0) {
+            if (rx->len + ev->data_len <= rx->cap) {
+                memcpy(rx->buf + rx->len, ev->data, ev->data_len);
+                rx->len += ev->data_len;
             } else {
-                ESP_LOGW(TAG, "HTTP status %d", code);
+                rx->overflow = true;
             }
         }
     }
-    esp_http_client_close(c);
-    esp_http_client_cleanup(c);
-    return ret;
+    return ESP_OK;
+}
+
+static void http_client_reset(void) {
+    if (s_http) {
+        esp_http_client_close(s_http);
+        esp_http_client_cleanup(s_http);
+        s_http = NULL;
+    }
+}
+
+static bool http_client_ready(void) {
+    if (s_http) return true;
+    esp_http_client_config_t cfg = {
+        .url = NAV_URL,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = NAV_HTTP_TIMEOUT_MS,
+        .disable_auto_redirect = true,
+        .buffer_size = NAV_HTTP_RX_BUF,
+        .buffer_size_tx = 1024,
+        .keep_alive_enable = true,
+        .keep_alive_idle = 15,
+        .keep_alive_interval = 5,
+        .keep_alive_count = 3,
+        .user_data = &s_rx,
+        .event_handler = http_event,
+    };
+    s_http = esp_http_client_init(&cfg);
+    if (!s_http) return false;
+    esp_http_client_set_header(s_http, "Content-Type", "application/json");
+    return true;
+}
+
+static int http_fetch(const char *json, int jlen) {
+    s_http_code = 0;
+    if (!http_client_ready()) return -1;
+    s_rx.buf = s_body;
+    s_rx.cap = NAV_BODY_MAX;
+    s_rx.len = 0;
+    s_rx.overflow = false;
+
+    esp_http_client_set_post_field(s_http, json, jlen);
+    esp_err_t err = esp_http_client_perform(s_http);
+    int code = esp_http_client_get_status_code(s_http);
+    s_http_code = code;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "perform failed: %s", esp_err_to_name(err));
+        http_client_reset();
+        return -1;
+    }
+    if (code != 200) {
+        ESP_LOGW(TAG, "HTTP status %d", code);
+        return -1;
+    }
+    if (s_rx.overflow) {
+        ESP_LOGW(TAG, "body over %d bytes", NAV_BODY_MAX);
+        return -1;
+    }
+    return s_rx.len;
 }
 
 /* ---- pal16 decoder (little-endian header + RGB565 palette + RLE) ---- */
@@ -184,8 +223,9 @@ static void nav_task(void *arg) {
         float hd = hdg_update(gp->course, gp->speed_kmh, dt);
         if (!netcfg_connected()) { s_status = 4; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
         if (!(gp->fix_type >= 1 && gp->has_pos)) { s_status = 5; tprev = 0; vTaskDelay(pdMS_TO_TICKS(500)); continue; }
-        /* rate-limit: satellite/blend tiles are ~27 KB and server-rendered, so
-         * asking for a new seq on every 12 m / 12 deg change overloads it */
+        /* Rate-limit from request START (not from response end): the transfer
+         * time no longer stretches the frame period, so cadence stays stable
+         * when the server or WiFi is slower than usual. */
         int64_t wait_us = (int64_t)(s_mode == 0 ? 1200 : 2200) * 1000;
         if (s_fail) {   /* back off while the backend is erroring */
             int sh = s_fail > 3 ? 3 : s_fail - 1;
@@ -194,7 +234,11 @@ static void nav_task(void *arg) {
             if (b > wait_us) wait_us = b;
         }
         if (s_req && !s_force && now - s_req_us < wait_us) {
-            vTaskDelay(pdMS_TO_TICKS(80));
+            int64_t left = wait_us - (now - s_req_us);
+            int ms = (int)(left / 1000) + 1;
+            if (ms > 50) ms = 50;
+            if (ms < 10) ms = 10;
+            vTaskDelay(pdMS_TO_TICKS(ms));
             continue;
         }
         double lat = gp->lat, lon = gp->lon;
@@ -213,12 +257,13 @@ static void nav_task(void *arg) {
         else if (s_mode == 2) snprintf(modejson, sizeof modejson,
                                        "\"mode\":\"blend\",\"sat_opacity\":%d", s_sat);
         else snprintf(modejson, sizeof modejson, "\"mode\":\"road\",\"theme\":\"gameboy\"");
-        char json[256];
+        char json[300];
         int jl = snprintf(json, sizeof json,
             "{\"device_id\":\"%s\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
-            "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"format\":\"pal16\","
-            "%s,\"coord\":\"wgs84\"}",
-            s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE, modejson);
+            "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"zoom\":%.2f,"
+            "\"format\":\"pal16\",%s,\"coord\":\"wgs84\"}",
+            s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd, NAV_IMG_SIZE,
+            s_zoom / 100.0f, modejson);
 
         int bodyLen = -1;
         int64_t t0 = esp_timer_get_time();
@@ -229,7 +274,7 @@ static void nav_task(void *arg) {
             if (bodyLen < 0 && (s_http_code == 429 || s_http_code == 502 || s_http_code == 503)) break;
         }
         int64_t t1 = esp_timer_get_time();
-        s_req_us = esp_timer_get_time();
+        s_req_us = t0;           /* period measured from request start */
         s_last_lat = lat; s_last_lon = lon; s_last_hdg = hd; s_req = true;
         s_bytes = bodyLen;
 
@@ -247,8 +292,8 @@ static void nav_task(void *arg) {
                 s_frames++;
                 s_fail = 0;
                 s_last_us = esp_timer_get_time();
-                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d, req=%dms dec=%dms, heap %u",
-                         s_frames, w, h, bodyLen, s_mode, s_sat,
+                ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d z=%d, req=%dms dec=%dms, heap %u",
+                         s_frames, w, h, bodyLen, s_mode, s_sat, s_zoom,
                          (int)((t1 - t0) / 1000), (int)((t3 - t2) / 1000),
                          (unsigned)esp_get_free_heap_size());
             } else {
@@ -288,7 +333,22 @@ void nav_start(void) {
 void nav_set_active(bool on) {
     s_active = on;
     if (on) s_force = true;
+    /* frame delivery is latency-sensitive: disable WiFi modem sleep while the
+     * nav screen is fetching, restore the default power saving afterwards */
+    netcfg_set_low_latency(on);
 }
+
+void nav_set_zoom(int pct) {
+    if (pct < NAV_ZOOM_MIN_PCT) pct = NAV_ZOOM_MIN_PCT;
+    else if (pct > NAV_ZOOM_MAX_PCT) pct = NAV_ZOOM_MAX_PCT;
+    if (pct != s_zoom) {
+        s_zoom = pct;
+        s_force = true;
+    }
+    ESP_LOGI(TAG, "zoom -> %d%%", s_zoom);
+}
+
+int nav_zoom_pct(void) { return s_zoom; }
 
 void nav_set_mode(int mode, int sat_opacity) {
     if (mode < 0 || mode > 2) mode = 0;

@@ -366,6 +366,7 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "gpshz", &v) == ESP_OK) g.gps_rate_hz = v;
     if (nvs_get_i32(h, "navmode", &v) == ESP_OK) g.nav_mode = v;
     if (nvs_get_i32(h, "navsat", &v) == ESP_OK) g.nav_sat = v;
+    if (nvs_get_i32(h, "navzoom", &v) == ESP_OK) g.nav_zoom = v;
     if (nvs_get_i32(h, "ptrig", &v) == ESP_OK) g.perf_trig_g100 = v;
     nvs_close(h);
 }
@@ -386,6 +387,7 @@ void app_save_settings(void) {
     nvs_set_i32(h, "gpshz", g.gps_rate_hz);
     nvs_set_i32(h, "navmode", g.nav_mode);
     nvs_set_i32(h, "navsat", g.nav_sat);
+    nvs_set_i32(h, "navzoom", g.nav_zoom);
     nvs_set_i32(h, "ptrig", g.perf_trig_g100);
     nvs_commit(h);
     nvs_close(h);
@@ -405,6 +407,7 @@ void app_init(void) {
     g.gps_rate_hz = 10;
     g.nav_mode = 0;
     g.nav_sat = 60;
+    g.nav_zoom = 100;
     g.perf_trig_g100 = START_PERF_TRIG;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     /* load persisted settings */
@@ -463,6 +466,8 @@ void app_init(void) {
     }
     nav_start();
     nav_set_mode(g.nav_mode, g.nav_sat);
+    nav_set_zoom(g.nav_zoom);
+    g.nav_zoom = nav_zoom_pct();
     /* bring the module up in its 1 Hz idle mode; a GNSS page bumps it later */
     gps_set_rate(1);
     app_go(SC_IMU_CALIB, 1);

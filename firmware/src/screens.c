@@ -197,6 +197,24 @@ static int nav_style_idx(void) {
     return 0;                                      /* road */
 }
 
+static void nav_zoom_str(char *out, int cap) {
+    int z = nav_zoom_pct();
+    snprintf(out, cap, "%d.%dX", z / 100, (z % 100) / 10);
+}
+
+static void nav_apply_zoom(int dir) {
+    int z = nav_zoom_pct() + dir * NAV_ZOOM_STEP_PCT;
+    if (z < NAV_ZOOM_MIN_PCT) z = NAV_ZOOM_MIN_PCT;
+    if (z > NAV_ZOOM_MAX_PCT) z = NAV_ZOOM_MAX_PCT;
+    g.nav_zoom = z;
+    nav_set_zoom(z);
+    app_save_settings();
+    char zb[16], msg[24];
+    nav_zoom_str(zb, sizeof zb);
+    snprintf(msg, sizeof msg, "ZOOM %s", zb);
+    app_toast(msg);
+}
+
 static void nav_apply_style(int i) {
     if (i == 0) g.nav_mode = 0;
     else if (i == 1) g.nav_mode = 1;
@@ -207,17 +225,20 @@ static void nav_apply_style(int i) {
 
 static void draw_nav_menu(void) {
     if (!g.nav_menu) return;
-    static const char *it_main[2] = {"REFRESH", "STYLE"};
+    static const char *it_main[4] = {"REFRESH", "STYLE", "ZOOM IN", "ZOOM OUT"};
     static const char *it_style[5] = {"ROAD PIXEL", "SATELLITE", "BLEND 30%", "BLEND 60%", "BLEND 90%"};
     bool style = (g.nav_menu == 2);
     const char **items = style ? it_style : it_main;
-    int n = style ? 5 : 2;
+    int n = style ? 5 : 4;
     int bw = 176, rh = 18, top = 24;
     int bh = top + n * rh + 16;
     int bx = (CW - bw) / 2, by = (CH - bh) / 2;
+    char tb[24], zb[16];
+    nav_zoom_str(zb, sizeof zb);
+    snprintf(tb, sizeof tb, "NAV %s", zb);
     gfx_fill(bx, by, bw, bh, PAL.stage);
     gfx_rect(bx, by, bw, bh, PAL.cyan);
-    gfx_text(bx + 8, by + 7, style ? "STYLE" : "NAV", PAL.cyan, 1);
+    gfx_text(bx + 8, by + 7, style ? "STYLE" : tb, PAL.cyan, 1);
     for (int i = 0; i < n; i++) {
         int y = by + top + i * rh;
         if (i == g.nav_sel) gfx_fill(bx + 4, y - 2, bw - 8, rh - 2, PAL.seltint);
@@ -292,6 +313,10 @@ static void render_nav(void) {
     snprintf(b, sizeof b, "HDG %d", (int)lroundf(nav_heading()));
     gfx_text(rx, 140, b, PAL.dim, 0);
     gfx_text(rx, 156, gps_pps_ok() ? "PPS OK" : "PPS --", gps_pps_ok() ? PAL.green : PAL.dim, 0);
+    char zb[16];
+    nav_zoom_str(zb, sizeof zb);
+    snprintf(b, sizeof b, "Z %s", zb);
+    gfx_text(rx, 170, b, PAL.dim, 0);
     gfx_text(rx, 184, g.entered ? "PUSH MENU" : "PUSH START", PAL.dim, 0);
     gfx_text(rx, 196, "BACK EXIT", PAL.dim, 0);
 
@@ -1571,12 +1596,15 @@ void screens_handle(const event_t *ev) {
                 g.nav_sel = (g.nav_menu == 1) ? 1 : 0;
                 return;
             }
-            int cnt = (g.nav_menu == 2) ? 5 : 2;
+            int cnt = (g.nav_menu == 2) ? 5 : 4;
             if (d) { g.nav_sel = (g.nav_sel + d + cnt) % cnt; return; }
             if (ev->button == BTN_PUSH) {
                 if (g.nav_menu == 1) {
-                    if (g.nav_sel == 0) { nav_refresh(); app_toast("MAP REFRESH"); g.nav_menu = 0; }
-                    else { g.nav_menu = 2; g.nav_sel = nav_style_idx(); }
+                    int i = g.nav_sel;
+                    if (i == 0) { nav_refresh(); app_toast("MAP REFRESH"); }
+                    else if (i == 1) { g.nav_menu = 2; g.nav_sel = nav_style_idx(); return; }
+                    else nav_apply_zoom(i == 2 ? 1 : -1);
+                    g.nav_menu = 0;
                 } else {
                     int i = g.nav_sel;
                     nav_apply_style(i);

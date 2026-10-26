@@ -7,6 +7,7 @@
 #include "esp_netif.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -54,6 +55,12 @@ static int64_t s_scan_us = 0;
 
 bool netcfg_running(void) { return s_started; }
 bool netcfg_connected(void) { return s_connected; }
+
+void netcfg_set_low_latency(bool on) {
+    if (!s_started) return;
+    esp_err_t err = esp_wifi_set_ps(on ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+    if (err != ESP_OK) ESP_LOGW(TAG, "set_ps(%d) failed: %s", on, esp_err_to_name(err));
+}
 const char *netcfg_ip(void) { return s_ip; }
 const char *netcfg_ap_ssid(void) { return s_ap_ssid; }
 
