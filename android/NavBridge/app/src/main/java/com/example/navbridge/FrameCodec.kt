@@ -22,7 +22,7 @@ object FrameCodec {
         0xFF141414.toInt(), // 1
         0xFF2B2B2B.toInt(), // 2
         0xFF4A4A4A.toInt(), // 3
-        0xFF6E6E6E.toInt(), // 4
+        0xFF44FF44.toInt(), // 4 亮绿（与 LOCATION 页速度一致）
         0xFF8F8F8F.toInt(), // 5
         0xFFB0B0B0.toInt(), // 6
         0xFFD0D0D0.toInt(), // 7

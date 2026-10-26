@@ -145,7 +145,13 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         }
     } as AMapNaviListener
 
-    fun start(destLat: Double, destLng: Double, simulate: Boolean = false) {
+    fun start(
+        destLat: Double,
+        destLng: Double,
+        simulate: Boolean = false,
+        startLat: Double? = null,
+        startLng: Double? = null,
+    ) {
         val n = runCatching { AMapNavi.getInstance(app) }.getOrNull()
         if (n == null) { cb.onStatus("高德导航初始化失败，检查 Key"); return }
         navi = n
@@ -160,7 +166,10 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         runCatching { n.addAMapNaviListener(listener) }
         initTts()
 
-        if (useExtra) {
+        if (startLat != null && startLng != null) {
+            cb.onStatus(if (simulate) "准备模拟路线…" else "正在规划路线…")
+            calculateRoute(startLat, startLng, destLat, destLng)
+        } else if (useExtra) {
             val fix = externalFix
             if (fix != null) {
                 val gcj = CoordConv.wgsToGcj(fix.latitude, fix.longitude)
@@ -250,7 +259,7 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         started = true
         checkRoute()
         val mode = if (simulate) NaviType.EMULATOR else NaviType.GPS
-        runCatching { n.setEmulatorNaviSpeed(50) }
+        runCatching { n.setEmulatorNaviSpeed(90) }
         runCatching { n.startNavi(mode) }
             .onFailure { cb.onStatus("启动导航失败：${it.message}") }
         cb.onStatus(if (simulate) "模拟导航中" else "导航中")

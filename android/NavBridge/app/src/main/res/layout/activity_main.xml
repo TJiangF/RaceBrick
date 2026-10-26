@@ -106,7 +106,7 @@
             android:id="@+id/btnSimulate"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="模拟导航（不用 GPS，车沿路线自己跑）" />
+            android:text="模拟导航（演示路线，不用 GPS）" />
 
         <Button
             android:id="@+id/btnGpsSource"

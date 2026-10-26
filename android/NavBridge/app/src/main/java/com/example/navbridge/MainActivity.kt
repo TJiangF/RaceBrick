@@ -311,7 +311,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startNavigation(simulate: Boolean = false) {
-        if (selLat.isNaN() || selLng.isNaN()) {
+        var targetLat = selLat
+        var targetLng = selLng
+        var targetName = selName
+        var simStartLat: Double? = null
+        var simStartLng: Double? = null
+        if (simulate) {
+            if (targetLat.isNaN() || targetLng.isNaN()) {
+                // 没有选目的地也能演示：固定一段上海市区的短路线
+                simStartLat = 31.19875; simStartLng = 121.43375
+                targetLat = 31.21075; targetLng = 121.45275
+                targetName = "演示路线"
+            } else {
+                // 从目的地西南约 1 km 处出发，保证室内没有 GPS 也能模拟
+                simStartLat = targetLat - 0.006
+                simStartLng = targetLng - 0.008
+            }
+        } else if (targetLat.isNaN() || targetLng.isNaN()) {
             toast("先在搜索框里选择一个目的地")
             return
         }
@@ -347,8 +363,8 @@ class MainActivity : AppCompatActivity() {
         currentPreview = null
         ivPreview.setImageBitmap(null)
         if (!ble.connected) log("未连接 RaceBrick：先手机端模拟，连接后自动补发")
-        log((if (simulate) "开始模拟导航 → " else "开始导航 → ") + "$selName ($selLat,$selLng)")
-        nav.start(selLat, selLng, simulate)
+        log((if (simulate) "开始模拟导航 → " else "开始导航 → ") + "$targetName ($targetLat,$targetLng)")
+        nav.start(targetLat, targetLng, simulate, simStartLat, simStartLng)
     }
 
     private fun stopNavigation() {
@@ -688,6 +704,7 @@ class MainActivity : AppCompatActivity() {
             laneFr,
             turnIcon,
             speedLimit,
+            showSdkPreview,
         )
         ivPreview.setImageBitmap(bmp)
         val old = currentPreview

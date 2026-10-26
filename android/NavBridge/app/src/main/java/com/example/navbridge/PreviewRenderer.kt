@@ -80,6 +80,7 @@ object PreviewRenderer {
         laneFr: IntArray = IntArray(0),
         turnIcon: Bitmap? = null,
         speedLimit: Int = 0,
+        sdkOriginal: Boolean = true,
     ): Bitmap {
         val s = base.width.toFloat()
         fun px(x: Double): Float = ((x - blockX0) / BLOCK * s).toFloat()
@@ -191,7 +192,6 @@ object PreviewRenderer {
                     textSize = 8f
                     textAlign = Paint.Align.CENTER
                     typeface = Typeface.DEFAULT_BOLD
-                    setShadowLayer(2f, 0f, 1f, 0xCC000000.toInt())
                 })
             }
         }
@@ -222,7 +222,7 @@ object PreviewRenderer {
             },
         )
 
-        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), turnIcon, speedLimit, laneBg, laneFr)
+        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), turnIcon, speedLimit, laneBg, laneFr, sdkOriginal)
         return out
     }
 
@@ -243,13 +243,15 @@ object PreviewRenderer {
         speedLimit: Int,
         laneBg: IntArray,
         laneFr: IntArray,
+        sdkOriginal: Boolean,
     ) {
+        val hudColor = if (sdkOriginal) Color.BLACK else 0xFF1E88E5.toInt()
+        val speedColor = 0xFF44FF44.toInt()
         fun paint(size: Float, color: Int, bold: Boolean = false): Paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = size
                 this.color = color
                 if (bold) typeface = Typeface.DEFAULT_BOLD
-                setShadowLayer(3f, 0f, 1f, 0xB3000000.toInt())
             }
 
         // 左上：官方转向图标（没有就用箭头字符）+ 到下一动作距离
@@ -262,28 +264,28 @@ object PreviewRenderer {
                 Paint(Paint.FILTER_BITMAP_FLAG),
             )
         } else {
-            c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, 0xFF00E5FF.toInt(), true))
+            c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, hudColor, true))
         }
-        c.drawText(distance(hud.dist), w * 0.17f, h * 0.165f, paint(w / 11f, Color.WHITE, true))
+        c.drawText(distance(hud.dist), w * 0.17f, h * 0.165f, paint(w / 11f, hudColor, true))
 
         // 顶部中间：限速；其下：车道背景 + 推荐车道
         drawSpeedLimit(c, speedLimit, w, h)
         drawLanes(c, laneBg, laneFr, w, h)
 
         // 右上：速度
-        val speed = paint(w / 10f, Color.WHITE, true).apply { textAlign = Paint.Align.RIGHT }
+        val speed = paint(w / 10f, speedColor, true).apply { textAlign = Paint.Align.RIGHT }
         c.drawText("${hud.speed}", w - w * 0.03f, h * 0.18f, speed)
-        val unit = paint(w / 28f, 0xFFCCCCCC.toInt()).apply { textAlign = Paint.Align.RIGHT }
+        val unit = paint(w / 28f, speedColor).apply { textAlign = Paint.Align.RIGHT }
         c.drawText("km/h", w - w * 0.03f, h * 0.27f, unit)
 
         // 左下：下一条路 + 剩余距离/时间
         val road = hud.nextRoad.ifBlank { "沿当前道路" }.take(10)
-        c.drawText(road, w * 0.03f, h - h * 0.105f, paint(w / 21f, Color.WHITE))
+        c.drawText(road, w * 0.03f, h - h * 0.105f, paint(w / 21f, hudColor))
         c.drawText(
             "${distance(hud.remainM)}  ${duration(hud.remainS)}",
             w * 0.03f,
             h - h * 0.025f,
-            paint(w / 24f, 0xFFCCCCCC.toInt()),
+            paint(w / 24f, hudColor),
         )
     }
 
@@ -333,7 +335,6 @@ object PreviewRenderer {
                 textSize = laneW * 0.78f
                 textAlign = Paint.Align.CENTER
                 typeface = Typeface.DEFAULT_BOLD
-                setShadowLayer(2f, 0f, 1f, 0x99000000.toInt())
             }
             c.drawText(laneGlyph(code), rect.centerX(), rect.bottom - 6f, gp)
         }
