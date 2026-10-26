@@ -11,20 +11,17 @@
 #define NAV_IMG_MAX_W 320     /* largest decoded frame (fullscreen) */
 #define NAV_IMG_MAX_H 240
 
-/* Relative zoom applied to the base ground span (NAV_SIZE_M in nav.c).
- * 100 = base, >100 = zoom in. Range-limited so the server never gets asked
- * for an absurd ground scale. */
-#define NAV_ZOOM_MIN_PCT 50
-#define NAV_ZOOM_MAX_PCT 400
-#define NAV_ZOOM_STEP_PCT 50
+/* Zoom levels: index 0 = 4x, index 2 = 1x (base), last level = country view. */
+#define NAV_ZOOM_DEFAULT 2
 
 void nav_start(void);            /* allocate buffers + start worker task */
 void nav_set_active(bool on);    /* enable fetching while the nav screen is open */
 void nav_refresh(void);          /* request a new tile now */
 float nav_heading(void);         /* smoothed heading used by the map (deg) */
 void nav_set_mode(int mode, int sat_opacity);  /* 0=road 1=satellite 2=blend */
-void nav_set_zoom(int pct);      /* zoom in/out, clamped to NAV_ZOOM_MIN/MAX */
-int  nav_zoom_pct(void);         /* current zoom (100 = base) */
+void nav_set_zoom_level(int level);  /* select zoom level (clamped) */
+void nav_zoom_step(int dir);         /* +1 = zoom in, -1 = zoom out */
+int  nav_zoom_level(void);           /* current zoom level index */
 void nav_set_fullscreen(bool on);/* fetch 320x240 and use the whole page */
 int  nav_http_code(void);        /* HTTP status of the last fetch (0 = comms) */
 

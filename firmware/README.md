@@ -38,7 +38,7 @@ pio device monitor -b 115200              # 串口日志
 - 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
 
-- **实时导航页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头；速度右上角亮绿显示，GPS/地图状态右下角，WiFi 状态在电池胶囊内。
+- **LOCATION 实时地图页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头；速度右上角亮绿显示，GPS/地图状态右下角，WiFi 状态在电池胶囊内。
 
 ### 页面布局（240px 全高）
 - 移除顶部时钟 + 10 颗模拟 LED、以及底部状态栏；320×240 全部给页面内容。
@@ -51,18 +51,18 @@ pio device monitor -b 115200              # 串口日志
   - `"mode":"road","theme":"gameboy"` → 像素风路网（palCnt=4，实测 877 B/帧）
   - `"mode":"satellite"` → 卫星原图（palCnt=16，240×240 实测约 37 KB/帧）
   - `"mode":"blend","sat_opacity":30|60|90` → 卫星按透明度叠在路网上（palCnt=16，约 37 KB/帧；100 = 纯卫星）
-- **PUSH 菜单**（进入导航页后）：`REFRESH` 立即刷新；`STYLE` → `ROAD PIXEL` / `SATELLITE` / `BLEND 30%` / `BLEND 60%` / `BLEND 90%`；`ZOOM IN` / `ZOOM OUT` 调整地面倍率（0.5–4.0×，0.5 步进，写入 NVS）；`FULLSCREEN` 切换全屏 320×240 地图（写入 NVS）。选择后立即重取。未进入时 PUSH 启动、UP/DOWN 切轮播页。
+- **PUSH 菜单**（进入 LOCATION 后）：`REFRESH` 立即刷新；`STYLE` → `ROAD PIXEL` / `SATELLITE` / `BLEND 30%` / `BLEND 60%` / `BLEND 90%`；`ZOOM IN` / `ZOOM OUT` 调整地面倍率（4×→约 6,553 km 宽，可缩到中国全图，写入 NVS；菜单保持打开便于连续缩放）；`FULLSCREEN` 切换全屏 320×240 地图（写入 NVS）。选择后立即重取。未进入时 PUSH 启动、UP/DOWN 切轮播页。
 - 航向：GPS COG 在 <1.5 km/h 时无效；运动时 ~0.35 s 低通平滑，静止保持上次航向，从未移动过则正北朝上（不转）。
 - 失败处理：保留上一帧；429/502/503 立即停止本次重试，失败后 5/10/20/30 s 指数退避；信息栏显示 `HTTP xxx`。road/blend 依赖天地图，若服务端 `TILE_FETCH_FAILED/302010`（tk 限流）会 502，可先用 SATELLITE。
 - 后台任务取图 + RLE 解码到 PSRAM 双缓冲，主循环叠加箭头与信息；移动 >12 m / 转向 >12° / 每 2.5 s 触发重取（失败重试 3 次，退避 1/2 s）。
 - **传输优化**：HTTP keep-alive 复用 TCP 连接、导航页内关闭 WiFi modem sleep（`WIFI_PS_NONE`）、限流从请求开始计时并按剩余时间休眠，显著降低延迟抖动。
-- **导航页信息**：速度亮绿色显示在右上角；GPS/地图状态在右下角。全屏模式下状态行使用白底胶囊框叠加在地图上；WiFi 连接状态并入右下角电池胶囊（绿色信号格=已连接，红色=未连接）；不再显示 HDG、PPS、zoom 数值和独立 WIFI/MAP OK 行。
+- **LOCATION 页信息**：速度亮绿色显示在右上角；GPS/地图状态在右下角。全屏模式下状态行使用白底胶囊框叠加在地图上；WiFi 连接状态并入右下角电池胶囊（绿色信号格=已连接，红色=未连接）；不再显示 HDG、PPS、zoom 数值和独立 WIFI/MAP OK 行。
 - **刷新率（240×240 satellite）**：优化前请求 0.5–0.9 s、解码 9–17 ms、帧间隔 3.05–3.4 s；现在限流从请求开始计时，帧间隔约 2.2–2.4 s。限流 road 1.2 s / satellite-blend 2.2 s（手动刷新/缩放可立即）。放开限流理论上限约 1–2 fps（受服务端渲染/天地图配额限制）。
 - **图像格式对比**（240×240）：
   - `rgb565`：115 KB/帧，无需解码、16 位色，但传输量大。
   - `pal16`：RLE，road 4 色实测 **877 字节/帧**、satellite 16 色约 37 KB/帧，解码极快 → **刷新率最高**（**已采用**）。
   - `png`/`jpeg`：需额外解码器（inflate/JPEG），CPU/Flash 开销大、延迟高，不推荐。
-- 无 GPS fix 显示 `NO GPS`、无 WiFi 显示 `NO WIFI`；PUSH 手动刷新。
+- 无 GPS fix 显示 `NO GPS`、无 WiFi 显示 `NO WIFI`；PUSH 手动刷新。Settings 中原静态中国地图页已改名 `CHINA MAP`。
   - 页面会**扫描并列出附近 WiFi**（下拉选择，或手动输入隐藏 SSID），选好填密码即可。
   - 保存后页面**轮询状态**：`CONNECTING...` → `CONNECTED <IP>`（失败约 20s 后显示 `FAILED`）。
   - 配网成功后写入 NVS；之后**开机自动连接**（同时保留 SoftAP 作为备用）。

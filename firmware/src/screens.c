@@ -190,7 +190,7 @@ static void render_perf(void) {
     else gfx_text(6, HINT_Y, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
-/* ================= NAVIGATION (real-time pixel road map) ================= */
+/* ================= LOCATION (real-time pixel road map) ================= */
 static int nav_style_idx(void) {
     if (g.nav_mode == 1) return 1;                 /* satellite */
     if (g.nav_mode == 2) return g.nav_sat <= 30 ? 2 : (g.nav_sat <= 60 ? 3 : 4);
@@ -222,11 +222,8 @@ static void nav_info_line(bool full, int right, int y, const char *s, uint16_t c
 }
 
 static void nav_apply_zoom(int dir) {
-    int z = nav_zoom_pct() + dir * NAV_ZOOM_STEP_PCT;
-    if (z < NAV_ZOOM_MIN_PCT) z = NAV_ZOOM_MIN_PCT;
-    if (z > NAV_ZOOM_MAX_PCT) z = NAV_ZOOM_MAX_PCT;
-    g.nav_zoom = z;
-    nav_set_zoom(z);
+    nav_zoom_step(dir);
+    g.nav_zoom = nav_zoom_level();
     app_save_settings();
     app_toast(dir > 0 ? "ZOOM IN" : "ZOOM OUT");
 }
@@ -251,7 +248,7 @@ static void draw_nav_menu(void) {
     int bx = (CW - bw) / 2, by = (CH - bh) / 2;
     gfx_fill(bx, by, bw, bh, PAL.stage);
     gfx_rect(bx, by, bw, bh, PAL.cyan);
-    gfx_text(bx + 8, by + 7, style ? "STYLE" : (g.nav_full ? "NAV FULL" : "NAV"), PAL.cyan, 1);
+    gfx_text(bx + 8, by + 7, style ? "STYLE" : (g.nav_full ? "LOCATION FULL" : "LOCATION"), PAL.cyan, 1);
     for (int i = 0; i < n; i++) {
         int y = by + top + i * rh;
         if (i == g.nav_sel) gfx_fill(bx + 4, y - 2, bw - 8, rh - 2, PAL.seltint);
@@ -271,7 +268,7 @@ static void render_nav(void) {
     if (!g.entered) {
         gfx_fill(0, 0, map_w, map_h, PAL.mapbg);
         gfx_rect(0, 0, map_w, map_h, PAL.mapborder);
-        gfx_text_center(map_w / 2, map_h / 2 - 30, "NAVIGATION", PAL.cyan, 2);
+        gfx_text_center(map_w / 2, map_h / 2 - 30, "LOCATION", PAL.cyan, 2);
         gfx_text_center(map_w / 2, map_h / 2, "PUSH TO START", PAL.yellow, 1);
     } else {
         int mw = 0, mh = 0;
@@ -408,7 +405,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[12] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "LOCATION"};
+    static const char *k[12] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -1194,7 +1191,7 @@ static void render_gps_debug(void) {
     if (gp->txt_toostrong) gfx_text(8, 182, "!! RF INPUT TOO STRONG", PAL.red, 1);
 }
 
-/* ================= LOCATION (flat China map + GPS) ================= */
+/* ================= CHINA MAP (flat map + GPS) ================= */
 #define LMAP_X 4
 #define LMAP_Y 16
 #define LMAP_W CN_MAPW
@@ -1204,7 +1201,7 @@ static void render_location(void) {
     gps_state_t *gp = gps_get();
     char b[40], b2[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("LOCATION", 4);
+    title_c("CHINA MAP", 4);
 
     int mx = LMAP_X, my = LMAP_Y, mw = LMAP_W, mh = LMAP_H;
     gfx_fill(mx, my, mw, mh, PAL.mapbg);
@@ -1653,8 +1650,12 @@ void screens_handle(const event_t *ev) {
                         nav_set_fullscreen(g.nav_full != 0);
                         app_save_settings();
                         app_toast(g.nav_full ? "FULLSCREEN" : "NORMAL VIEW");
-                    } else nav_apply_zoom(i == 2 ? 1 : -1);
-                    g.nav_menu = 0;
+                        g.nav_menu = 0;
+                    } else {
+                        nav_apply_zoom(i == 2 ? 1 : -1);
+                        return;                 /* keep menu open for repeated zoom */
+                    }
+                    if (i == 0) g.nav_menu = 0;
                 } else {
                     int i = g.nav_sel;
                     nav_apply_style(i);
@@ -2095,7 +2096,7 @@ void screens_chrome(void) {
                  g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");
         break;
     case SC_NAV:
-        snprintf(g.status, sizeof g.status, "NAV  %.0f KM/H  %s  %s",
+        snprintf(g.status, sizeof g.status, "LOCATION  %.0f KM/H  %s  %s",
                  gps_get()->speed_kmh, netcfg_connected() ? "WIFI" : "NO WIFI",
                  nav_status() == 1 ? "MAP OK" : "MAP...");
         break;
@@ -2134,7 +2135,7 @@ void screens_chrome(void) {
         g.statusColor = g.imu_stable ? PAL.green : PAL.yellow; break;
     case SC_LOCATION: {
         gps_state_t *gp = gps_get();
-        snprintf(g.status, sizeof g.status, "LOCATION  FIX %s  SAT %d  HDOP %.1f",
+        snprintf(g.status, sizeof g.status, "CHINA MAP  FIX %s  SAT %d  HDOP %.1f",
                  gp->fix_type == 2 ? "3D" : (gp->fix_type == 1 ? "2D" : "NO"), gp->sats_used, gp->hdop);
         g.statusColor = gp->fix_type >= 1 ? PAL.green : PAL.orange;
         break;

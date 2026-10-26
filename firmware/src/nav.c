@@ -47,7 +47,16 @@ static double s_last_lat = 0, s_last_lon = 0;
 static float  s_last_hdg = 0;
 static int    s_mode = 0;     /* 0=road 1=satellite 2=blend */
 static int    s_sat = 60;     /* blend satellite opacity */
-static int    s_zoom = 100;   /* percent of base span; 100 = 1.0x */
+/* Zoom levels relative to the base ground span. Local navigation uses the
+ * first few entries; the tail reaches mainland-China scale (~6,500 km wide)
+ * without needing a long series of tiny percentage steps. */
+static const float NAV_ZOOM_LEVELS[] = {
+    4.0f, 2.0f, 1.0f, 0.5f, 0.25f,
+    0.0625f, 0.015625f, 0.00390625f,
+    0.0009765625f, 0.000244140625f, 0.00006103515625f,
+};
+#define NAV_ZOOM_N ((int)(sizeof(NAV_ZOOM_LEVELS) / sizeof(NAV_ZOOM_LEVELS[0])))
+static int    s_zidx = NAV_ZOOM_DEFAULT;
 static bool   s_full = false; /* request 320x240 and fill the whole page */
 static bool   s_req = false;
 static int64_t s_req_us = 0;
@@ -266,10 +275,10 @@ static void nav_task(void *arg) {
         int jl = snprintf(json, sizeof json,
             "{\"device_id\":\"%s\",\"seq\":%lu,\"lng\":%.7f,\"lat\":%.7f,"
             "\"size_m\":%d,\"heading\":%.1f,\"size\":%d,\"width\":%d,\"height\":%d,"
-            "\"zoom\":%.2f,\"format\":\"pal16\",%s,\"coord\":\"wgs84\"}",
+            "\"zoom\":%.10f,\"format\":\"pal16\",%s,\"coord\":\"wgs84\"}",
             s_devid, (unsigned long)s_seq, lon, lat, NAV_SIZE_M, hd,
             req_w > req_h ? req_w : req_h, req_w, req_h,
-            s_zoom / 100.0f, modejson);
+            NAV_ZOOM_LEVELS[s_zidx], modejson);
 
         int bodyLen = -1;
         int64_t t0 = esp_timer_get_time();
@@ -299,7 +308,7 @@ static void nav_task(void *arg) {
                 s_fail = 0;
                 s_last_us = esp_timer_get_time();
                 ESP_LOGI(TAG, "frame %d: %dx%d, %d bytes, mode=%d/%d z=%d full=%d, req=%dms dec=%dms, heap %u",
-                         s_frames, w, h, bodyLen, s_mode, s_sat, s_zoom, s_full,
+                         s_frames, w, h, bodyLen, s_mode, s_sat, s_zidx, s_full,
                          (int)((t1 - t0) / 1000), (int)((t3 - t2) / 1000),
                          (unsigned)esp_get_free_heap_size());
             } else {
@@ -344,17 +353,21 @@ void nav_set_active(bool on) {
     netcfg_set_low_latency(on);
 }
 
-void nav_set_zoom(int pct) {
-    if (pct < NAV_ZOOM_MIN_PCT) pct = NAV_ZOOM_MIN_PCT;
-    else if (pct > NAV_ZOOM_MAX_PCT) pct = NAV_ZOOM_MAX_PCT;
-    if (pct != s_zoom) {
-        s_zoom = pct;
+void nav_set_zoom_level(int level) {
+    if (level < 0) level = 0;
+    else if (level >= NAV_ZOOM_N) level = NAV_ZOOM_N - 1;
+    if (level != s_zidx) {
+        s_zidx = level;
         s_force = true;
     }
-    ESP_LOGI(TAG, "zoom -> %d%%", s_zoom);
+    ESP_LOGI(TAG, "zoom level -> %d (%.6fx)", s_zidx, NAV_ZOOM_LEVELS[s_zidx]);
 }
 
-int nav_zoom_pct(void) { return s_zoom; }
+void nav_zoom_step(int dir) {
+    nav_set_zoom_level(s_zidx + (dir > 0 ? -1 : 1));
+}
+
+int nav_zoom_level(void) { return s_zidx; }
 
 void nav_set_fullscreen(bool on) {
     if (on != s_full) {

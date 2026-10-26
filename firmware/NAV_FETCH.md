@@ -2,14 +2,14 @@
 
 - 固件仓库：<https://github.com/TJiangF/RaceBrick>（固件在 `firmware/`）
 - 服务端仓库：<https://github.com/TJiangF/RaceBrick_Sat2Pixel>（接口文档见其 `docs/API.md`）
-- 本文只描述**导航页拉取像素地图**的链路。
+- 本文只描述 **LOCATION 页拉取像素地图**的链路。
 
 ## 1. 相关文件
 
 | 文件 | 作用 |
 |---|---|
 | `firmware/src/nav.c` / `nav.h` | 后台拉图任务、请求调度、pal16 解码、双缓冲 |
-| `firmware/src/screens.c` | 导航页渲染、PUSH 菜单（Refresh / Style / Zoom / Fullscreen） |
+| `firmware/src/screens.c` | LOCATION 页渲染、PUSH 菜单（Refresh / Style / Zoom / Fullscreen） |
 | `firmware/src/netcfg.c` / `.h` | WiFi/HTTP 服务、调试接口 |
 | `firmware/src/main.c` | 主循环、远程命令 |
 | `firmware/src/config.h` | 屏幕几何（320×240） |
@@ -26,12 +26,12 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
  主循环 render_nav(): gfx_blit（240×240 或全屏 320×240）+ 中心箭头 + 速度/状态 → lcd_flush
 ```
 
-- 仅在导航页激活时工作（`nav_set_active(true)`）；无 WiFi → 状态 4，无 GPS（`fix_type<1`）→ 状态 5。
-- 普通导航上屏 **240×240**（`NAV_IMG_SIZE`）；FULLSCREEN 模式请求并显示 **320×240**。
+- 仅在 LOCATION 页激活时工作（`nav_set_active(true)`）；无 WiFi → 状态 4，无 GPS（`fix_type<1`）→ 状态 5。
+- LOCATION 普通模式上屏 **240×240**（`NAV_IMG_SIZE`）；FULLSCREEN 模式请求并显示 **320×240**。
 - `zoom` 只改变**地面覆盖范围**（`size_m / zoom`），不改变像素尺寸。
 - 两张 **320×240 RGB565（153,600 B/张）** 缓冲（普通模式只用左上 240×240）+ **96 KB** 响应体，全部在 PSRAM。
 
-### 导航页 UI
+### LOCATION 页 UI
 
 - 普通模式：左侧 240×240 地图；速度（亮绿色）在右上角；GPS/地图状态在右下角。
 - 全屏模式（PUSH → FULLSCREEN）：320×240 地图铺满整页；速度仍在右上角，其余状态用白底胶囊框叠在右下角。
@@ -60,7 +60,7 @@ GPS(UART NMEA) → gps_state{lat,lon,course,speed,fix}
 | `device_id` | 由 MAC 派生（每台唯一） |
 | `seq` | 启动用 `esp_random()` 作基址；**新请求 +1，重试复用同一 seq** |
 | `size` / `width` / `height` | 普通 240×240；全屏 320×240。`size_m` 为基准地面宽度 |
-| `zoom` | 缩放倍率；设备范围 **0.5–4.0，步进 0.5**，`>1` 放大 |
+| `zoom` | 缩放倍率；设备档位 `4→0.000061`，`>1` 放大，最小档约 6,553 km 宽（中国全图） |
 | `heading` | 平滑后的航向；服务端按此旋转成 heading-up |
 | `format` | 固定 `pal16` |
 | `coord` | 固定 `wgs84`（服务端自行换算 GCJ-02） |
@@ -139,11 +139,12 @@ RLE：`byte = (run-1)<<4 | idx`；当 `(byte>>4)==15` 时，下一字节 `run = 
 ## 9. 调试 / 验证
 
 - `GET /api/fb?f=1` → 153,600 B 原生 RGB565 帧缓冲（冻结渲染，防撕裂）；`/api/fb?f=0` 解冻。
-- `GET /api/goto?n=<scid>&e=1` 跳页（`SC_NAV=23`，枚举见 `app.h`）。
+- `GET /api/goto?n=<scid>&e=1` 跳页（LOCATION 页 = `SC_NAV=23`，枚举见 `app.h`）。
+- 旧版静态中国地图页已改名 `CHINA MAP`，避免与 LOCATION 混淆。
 - `GET /api/key?b=up|down|push|back`：注入一次短按，用于无实体按键的自动化验证。
 - `GET /api/gps?lat=&lon=&speed=&course=`：临时覆盖 GNSS 状态（真实 GNSS 会覆盖，测试时需连续调用）。
 - `POST /api/control`：`cmd=home|perf|race|debug|nav`。
-- `GET /api/status` 额外返回 `nav`（状态码）、`nav_age`、`nav_frames`、`nav_bytes`。
+- `GET /api/status` 额外返回 `nav`（状态码）、`nav_age`、`nav_frames`、`nav_bytes`、`navz`（zoom 档位）、`nav_full`、`nav_mode`。
 - 串口：`frame N: 320x240, <bytes>, mode=x/y z=<zoom> full=1, req=<ms> dec=<ms>, heap <n>`；失败：`fetch failed (HTTP <n>, heap <n>)`。
 - 直接验证服务端：
 ```bash
@@ -160,15 +161,15 @@ curl -s -X POST http://47.100.182.210:2020/api/v1/nav \
 |---|---|
 | 图幅/像素 | `nav.h` `NAV_IMG_SIZE` / `NAV_FULL_W` / `NAV_FULL_H`；`nav.c` `NAV_SIZE_M` |
 | 全屏开关/持久化 | `nav.c` `nav_set_fullscreen()`；`app.c` NVS key `navfull` |
-| 缩放范围/步进 | `nav.h` `NAV_ZOOM_MIN_PCT` / `MAX` / `STEP` |
-| 缩放持久化 | `app.c` NVS key `navzoom` |
-| 响应体上限 | `nav.c` `NAV_BODY_MAX`（现 72 KB） |
+| 缩放档位 | `nav.c` `NAV_ZOOM_LEVELS[]`；`nav.h` `NAV_ZOOM_DEFAULT` |
+| 缩放持久化 | `app.c` NVS key `navzidx`（兼容旧 `navzoom` 百分比） |
+| 响应体上限 | `nav.c` `NAV_BODY_MAX`（现 96 KB） |
 | 限流/触发/退避 | `nav.c` `nav_task()` |
-| 请求 JSON / mode / zoom | `nav.c` `nav_task()` 内 `modejson`、`s_zoom` |
+| 请求 JSON / mode / zoom | `nav.c` `nav_task()` 内 `modejson`、`s_zidx` |
 | HTTP keep-alive / 读取 | `nav.c` `http_fetch()` |
 | 低延迟 WiFi | `nav.c` `nav_set_active()`；`netcfg.c` `netcfg_set_low_latency()` |
 | URL | `nav.c` `NAV_URL` |
 | 解码 | `nav.c` `pal16_decode()` |
-| 导航页布局/菜单/缩放 | `screens.c` `render_nav()` / `draw_nav_menu()` / `nav_apply_zoom()` |
+| LOCATION 页布局/菜单/缩放 | `screens.c` `render_nav()` / `draw_nav_menu()` / `nav_apply_zoom()` |
 | WiFi/电池指示 | `app.c` `render_battery()` |
 | 调试接口 | `netcfg.c` `h_api_fb` / `h_api_goto` |

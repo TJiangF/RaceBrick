@@ -325,12 +325,13 @@ static esp_err_t h_api_status(httpd_req_t *req) {
     int n = snprintf(b, sizeof b,
         "{\"wifi\":%d,\"ip\":\"%s\",\"fix\":%d,\"sats\":%d,\"hdop\":%.1f,\"speed\":%.1f,"
         "\"lat\":%.6f,\"lon\":%.6f,\"lap\":%d,\"elapsed\":%.3f,\"tracks\":%d,"
-        "\"nav\":%d,\"nav_age\":%d,\"nav_frames\":%d,\"nav_bytes\":%d}",
+        "\"nav\":%d,\"nav_age\":%d,\"nav_frames\":%d,\"nav_bytes\":%d,\"navz\":%d,\"nav_full\":%d,\"nav_mode\":%d}",
         s_connected ? 1 : 0, s_ip, gp->fix_type, gp->sats_used, gp->hdop,
         gp->speed_kmh, gp->lat, gp->lon,
         g.engine_valid ? g.engine.lap : 0,
         g.engine_valid ? g.engine.elapsed : 0.0f, tstore_count(),
-        nav_status(), nav_age_ms(), nav_frames(), nav_last_bytes());
+        nav_status(), nav_age_ms(), nav_frames(), nav_last_bytes(),
+        nav_zoom_level(), g.nav_full, g.nav_mode);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, b, n);
 }
@@ -360,7 +361,7 @@ static esp_err_t h_api_control(httpd_req_t *req) {
     else if (strstr(body, "cmd=perf")) cmd = 2;
     else if (strstr(body, "cmd=race")) cmd = 3;
     else if (strstr(body, "cmd=debug")) cmd = 4;
-    else if (strstr(body, "cmd=nav")) cmd = 5;
+    else if (strstr(body, "cmd=nav") || strstr(body, "cmd=location")) cmd = 5;
     if (cmd) {
         taskENTER_CRITICAL(&s_mux);
         s_cmd = cmd;
