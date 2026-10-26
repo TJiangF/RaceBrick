@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@android:color/black">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:text="未连接设备" />
+
+        <TextView
+            android:id="@+id/tvSign"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#AAAAAA"
+            android:textSize="11sp"
+            android:textIsSelectable="true"
+            android:text="包名：-\nSHA1：-" />
+
+        <EditText
+            android:id="@+id/etKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="高德 Android Key"
+            android:inputType="text"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#777777"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnSaveKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="保存 Key 并重启 App" />
+
+        <EditText
+            android:id="@+id/etKeyword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="输入目的地，例如：天安门"
+            android:inputType="text"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#777777"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:id="@+id/llTips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/tvDest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#66D9A6"
+            android:textSize="13sp"
+            android:text="尚未选择目的地" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnConnect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="连接设备" />
+
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="开始导航" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="停止" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSimulate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模拟导航（不用 GPS，车沿路线自己跑）" />
+
+        <Button
+            android:id="@+id/btnGpsSource"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="定位：手机 GPS" />
+
+        <Button
+            android:id="@+id/btnSendFrames"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="整帧发送：开（RaceBrick 320×240）" />
+
+        <Button
+            android:id="@+id/btnZoom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="视图：1.00×" />
+
+        <ImageView
+            android:id="@+id/ivPreview"
+            android:layout_width="match_parent"
+            android:layout_height="240dp"
+            android:layout_marginTop="12dp"
+            android:scaleType="fitCenter"
+            android:background="#111111"
+            android:contentDescription="320×240 导航画面模拟预览" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnPreviewMode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="预览：SDK 原图" />
+
+            <Button
+                android:id="@+id/btnOrientation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="视角：车头朝上" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="#88FF88"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true" />
+    </LinearLayout>
+</ScrollView>

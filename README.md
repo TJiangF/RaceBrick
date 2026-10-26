@@ -28,6 +28,69 @@ python3 -m http.server 8000
 
 ---
 
+## 手机 BLE 导航投屏（NavBridge）
+
+Android 工程已合入 [`android/NavBridge/`](android/NavBridge/)，和固件的 **`PHONE MAP`** 页面配合使用：手机端保留现有高德地图 + 路线 + 车标 + HUD 渲染，把 **320×240 整帧**压缩后通过 BLE 发给 RaceBrick，设备只负责收包、解码、全屏显示。
+
+### 工作方式
+
+```
+手机 NavBridge（高德 SDK）
+  渲染 320×240 全帧
+        │ 16 色量化 + RLE
+        ▼
+BLE UART 服务 6e400001... / 写 6e400002 / 通知 6e400003
+        │ 'M' 大块分片（type=5）
+        ▼
+ESP32-S3：BLE 外设 → 分片重组 → RLE 解码到 PSRAM → PHONE MAP 全屏
+```
+
+- 设备名：`RaceBrick`；BLE 默认开启，可在 **Settings → BLUETOOTH** 关闭/恢复。
+- 配对采用 Just Works（无 6 位配对码），手机端系统弹窗确认即可。
+- 整帧格式：`u16 frameId, i32 x0, i32 y0, u16 320, u16 240, u16 (1000|0x8000), 16×RGB565 调色板, RLE`。
+- 大块分片头 15 字节：`'M', type, id, parts(LE16), seq(LE16), total(LE32), offset(LE32), payload`。
+- 设备回 `U,1` 表示通道就绪；每帧收齐后回 `K,5,id`。同时每秒向手机发送 `#G,...`（NEO 的 WGS84 定位），手机可切换使用设备 GPS。
+- 设备把 320×240 RGB565 帧放在 PSRAM 双缓冲，收到新帧直接替换；`PHONE MAP` 页面显示时不再叠加设备自己的速度/电池信息。
+
+### 使用步骤
+
+1. 刷入本仓库固件；Settings 里确认 **BLUETOOTH = ON**。
+2. 手机安装 `android/NavBridge` 编译出的 APK，授予定位/蓝牙/通知权限。
+3. App 点“连接圆屏”（实际搜索 `RaceBrick`），系统配对框确认。
+4. 输入目的地，选中联想结果，点“开始导航”；确认 **整帧发送：开**（默认开启）。
+5. 设备 HOME 页按 UP/DOWN 切到 **`PHONE MAP`**，PUSH 进入即可看到手机画面。
+
+### 编译 App
+
+要求 **JDK 21**（Gradle 8.10.2 不支持 JDK 25）：
+
+```bash
+cd android/NavBridge
+export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+# 首次编译：cp local.properties.example local.properties，填 sdk.dir / AMAP_KEY
+./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+高德 Key 绑定包名 `com.example.navbridge` + 签名 SHA1，申请方法见 [`android/NavBridge/README.md`](android/NavBridge/README.md)。
+
+### 已验证
+
+- 固件编译、烧录、BLE 广播与 WiFi 共存正常（NimBLE + ESP32-S3）。
+- 用 macOS CoreBluetooth 作为模拟手机端完成端到端验证：
+  - 普通帧 3,624 B / 8 分片 → 设备回 `K,5,1`，读取 framebuffer 与发送图像**逐字节一致**；
+  - 最大压力帧 71,947 B / 149 分片 → 设备回 `K,5,2`，153,600 B framebuffer 仍**逐字节一致**。
+- Android 工程 `./gradlew assembleDebug` 编译通过。
+- 尚未用真实手机 + 真实高德导航做路测；BLE 协议链路已按 App 的实际编码/分片逻辑验证。
+
+### 注意
+
+- BLE 与 WiFi 共用 2.4 GHz 射频：WiFi 拉图时同时 BLE 投屏会互相占用空口，画面可能降速。
+- 当前只支持一个 BLE 连接；断开后自动重新广播。
+- 手机端“整帧发送”关闭时会退回旧的底图/路线分包，RaceBrick 的 `PHONE MAP` 只处理 type 5，不看旧的分包。
+
+---
+
 ## 截图
 
 | 开机 IMU 水平校准 | 主页面 |

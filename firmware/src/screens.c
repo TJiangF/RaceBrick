@@ -16,6 +16,7 @@
 #include "tstore.h"
 #include "netcfg.h"
 #include "nav.h"
+#include "btmap.h"
 #include "china_map.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -104,8 +105,8 @@ static void render_home(void) {
     gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
     if (((int)(g.now / 500)) % 2 == 0)
         gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
-    for (int i = 0; i < 6; i++) {
-        int dx = CW / 2 - 30 + i * 12;
+    for (int i = 0; i < 7; i++) {
+        int dx = CW / 2 - 36 + i * 12;
         gfx_fill(dx, 170, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
     hint_c("UP/DOWN  SWITCH PAGE", 200);
@@ -1191,6 +1192,43 @@ static void render_gps_debug(void) {
     if (gp->txt_toostrong) gfx_text(8, 182, "!! RF INPUT TOO STRONG", PAL.red, 1);
 }
 
+/* ================= PHONE (NavBridge BLE full-frame map) ================= */
+static void render_phone(void) {
+    char b[64];
+    if (!g.entered) {
+        gfx_fill(0, 0, CW, CH, PAL.stage);
+        gfx_text_center(CW / 2, 54, "PHONE MAP", PAL.cyan, 2);
+        gfx_text_center(CW / 2, 92, "NAVBRIDGE BLE", PAL.white, 1);
+        gfx_text_center(CW / 2, 118, btmap_state(), btmap_connected() ? PAL.green : PAL.yellow, 1);
+        snprintf(b, sizeof b, "FRAMES %d", btmap_frames());
+        gfx_text_center(CW / 2, 138, b, PAL.dim, 0);
+        gfx_text_center(CW / 2, 170, "PUSH TO VIEW", PAL.white, 1);
+        gfx_text_center(CW / 2, 198, "OPEN NAVBRIDGE ON PHONE", PAL.dim, 0);
+        gfx_text_center(CW / 2, 214, "UP/DN PAGE - BACK HOME", PAL.dim, 0);
+        return;
+    }
+
+    int w = 0, h = 0;
+    const uint16_t *img = btmap_frame_lock(&w, &h);
+    if (img && w == CW && h == CH) {
+        gfx_blit(0, 0, img, w, h, w);
+        btmap_frame_unlock();
+        return;
+    }
+    btmap_frame_unlock();
+
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text_center(CW / 2, 78, "PHONE MAP", PAL.cyan, 2);
+    gfx_text_center(CW / 2, 118, btmap_state(), btmap_connected() ? PAL.green : PAL.yellow, 1);
+    gfx_text_center(CW / 2, 142, btmap_connected() ? "WAITING FOR FRAME..." : "CONNECT VIA NAVBRIDGE", PAL.dim, 1);
+    if (btmap_has_frame()) {
+        int age = btmap_age_ms();
+        snprintf(b, sizeof b, "LAST %d MS", age < 0 ? 0 : age);
+        gfx_text_center(CW / 2, 166, b, PAL.dim, 0);
+    }
+    gfx_text_center(CW / 2, 210, "BACK EXIT", PAL.dim, 0);
+}
+
 /* ================= CHINA MAP (flat map + GPS) ================= */
 #define LMAP_X 4
 #define LMAP_Y 16
@@ -1316,6 +1354,7 @@ void screens_render(void) {
     case SC_HOME: render_home(); break;
     case SC_PERF: render_perf(); break;
     case SC_NAV: render_nav(); break;
+    case SC_PHONE: render_phone(); break;
     case SC_WIFI_SETUP: render_wifi_setup(); break;
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
@@ -1357,6 +1396,7 @@ void screens_enter(scid_t id) {
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
     case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
+    case SC_PHONE: g.entered = false; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
@@ -1678,6 +1718,18 @@ void screens_handle(const event_t *ev) {
         else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); }
         break;
 
+    case SC_PHONE:
+        if (!g.entered) {
+            if (d) { app_go_home(d); return; }
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_PUSH) g.entered = true;
+            else if (ev->button == BTN_BACK) app_go_home_to(0);
+        } else {
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_BACK) g.entered = false;
+        }
+        break;
+
     case SC_WIFI_SETUP:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { netcfg_start_ap(); app_toast("AP RUNNING"); }
@@ -1736,7 +1788,7 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 2) { g.set_ledbright = g.set_ledbright >= 100 ? 10 : g.set_ledbright + 10; ws2812_set_brightness(g.set_ledbright); }
                 else if (g.sel == 3) { g.theme_light = !g.theme_light; theme_set(g.theme_light); }
                 else if (g.sel == 4) app_go(SC_WIFI_SETUP, 1);
-                else if (g.sel == 5) g.set_bt = !g.set_bt;
+                else if (g.sel == 5) { g.set_bt = !g.set_bt; btmap_set_enabled(g.set_bt != 0); }
                 else if (g.sel == 6) app_go(SC_SOUND, 1);
                 else if (g.sel == 7) {
                     g.gps_rate_hz = g.gps_rate_hz == 1 ? 5 : g.gps_rate_hz == 5 ? 10 : g.gps_rate_hz == 10 ? 25 : 1;
@@ -2099,6 +2151,10 @@ void screens_chrome(void) {
         snprintf(g.status, sizeof g.status, "LOCATION  %.0f KM/H  %s  %s",
                  gps_get()->speed_kmh, netcfg_connected() ? "WIFI" : "NO WIFI",
                  nav_status() == 1 ? "MAP OK" : "MAP...");
+        break;
+    case SC_PHONE:
+        snprintf(g.status, sizeof g.status, "PHONE  %s  FRAMES %d", btmap_state(), btmap_frames());
+        g.statusColor = btmap_connected() ? PAL.green : PAL.dim;
         break;
     case SC_WIFI_SETUP: {
         char st[48]; netcfg_status(st, sizeof st);

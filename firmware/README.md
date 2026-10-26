@@ -38,6 +38,7 @@ pio device monitor -b 115200              # 串口日志
 - 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
 
+- **PHONE MAP**：BLE 接收 NavBridge 发来的 320×240 整帧并全屏显示；设备名 `RaceBrick`，服务 `6e400001...`，协议与 App 见仓库根 README。
 - **LOCATION 实时地图页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头；速度右上角亮绿显示，GPS/地图状态右下角，WiFi 状态在电池胶囊内。
 
 ### 页面布局（240px 全高）

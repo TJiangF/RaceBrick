@@ -8,6 +8,7 @@
 #include "mpu6050.h"
 #include "tstore.h"
 #include "nav.h"
+#include "btmap.h"
 #include "netcfg.h"
 #include "ws2812.h"
 #include "nvs_flash.h"
@@ -23,7 +24,7 @@
 app_t g;
 volatile bool g_ui_freeze = false;
 
-static const scid_t HOME_PAGES[6] = {SC_HOME, SC_NAV, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
+static const scid_t HOME_PAGES[7] = {SC_HOME, SC_NAV, SC_PHONE, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
 
 /* ================= records ================= */
 static void section_best_from_engine(const engine_t *e, histrec_t *r) {
@@ -129,7 +130,7 @@ void app_go(scid_t id, int dir) {
 }
 
 void app_go_home(int delta) {
-    int n = 6;
+    int n = 7;
     g.homeIndex = ((g.homeIndex + delta) % n + n) % n;
     app_go(HOME_PAGES[g.homeIndex], delta > 0 ? 1 : -1);
 }
@@ -206,7 +207,7 @@ void app_update(float dt) {
  * The LED effects live on the real WS2812 strip (ledfx_update), and the
  * per-page status is a compact overlay for screens that need it. */
 static void render_status_overlay(void) {
-    if (!g.status[0] || g.cur == SC_NAV) return;   /* nav has its own info column */
+    if (!g.status[0] || g.cur == SC_NAV || g.cur == SC_PHONE) return;
     int w = gfx_text_w(g.status, 0) + 10;
     if (w > 240) w = 240;
     int x = 4, y = LCD_H - 14;
@@ -359,8 +360,11 @@ void app_render(void) {
 
     gfx_reset_view();
     screens_chrome();
-    render_status_overlay();
-    render_battery();
+    bool phone_img = (g.cur == SC_PHONE && g.entered && btmap_has_frame());
+    if (!phone_img) {
+        render_status_overlay();
+        render_battery();
+    }
     render_toast();
     ledfx_update();
 }
@@ -375,7 +379,7 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "ledcol", &v) == ESP_OK) g.set_ledcolor = v;
     if (nvs_get_i32(h, "ledbr", &v) == ESP_OK) g.set_ledbright = v;
     if (nvs_get_i32(h, "wifi", &v) == ESP_OK) g.set_wifi = v ? 1 : 0;
-    if (nvs_get_i32(h, "bt", &v) == ESP_OK) g.set_bt = v ? 1 : 0;
+    if (nvs_get_i32(h, "bt2", &v) == ESP_OK) g.set_bt = v ? 1 : 0;
     if (nvs_get_i32(h, "sndvol", &v) == ESP_OK) g.set_sound_vol = v;
     if (nvs_get_i32(h, "sndcfm", &v) == ESP_OK) g.set_snd_confirm = v ? 1 : 0;
     if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
@@ -401,7 +405,7 @@ void app_save_settings(void) {
     nvs_set_i32(h, "ledcol", g.set_ledcolor);
     nvs_set_i32(h, "ledbr", g.set_ledbright);
     nvs_set_i32(h, "wifi", g.set_wifi);
-    nvs_set_i32(h, "bt", g.set_bt);
+    nvs_set_i32(h, "bt2", g.set_bt);
     nvs_set_i32(h, "sndvol", g.set_sound_vol);
     nvs_set_i32(h, "sndcfm", g.set_snd_confirm);
     nvs_set_i32(h, "sndcal", g.set_snd_calib);
@@ -426,6 +430,7 @@ void app_init(void) {
     g.set_ledcolor = 0;
     g.set_ledbright = START_LED_BRIGHT;
     g.set_sound_vol = START_SOUND_VOL;
+    g.set_bt = 1;
     g.set_snd_confirm = true; g.set_snd_calib = true; g.set_snd_fix = true;
     g.gps_rate_hz = 10;
     g.nav_mode = 0;

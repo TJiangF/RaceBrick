@@ -1,0 +1,7 @@
+# 复制为 local.properties（不要提交）
+# Android Studio 会自动写入 sdk.dir
+sdk.dir=/Users/you/Library/Android/sdk
+
+# 高德 Android 平台 Key。必须和高德控制台里的“包名 + SHA1”一致。
+# 也可以不填，在 App 里手动填写（保存后重启 App）。
+AMAP_KEY=

@@ -13,6 +13,7 @@
 #include "buzzer.h"
 #include "netcfg.h"
 #include "nav.h"
+#include "btmap.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -67,6 +68,7 @@ void app_main(void) {
     buzzer_init();
     app_init();
     if (netcfg_has_creds()) netcfg_start_ap();   /* auto-connect on later boots */
+    btmap_set_enabled(g.set_bt != 0);             /* after WiFi reserves its memory */
 
     ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d)", LCD_W, LCD_H);
 
@@ -76,6 +78,7 @@ void app_main(void) {
     for (;;) {
         int64_t now = esp_timer_get_time();
         gps_poll();
+        btmap_poll();
         battery_update();
         buzzer_update();
         if (now - last_gps_log >= 1000000) { last_gps_log = now; gps_dump(); }
