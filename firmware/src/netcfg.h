@@ -20,3 +20,7 @@ int  netcfg_take_cmd(void);
 
 /* Debug: jump to any screen id (see scid_t). Returns -1 when none pending. */
 int  netcfg_take_goto(int *enter);
+
+/* Debug: inject a short button press for bench automation.
+ * Returns 0=none, 1=UP, 2=DOWN, 3=PUSH, 4=BACK. */
+int  netcfg_take_key(void);

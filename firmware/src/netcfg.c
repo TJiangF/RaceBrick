@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "app.h"
 #include "gps.h"
+#include "nav.h"
 #include "tstore.h"
 #include "gfx.h"
 
@@ -22,6 +23,7 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static int s_cmd = 0;
 static int s_goto = -1;
 static int s_goto_enter = 0;
+static int s_key = 0;
 
 int netcfg_take_cmd(void) {
     int c;
@@ -37,6 +39,14 @@ int netcfg_take_goto(int *enter) {
     n = s_goto; s_goto = -1; *enter = s_goto_enter; s_goto_enter = 0;
     taskEXIT_CRITICAL(&s_mux);
     return n;
+}
+
+int netcfg_take_key(void) {
+    int k;
+    taskENTER_CRITICAL(&s_mux);
+    k = s_key; s_key = 0;
+    taskEXIT_CRITICAL(&s_mux);
+    return k;
 }
 
 static httpd_handle_t s_httpd = NULL;
@@ -314,11 +324,13 @@ static esp_err_t h_api_status(httpd_req_t *req) {
     gps_state_t *gp = gps_get();
     int n = snprintf(b, sizeof b,
         "{\"wifi\":%d,\"ip\":\"%s\",\"fix\":%d,\"sats\":%d,\"hdop\":%.1f,\"speed\":%.1f,"
-        "\"lat\":%.6f,\"lon\":%.6f,\"lap\":%d,\"elapsed\":%.3f,\"tracks\":%d}",
+        "\"lat\":%.6f,\"lon\":%.6f,\"lap\":%d,\"elapsed\":%.3f,\"tracks\":%d,"
+        "\"nav\":%d,\"nav_age\":%d,\"nav_frames\":%d,\"nav_bytes\":%d}",
         s_connected ? 1 : 0, s_ip, gp->fix_type, gp->sats_used, gp->hdop,
         gp->speed_kmh, gp->lat, gp->lon,
         g.engine_valid ? g.engine.lap : 0,
-        g.engine_valid ? g.engine.elapsed : 0.0f, tstore_count());
+        g.engine_valid ? g.engine.elapsed : 0.0f, tstore_count(),
+        nav_status(), nav_age_ms(), nav_frames(), nav_last_bytes());
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, b, n);
 }
@@ -359,6 +371,48 @@ static esp_err_t h_api_control(httpd_req_t *req) {
 }
 
 /* ---- debug/inspection endpoints ---- */
+static esp_err_t h_api_gps(httpd_req_t *req) {
+    char q[160] = {0}, v[32];
+    double lat = 0, lon = 0;
+    float spd = 0, crs = 0;
+    bool ok = false;
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK) {
+        if (httpd_query_key_value(q, "lat", v, sizeof v) == ESP_OK) { lat = strtod(v, NULL); ok = true; }
+        if (httpd_query_key_value(q, "lon", v, sizeof v) == ESP_OK) { lon = strtod(v, NULL); ok = true; }
+        if (httpd_query_key_value(q, "speed", v, sizeof v) == ESP_OK) spd = (float)strtod(v, NULL);
+        if (httpd_query_key_value(q, "course", v, sizeof v) == ESP_OK) crs = (float)strtod(v, NULL);
+    }
+    if (ok) {
+        gps_state_t *gp = gps_get();
+        gp->lat = lat; gp->lon = lon;
+        gp->has_pos = true;
+        gp->fix_type = 2; gp->fix_quality = 1;
+        gp->sats_used = 12; gp->hdop = 0.8f;
+        gp->speed_kmh = spd; gp->course = crs;
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t h_api_key(httpd_req_t *req) {
+    char q[32] = {0}, v[12];
+    int k = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
+        httpd_query_key_value(q, "b", v, sizeof v) == ESP_OK) {
+        if (!strcmp(v, "up")) k = 1;
+        else if (!strcmp(v, "down")) k = 2;
+        else if (!strcmp(v, "push")) k = 3;
+        else if (!strcmp(v, "back")) k = 4;
+    }
+    if (k) {
+        taskENTER_CRITICAL(&s_mux);
+        s_key = k;
+        taskEXIT_CRITICAL(&s_mux);
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, k ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t h_api_goto(httpd_req_t *req) {
     char q[64] = {0}, v[16];
     int n = -1, e = 0;
@@ -400,7 +454,7 @@ static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 4096;
-    cfg.max_uri_handlers = 12;   /* default 8; we have /, /status, /save + 9 API routes */
+    cfg.max_uri_handlers = 14;   /* default 8; all UI + debug routes */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };
     httpd_uri_t u2 = { .uri = "/status", .method = HTTP_GET, .handler = h_status };
@@ -412,6 +466,8 @@ static void start_httpd(void) {
     httpd_uri_t u8 = { .uri = "/api/rescan", .method = HTTP_GET, .handler = h_api_rescan };
     httpd_uri_t u9 = { .uri = "/api/goto", .method = HTTP_GET, .handler = h_api_goto };
     httpd_uri_t u10 = { .uri = "/api/fb", .method = HTTP_GET, .handler = h_api_fb };
+    httpd_uri_t u11 = { .uri = "/api/key", .method = HTTP_GET, .handler = h_api_key };
+    httpd_uri_t u12 = { .uri = "/api/gps", .method = HTTP_GET, .handler = h_api_gps };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -422,6 +478,8 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u8);
     httpd_register_uri_handler(s_httpd, &u9);
     httpd_register_uri_handler(s_httpd, &u10);
+    httpd_register_uri_handler(s_httpd, &u11);
+    httpd_register_uri_handler(s_httpd, &u12);
 }
 
 void netcfg_start_ap(void) {

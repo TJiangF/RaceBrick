@@ -140,7 +140,10 @@ RLE：`byte = (run-1)<<4 | idx`；当 `(byte>>4)==15` 时，下一字节 `run = 
 
 - `GET /api/fb?f=1` → 153,600 B 原生 RGB565 帧缓冲（冻结渲染，防撕裂）；`/api/fb?f=0` 解冻。
 - `GET /api/goto?n=<scid>&e=1` 跳页（`SC_NAV=23`，枚举见 `app.h`）。
+- `GET /api/key?b=up|down|push|back`：注入一次短按，用于无实体按键的自动化验证。
+- `GET /api/gps?lat=&lon=&speed=&course=`：临时覆盖 GNSS 状态（真实 GNSS 会覆盖，测试时需连续调用）。
 - `POST /api/control`：`cmd=home|perf|race|debug|nav`。
+- `GET /api/status` 额外返回 `nav`（状态码）、`nav_age`、`nav_frames`、`nav_bytes`。
 - 串口：`frame N: 320x240, <bytes>, mode=x/y z=<zoom> full=1, req=<ms> dec=<ms>, heap <n>`；失败：`fetch failed (HTTP <n>, heap <n>)`。
 - 直接验证服务端：
 ```bash

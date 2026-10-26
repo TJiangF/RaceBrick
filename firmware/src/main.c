@@ -102,6 +102,13 @@ void app_main(void) {
         else if (rcmd == 4) app_go(SC_GPS_DEBUG, 1);
         else if (rcmd == 5) { app_go(SC_NAV, 1); g.entered = true; nav_set_active(true); nav_refresh(); }
 
+        int key = netcfg_take_key();
+        if (key) {
+            btn_id_t b = key == 1 ? BTN_UP : key == 2 ? BTN_DOWN : key == 3 ? BTN_PUSH : BTN_BACK;
+            input_press(b);
+            input_release(b);
+        }
+
         int gent = 0;
         int gid = netcfg_take_goto(&gent);
         if (gid >= 0) {
