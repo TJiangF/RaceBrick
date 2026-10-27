@@ -126,6 +126,12 @@
             android:layout_height="wrap_content"
             android:text="视图：1.00×" />
 
+        <Button
+            android:id="@+id/btnMediaAccess"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="媒体控制权限：检测中" />
+
         <ImageView
             android:id="@+id/ivPreview"
             android:layout_width="match_parent"

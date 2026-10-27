@@ -9,6 +9,8 @@ RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面
 > 状态：已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；模拟导航和 HUD 已在 Android 模拟器验证。仅供个人非商业使用。
 >
 > 每次重新出包前递增 `app/build.gradle.kts` 的 `versionCode` / `versionName`；首页会显示版本号。
+>
+> 媒体控制需要“通知使用权”；首页有授权按钮。debug 包可用 `adb shell am start -n com.example.navbridge/.MainActivity --es media_cmd TOGGLE` 测试。
 
 ## 功能
 
@@ -29,6 +31,7 @@ RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面
 - 车头朝上**不放大**：地图块抓 4650×4650m，可见画面仍是 2400×1800m（7.5m/px），旋转时用块四周的余量补角
 - 高德**模拟导航**：不用 GPS，车沿路线自己跑；没选目的地也能生成约 1 km 演示路线，模拟速度 90 km/h
 - HUD 颜色：SDK 原图模式无名道路/转向箭头/距离为黑色，像素风模式为蓝色；速度固定亮绿 #44FF44
+- **音乐控制**：ESP 的 MEDIA 页发送 `M,PREV` / `M,NEXT` / `M,TOGGLE`，App 控制当前媒体会话，并回传 `M,STATE,0/1`；需要开启通知使用权
 - **外部 GPS**：可切换用 ESP32 的 NEO 模块定位（WGS84），通过 BLE `#G` 通知注入高德导航
 - **手机整帧渲染**：320×240 全帧（地图+路线+车标+HUD）→ 16 色量化 → 调色板 RLE，可作为 type 5 帧发给新固件
 - 没连圆屏也能先导航；底图/路线会缓存，连上圆屏后自动补发
@@ -192,6 +195,13 @@ BLE 服务 `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
 | `K,type,id` | 大块数据收齐 |
 | `#G,lat,lng,bearing,speed,accuracy,alt,time` | ESP32 的 NEO 定位。lat/lng 为 **WGS84**，speed 单位 m/s，bearing 度，accuracy 米，alt 米，time 为 epoch 毫秒（0=用手机时间） |
 | `#Z,75` / `#Z,0.75` | 设置视图大小。大于 10 按百分比（75=0.75×、150=1.5×），否则按倍率；范围 0.75×~2× |
+| `M,PREV` / `M,NEXT` / `M,TOGGLE` | 控制手机当前媒体会话（上一首/下一首/播放暂停）|
+
+手机 → 设备：
+
+| 指令 | 含义 |
+|---|---|
+| `M,STATE,0` / `M,STATE,1` | 当前媒体暂停/播放，用于设备 MEDIA 页中间图标 |
 
 手机收到 `#G` 后会调用 `AMapNavi.setExtraGPSData(1, location)`（type=1 表示 WGS84）。
 要启用设备定位：点 App 里的“定位：设备 GPS”。算路起点会自动做 WGS84→GCJ-02 转换。

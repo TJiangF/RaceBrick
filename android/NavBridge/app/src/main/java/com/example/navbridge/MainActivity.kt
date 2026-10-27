@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnGpsSource: Button
     private lateinit var btnSendFrames: Button
     private lateinit var btnZoom: Button
+    private lateinit var btnMediaAccess: Button
 
     private var zoom = 1f
     private var zoomIndex = 1
@@ -63,6 +64,16 @@ class MainActivity : AppCompatActivity() {
     private var lastSentGen = -1L
     private var lastEncodeAt = 0L
     private var lastFrameLogAt = 0L
+    private var lastMediaState: Boolean? = null
+    private var mediaPrompted = false
+
+    // Keep the device's media button state in sync with the phone's active session.
+    private val mediaStatePump = object : Runnable {
+        override fun run() {
+            sendMediaState()
+            main.postDelayed(this, 2000)
+        }
+    }
 
     private var useDeviceGps = false
     private var deviceGpsSeen = false
@@ -157,6 +168,7 @@ class MainActivity : AppCompatActivity() {
         btnGpsSource = findViewById(R.id.btnGpsSource)
         btnSendFrames = findViewById(R.id.btnSendFrames)
         btnZoom = findViewById(R.id.btnZoom)
+        btnMediaAccess = findViewById(R.id.btnMediaAccess)
 
         tvSign.text = "包名：$packageName\nSHA1：${Keys.signSha1(this)}"
         etKey.setText(Keys.amap(this))
@@ -172,6 +184,8 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     log("RaceBrick 通过验证，开始同步")
                     lastSentGen = -1L
+                    lastMediaState = null
+                    sendMediaState()
                     sendPosition()
                     if (!sendFrames) {
                         lastRaster?.let { sendRasterBytes(it) }
@@ -183,6 +197,7 @@ class MainActivity : AppCompatActivity() {
             onLine = { line ->
                 runOnUiThread {
                     when {
+                        line.startsWith("M,") -> handleMediaCommand(line)
                         line.startsWith("#G,") -> handleDeviceGps(line)
                         line.startsWith("#Z,") -> handleDeviceZoom(line)
                         else -> log("← $line")
@@ -312,9 +327,20 @@ class MainActivity : AppCompatActivity() {
             zoomIndex = (zoomIndex + 1) % zoomLevels.size
             applyZoom(zoomLevels[zoomIndex])
         }
+        btnMediaAccess.setOnClickListener {
+            MediaControl.openSettings(this)
+            toast("开启通知使用权后，ESP 才能控制其他音乐 App")
+        }
+        updateMediaAccessText()
 
         tvSign.text = "版本：${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" + tvSign.text
         main.post(framePump)
+        main.post(mediaStatePump)
+        if (BuildConfig.DEBUG) {
+            intent?.getStringExtra("media_cmd")?.let { cmd ->
+                main.postDelayed({ handleMediaCommand("M,${cmd.uppercase()}") }, 1500)
+            }
+        }
     }
 
     private fun requestPermissions() {
@@ -801,9 +827,54 @@ class MainActivity : AppCompatActivity() {
         Runtime.getRuntime().exit(0)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (MediaControl.hasAccess(this)) mediaPrompted = false
+        updateMediaAccessText()
+        lastMediaState = null
+        sendMediaState()
+    }
+
+    private fun updateMediaAccessText() {
+        if (!::btnMediaAccess.isInitialized) return
+        btnMediaAccess.text = if (MediaControl.hasAccess(this)) {
+            "媒体控制权限：已授权"
+        } else {
+            "媒体控制权限：未授权（点此开启）"
+        }
+    }
+
+    private fun sendMediaState() {
+        if (!::ble.isInitialized || !ble.verified) return
+        val playing = MediaControl.isPlaying(this) ?: return
+        if (playing == lastMediaState) return
+        lastMediaState = playing
+        ble.send("M,STATE,${if (playing) 1 else 0}")
+    }
+
+    private fun handleMediaCommand(line: String) {
+        val cmd = line.removePrefix("M,").trim()
+        val ok = when (cmd) {
+            "TOGGLE" -> MediaControl.toggle(this)
+            "NEXT" -> MediaControl.next(this)
+            "PREV" -> MediaControl.prev(this)
+            else -> return
+        }
+        log(if (ok) "媒体控制：$cmd" else "媒体控制失败：$cmd")
+        status(if (ok) "音乐：$cmd" else "音乐控制失败，请开启通知使用权")
+        if (!MediaControl.hasAccess(this) && !mediaPrompted) {
+            mediaPrompted = true
+            log("请开启通知使用权，ESP 才能控制其他音乐 App")
+            updateMediaAccessText()
+            MediaControl.openSettings(this)
+        }
+        main.postDelayed({ sendMediaState() }, 450)
+    }
+
     override fun onDestroy() {
         searchHandler.removeCallbacksAndMessages(null)
         main.removeCallbacks(framePump)
+        main.removeCallbacks(mediaStatePump)
         runCatching { turnIcon?.recycle() }
         turnIcon = null
         runCatching { sdkBase?.recycle(); effectBase?.recycle(); currentPreview?.recycle() }

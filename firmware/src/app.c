@@ -24,7 +24,7 @@
 app_t g;
 volatile bool g_ui_freeze = false;
 
-static const scid_t HOME_PAGES[7] = {SC_HOME, SC_NAV, SC_PHONE, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
+static const scid_t HOME_PAGES[8] = {SC_HOME, SC_NAV, SC_PHONE, SC_MEDIA, SC_PERF, SC_HISTORY, SC_TRACK_EDIT, SC_SETTINGS};
 
 /* ================= records ================= */
 static void section_best_from_engine(const engine_t *e, histrec_t *r) {
@@ -130,7 +130,7 @@ void app_go(scid_t id, int dir) {
 }
 
 void app_go_home(int delta) {
-    int n = 7;
+    int n = 8;
     g.homeIndex = ((g.homeIndex + delta) % n + n) % n;
     app_go(HOME_PAGES[g.homeIndex], delta > 0 ? 1 : -1);
 }
@@ -207,7 +207,7 @@ void app_update(float dt) {
  * The LED effects live on the real WS2812 strip (ledfx_update), and the
  * per-page status is a compact overlay for screens that need it. */
 static void render_status_overlay(void) {
-    if (!g.status[0] || g.cur == SC_NAV || g.cur == SC_PHONE) return;
+    if (!g.status[0] || g.cur == SC_NAV || g.cur == SC_PHONE || g.cur == SC_MEDIA) return;
     int w = gfx_text_w(g.status, 0) + 10;
     if (w > 240) w = 240;
     int x = 4, y = LCD_H - 14;

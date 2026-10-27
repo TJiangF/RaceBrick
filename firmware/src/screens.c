@@ -105,8 +105,8 @@ static void render_home(void) {
     gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
     if (((int)(g.now / 500)) % 2 == 0)
         gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
-    for (int i = 0; i < 7; i++) {
-        int dx = CW / 2 - 36 + i * 12;
+    for (int i = 0; i < 8; i++) {
+        int dx = CW / 2 - 42 + i * 12;
         gfx_fill(dx, 170, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
     hint_c("UP/DOWN  SWITCH PAGE", 200);
@@ -1229,6 +1229,93 @@ static void render_phone(void) {
     gfx_text_center(CW / 2, 210, "BACK EXIT", PAL.dim, 0);
 }
 
+/* ================= MEDIA (phone Bluetooth playback control) ================= */
+static int s_media_hit = -1;
+static int64_t s_media_hit_us = 0;
+
+static bool media_pressed(int idx) {
+    return s_media_hit == idx && (esp_timer_get_time() - s_media_hit_us) < 220000;
+}
+
+static void media_circle(int cx, int cy, int r, bool pressed) {
+    uint16_t fill = pressed ? PAL.seltint : PAL.panel;
+    uint16_t ring = pressed ? PAL.yellow : PAL.cyan;
+    gfx_disc(cx, cy, r, fill);
+    gfx_circle(cx, cy, r, ring);
+    gfx_circle(cx, cy, r - 1, ring);
+}
+
+static void media_prev_icon(int cx, int cy, uint16_t c) {
+    int a1[3] = { cx - 18, cx - 5, cx - 5 };
+    int b1[3] = { cy, cy - 13, cy + 13 };
+    int a2[3] = { cx - 4, cx + 9, cx + 9 };
+    int b2[3] = { cy, cy - 13, cy + 13 };
+    gfx_poly_fill(a1, b1, 3, c);
+    gfx_poly_fill(a2, b2, 3, c);
+}
+
+static void media_next_icon(int cx, int cy, uint16_t c) {
+    int a1[3] = { cx + 18, cx + 5, cx + 5 };
+    int b1[3] = { cy, cy - 13, cy + 13 };
+    int a2[3] = { cx + 4, cx - 9, cx - 9 };
+    int b2[3] = { cy, cy - 13, cy + 13 };
+    gfx_poly_fill(a1, b1, 3, c);
+    gfx_poly_fill(a2, b2, 3, c);
+}
+
+static void media_play_icon(int cx, int cy, uint16_t c) {
+    int ax[3] = { cx - 8, cx - 8, cx + 17 };
+    int ay[3] = { cy - 15, cy + 15, cy };
+    gfx_poly_fill(ax, ay, 3, c);
+}
+
+static void media_pause_icon(int cx, int cy, uint16_t c) {
+    gfx_fill(cx - 11, cy - 14, 8, 28, c);
+    gfx_fill(cx + 3, cy - 14, 8, 28, c);
+}
+
+static void render_media(void) {
+    char b[48];
+    if (!g.entered) {
+        gfx_fill(0, 0, CW, CH, PAL.stage);
+        gfx_text_center(CW / 2, 56, "MEDIA", PAL.cyan, 2);
+        gfx_text_center(CW / 2, 96, "PHONE MUSIC CONTROL", PAL.white, 1);
+        gfx_text_center(CW / 2, 126, btmap_connected() ? "BT CONNECTED" : "BT NO LINK",
+                        btmap_connected() ? PAL.green : PAL.red, 1);
+        gfx_text_center(CW / 2, 160, "PUSH TO ENTER", PAL.yellow, 1);
+        gfx_text_center(CW / 2, 210, "UP/DN PAGE - BACK HOME", PAL.dim, 0);
+        return;
+    }
+
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_text_center(CW / 2, 6, "MEDIA", PAL.cyan, 1);
+
+    const int cy = 106, r = 38;
+    int xs[3] = { 60, CW / 2, CW - 60 };
+    for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
+
+    media_prev_icon(xs[0], cy, media_pressed(0) ? PAL.yellow : PAL.white);
+    media_next_icon(xs[2], cy, media_pressed(2) ? PAL.yellow : PAL.white);
+    bool playing = btmap_media_playing();
+    if (playing) media_pause_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
+    else media_play_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
+
+    gfx_text_center(xs[0], 156, "PREV", PAL.dim, 0);
+    gfx_text_center(xs[1], 156, "PLAY/PAUSE", PAL.dim, 0);
+    gfx_text_center(xs[2], 156, "NEXT", PAL.dim, 0);
+
+    const char *st;
+    uint16_t sc;
+    if (!btmap_enabled()) { st = "BT OFF"; sc = PAL.red; }
+    else if (!btmap_connected()) { st = "NO LINK"; sc = PAL.yellow; }
+    else if (!btmap_subscribed()) { st = "CONNECTED"; sc = PAL.yellow; }
+    else { st = playing ? "PLAYING" : "PAUSED"; sc = PAL.green; }
+    snprintf(b, sizeof b, "%s", st);
+    gfx_text_center(CW / 2, 182, b, sc, 1);
+
+    gfx_text_center(CW / 2, 212, "UP PREV   DOWN NEXT   PUSH PLAY/PAUSE", PAL.dim, 0);
+}
+
 /* ================= CHINA MAP (flat map + GPS) ================= */
 #define LMAP_X 4
 #define LMAP_Y 16
@@ -1355,6 +1442,7 @@ void screens_render(void) {
     case SC_PERF: render_perf(); break;
     case SC_NAV: render_nav(); break;
     case SC_PHONE: render_phone(); break;
+    case SC_MEDIA: render_media(); break;
     case SC_WIFI_SETUP: render_wifi_setup(); break;
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
@@ -1397,6 +1485,7 @@ void screens_enter(scid_t id) {
     case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
     case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
     case SC_PHONE: g.entered = false; break;
+    case SC_MEDIA: g.entered = false; s_media_hit = -1; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
@@ -1727,6 +1816,31 @@ void screens_handle(const event_t *ev) {
         } else {
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_BACK) g.entered = false;
+        }
+        break;
+
+    case SC_MEDIA:
+        if (!g.entered) {
+            if (d) { app_go_home(d); return; }
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_PUSH) g.entered = true;
+            else if (ev->button == BTN_BACK) app_go_home_to(0);
+        } else {
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_BACK) { g.entered = false; return; }
+            int hit = -1;
+            const char *cmd = NULL, *msg = NULL;
+            if (ev->button == BTN_UP) { hit = 0; cmd = "PREV"; msg = "PREV"; }
+            else if (ev->button == BTN_DOWN) { hit = 2; cmd = "NEXT"; msg = "NEXT"; }
+            else if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
+                hit = 1; cmd = "TOGGLE"; msg = "PLAY/PAUSE";
+            }
+            if (!cmd) return;
+            if (!btmap_subscribed()) { app_toast("NO BT LINK"); return; }
+            s_media_hit = hit;
+            s_media_hit_us = esp_timer_get_time();
+            btmap_media_cmd(cmd);
+            app_toast(msg);
         }
         break;
 
@@ -2155,6 +2269,11 @@ void screens_chrome(void) {
     case SC_PHONE:
         snprintf(g.status, sizeof g.status, "PHONE  %s  FRAMES %d", btmap_state(), btmap_frames());
         g.statusColor = btmap_connected() ? PAL.green : PAL.dim;
+        break;
+    case SC_MEDIA:
+        snprintf(g.status, sizeof g.status, "MEDIA  %s  %s", btmap_state(),
+                 btmap_media_playing() ? "PLAYING" : "PAUSED");
+        g.statusColor = btmap_subscribed() ? PAL.green : PAL.dim;
         break;
     case SC_WIFI_SETUP: {
         char st[48]; netcfg_status(st, sizeof st);

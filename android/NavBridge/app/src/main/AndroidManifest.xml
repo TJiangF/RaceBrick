@@ -43,6 +43,16 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name=".MediaNotificationListener"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <service android:name="com.amap.api.location.APSService" />
     </application>
 

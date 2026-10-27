@@ -18,6 +18,10 @@ int  btmap_last_bytes(void);
 int  btmap_age_ms(void);
 bool btmap_has_frame(void);
 
+/* Phone media control (sent as M,TOGGLE / M,NEXT / M,PREV notifications). */
+void btmap_media_cmd(const char *cmd);
+bool btmap_media_playing(void);
+
 /* Latest decoded 320x240 RGB565 frame; hold the lock only while blitting. */
 const uint16_t *btmap_frame_lock(int *w, int *h);
 void btmap_frame_unlock(void);

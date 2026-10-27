@@ -62,6 +62,7 @@ static volatile int s_w, s_h;
 static volatile int s_frames, s_last_bytes;
 static volatile int64_t s_last_us;
 
+static volatile bool s_media_playing;
 static volatile bool s_ready_pending;
 static volatile bool s_k_pending;
 static volatile int s_k_id;
@@ -226,6 +227,7 @@ static void handle_write(const uint8_t *b, int len) {
         return;
     }
     if (len >= 4 && memcmp(b, "#GB?", 4) == 0) s_ready_pending = true;
+    else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
     /* #t/#m/#n and route/HUD text are ignored: the phone renders the whole frame. */
 }
 
@@ -439,6 +441,14 @@ bool btmap_subscribed(void) { return s_subscribed; }
 int btmap_frames(void) { return s_frames; }
 int btmap_last_bytes(void) { return s_last_bytes; }
 bool btmap_has_frame(void) { return s_have; }
+bool btmap_media_playing(void) { return s_media_playing; }
+
+void btmap_media_cmd(const char *cmd) {
+    char b[32];
+    snprintf(b, sizeof b, "M,%s", cmd);
+    send_line(b);
+    ESP_LOGI(TAG, "media -> %s", cmd);
+}
 int btmap_age_ms(void) { return s_last_us ? (int)((esp_timer_get_time() - s_last_us) / 1000) : -1; }
 
 const char *btmap_state(void) {
