@@ -35,7 +35,9 @@ pio device monitor -b 115200              # 串口日志
 - MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
 - Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
-- 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，IMU 纵向突变触发开始，GPS 速度判定完成。无 GPS fix 时提示并可直接跳到 GPS 调试页帮助搜星。
+- 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，水平加速度模值超过阈值触发开始，GPS 速度判定完成。无 GPS fix 时无法 arm，会提示并可直接跳到 GPS 调试页。
+  - 触发不再依赖单一 Z 轴的正负号，而是排除重力轴后的水平加速度模值；PERF 页显示实时 `G x.xx / 阈值`。
+  - 没有防抖：单次采样超过阈值即触发（阈值可在 Settings → LAUNCH G 调整，如 0.10G）。
 - WiFi 配网（Settings → **WIFI SETUP**）：ESP32 开 SoftAP `RaceBrick-xxxx`（密码 `racebrick`），手机连上后浏览器打开 `http://192.168.4.1`。
 
 - **PHONE MAP**：BLE 接收 NavBridge 发来的 320×240 整帧并全屏显示；设备名 `RaceBrick`，服务 `6e400001...`，协议与 App 见仓库根 README。

@@ -19,6 +19,7 @@
 #include "btmap.h"
 #include "china_map.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -114,11 +115,18 @@ static void render_home(void) {
 }
 
 /* ================= PERFORMANCE (0-100 / 100-0) ================= */
-static bool perf_read_long(float *along) {
+static float s_perf_g = 0;
+
+/* Read horizontal acceleration magnitude. Using magnitude (instead of one
+ * signed axis) makes the launch/brake trigger independent of mounting sign and
+ * of which horizontal axis carries the forward acceleration. */
+static bool perf_read_g(float *gmag) {
     float ax, ay, az, gx, gy, gz, tp;
     if (!g.imu_ok || !mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) return false;
     float a3[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
-    *along = a3[IMU_GM_LONG_AXIS] * IMU_GM_LONG_SIGN;
+    float v = a3[g.i_vaxis];                 /* gravity axis (already zeroed) */
+    float h2 = a3[0] * a3[0] + a3[1] * a3[1] + a3[2] * a3[2] - v * v;
+    *gmag = h2 > 0 ? sqrtf(h2) : 0.0f;
     return true;
 }
 
@@ -127,19 +135,27 @@ static void perf_update(float dt) {
     gps_state_t *gp = gps_get();
     float spd = gp->speed_kmh;
 
+    float live_g = 0;
+    perf_read_g(&live_g);
+    s_perf_g = live_g;
+
     if (g.perf_state == 1) {
-        /* fast-poll the IMU for a precise launch/brake timestamp (~2 ms) */
+        /* Fast-poll the IMU for a precise launch/brake timestamp (~2 ms).
+         * No debounce: a single sample over threshold fires, like the original
+         * MotoNav/race timer behaviour. */
         for (int k = 0; k < 8 && g.perf_state == 1; k++) {
-            float al;
-            if (perf_read_long(&al)) {
+            float gm;
+            if (perf_read_g(&gm)) {
+                s_perf_g = gm;
                 float th = (float)g.perf_trig_g100 / 100.0f;
-                bool trig = (g.perf_mode == 0) ? (al > th)
-                                               : (spd > 30.0f && al < -PERF_BRAKE_G);
+                bool trig = (g.perf_mode == 0) ? (gm > th)
+                                               : (spd > 30.0f && gm > PERF_BRAKE_G);
                 if (trig) {
                     g.perf_t0_us = esp_timer_get_time();
                     g.perf_speed0 = spd;
                     g.perf_time = 0;
                     g.perf_state = 2;
+                    ESP_LOGI("perf", "trigger %.2fG mode=%d spd=%.1f", gm, g.perf_mode, spd);
                     break;
                 }
             }
@@ -185,6 +201,8 @@ static void render_perf(void) {
     case 3: st = "DONE"; sc = PAL.gold; break;
     default: st = "PUSH TO ARM"; sc = PAL.dim; break;
     }
+    snprintf(b, sizeof b, "G %.2f / %.2f", s_perf_g, g.perf_trig_g100 / 100.0f);
+    gfx_text(186, 140, b, PAL.dim, 0);
     gfx_text_center(CW / 2, 170, st, sc, 1);
     if (!g.entered) gfx_text(6, HINT_Y, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
     else if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
