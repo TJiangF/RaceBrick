@@ -99,7 +99,7 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 - 用 macOS CoreBluetooth 作为模拟手机端完成端到端验证：
   - 普通帧 3,624 B / 8 分片 → 设备回 `K,5,1`，读取 framebuffer 与发送图像**逐字节一致**；
   - 最大压力帧 71,947 B / 149 分片 → 设备回 `K,5,2`，153,600 B framebuffer 仍**逐字节一致**。
-- Android 工程 `./gradlew assembleDebug` 编译通过（当前 **0.8.1 / 13**）。
+- Android 工程 `./gradlew assembleDebug` 编译通过（当前 **0.8.2 / 14**）。
 - 在 Android 模拟器中验证：MEDIA 权限授权后，通过 debug 入口发送 `TOGGLE`，Chrome 的媒体会话由 PLAYING 变为 PAUSED。
 - 尚未用真实手机 + 真实高德导航做路测；BLE 协议链路已按 App 的实际编码/分片逻辑验证。
 
@@ -107,6 +107,7 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 
 - BLE 与 WiFi 共用 2.4 GHz 射频：WiFi 拉图时同时 BLE 投屏会互相占用空口，画面可能降速。
 - 当前只支持一个 BLE 连接；断开后自动重新广播。
+- HUD 速度优先使用设备 NEO 的 `#G` 速度（3 秒内有效），拿不到设备速度时回退到高德回调速度；避免实际导航时右上角一直显示 0。
 - 手机端“整帧发送”关闭时会退回旧的底图/路线分包，RaceBrick 的 `PHONE MAP` 只处理 type 5，不看旧的分包。
 - `MEDIA` 页的媒体控制只控制手机活跃媒体会话，不改变车机蓝牙音频链路；如果是车机自己播放 U 盘/本地音乐，手机端无法控制车机播放器。
 - 整帧模式下不再发送旧的 `#p/#e/#g` 文本控制消息，避免它们抢占 BLE 控制队列；分片上限 512 B、正常发送节拍 6 ms，设备协商 2M PHY / 15 ms 连接间隔。

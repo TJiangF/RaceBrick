@@ -66,6 +66,8 @@ class MainActivity : AppCompatActivity() {
     private var lastFrameLogAt = 0L
     private var lastMediaState: Boolean? = null
     private var mediaPrompted = false
+    private var deviceKmh = -1
+    private var deviceGpsAt = 0L
 
     // Keep the device's media button state in sync with the phone's active session.
     private val mediaStatePump = object : Runnable {
@@ -336,10 +338,22 @@ class MainActivity : AppCompatActivity() {
         tvSign.text = "版本：${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" + tvSign.text
         main.post(framePump)
         main.post(mediaStatePump)
-        if (BuildConfig.DEBUG) {
-            intent?.getStringExtra("media_cmd")?.let { cmd ->
-                main.postDelayed({ handleMediaCommand("M,${cmd.uppercase()}") }, 1500)
-            }
+        handleDebugIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDebugIntent(intent)
+    }
+
+    private fun handleDebugIntent(intent: Intent?) {
+        if (!BuildConfig.DEBUG || intent == null) return
+        intent.getStringExtra("media_cmd")?.let { cmd ->
+            main.postDelayed({ handleMediaCommand("M,${cmd.uppercase()}") }, 1500)
+        }
+        intent.getStringExtra("gps_line")?.let { line ->
+            main.postDelayed({ handleDeviceGps(line) }, 800)
         }
     }
 
@@ -394,6 +408,8 @@ class MainActivity : AppCompatActivity() {
         lastSentGen = -1L
         frameGen = 0L
         frameId = 0
+        deviceKmh = -1
+        deviceGpsAt = 0L
         blockCx = 0.0
         blockCy = 0.0
         navigating = true
@@ -445,7 +461,7 @@ class MainActivity : AppCompatActivity() {
         lastKmh = kmh
         val hdg = if (kmh >= 4) { lastBearing = bearing; bearing } else lastBearing
         sendPosition(f, lat, lng, hdg, kmh)
-        status("$kmh km/h  ·  剩余 ${formatDistance(remainM)}")
+        status("${effectiveSpeedKmh()} km/h  ·  剩余 ${formatDistance(remainM)}")
         val now = System.currentTimeMillis()
         if (now - lastPreviewAt >= 500) {
             lastPreviewAt = now
@@ -469,8 +485,15 @@ class MainActivity : AppCompatActivity() {
         if (!ble.verified || sendFrames) return
         val x = f.x(lng)
         val y = f.y(lat)
-        ble.send("#p,${f.id},${(x * 10).roundToInt()},${(y * 10).roundToInt()},${hdg.roundToInt()},$kmh")
-        ble.send("#v,$kmh")
+        val spd = effectiveSpeedKmh()
+        ble.send("#p,${f.id},${(x * 10).roundToInt()},${(y * 10).roundToInt()},${hdg.roundToInt()},$spd")
+        ble.send("#v,$spd")
+    }
+
+    /** Device NEO speed wins while fresh (the AMap callback often reports 0). */
+    private fun effectiveSpeedKmh(): Int {
+        val now = System.currentTimeMillis()
+        return if (deviceKmh >= 0 && now - deviceGpsAt < 3000) deviceKmh else lastKmh
     }
 
     private fun maybeCapture() {
@@ -692,11 +715,14 @@ class MainActivity : AppCompatActivity() {
         val accuracy = p[5].toFloatOrNull() ?: 5f
         val altitude = p[6].toDoubleOrNull() ?: 0.0
         val time = p[7].toLongOrNull() ?: 0L
+        deviceKmh = (speed * 3.6f).roundToInt().coerceAtLeast(0)
+        deviceGpsAt = System.currentTimeMillis()
         nav.feedExternalGps(lat, lng, bearing, speed, accuracy, altitude, time)
         if (!deviceGpsSeen) {
             deviceGpsSeen = true
             log("收到设备 GPS：$lat,$lng（可切换定位来源）")
         }
+        updatePreview()
     }
 
     private fun updatePreview() {
@@ -720,7 +746,7 @@ class MainActivity : AppCompatActivity() {
             remainS = remainS,
             lights = lights,
             lightDist = lightDist,
-            speed = lastKmh,
+            speed = effectiveSpeedKmh(),
         )
 
         val traffic = if (f != null) rawTraffic.map { s ->

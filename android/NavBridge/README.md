@@ -10,6 +10,8 @@ RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面
 >
 > 每次重新出包前递增 `app/build.gradle.kts` 的 `versionCode` / `versionName`；首页会显示版本号。
 >
+> 速度显示优先用设备 NEO 的 `#G`（3 秒内有效），没有设备速度时回退到高德导航回调速度。
+>
 > 媒体控制需要“通知使用权”；首页有授权按钮。debug 包可用 `adb shell am start -n com.example.navbridge/.MainActivity --es media_cmd TOGGLE` 测试。
 
 ## 功能
