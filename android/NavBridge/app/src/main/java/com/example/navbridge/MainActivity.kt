@@ -505,7 +505,7 @@ class MainActivity : AppCompatActivity() {
     private fun maybeCapture(f: GeoFrame, x: Double, y: Double, hdg: Float, kmh: Int) {
         val now = System.currentTimeMillis()
         if (fetching || now < nextCaptureAt) return
-        // 5700m 块 + 450m 重取阈值：支持 0.75×~2× 视图，车头朝上旋转仍不放大
+        // 7500m 块 + 450m 重取阈值：支持 0.75×~2× 视图，车头朝上旋转仍不放大
         if (haveBlock && hypot(x - blockCx, y - blockCy) < 450.0) return
 
         fetching = true
@@ -532,7 +532,7 @@ class MainActivity : AppCompatActivity() {
             }
             worker.execute {
                 try {
-                    // 旧 MotoNav 固件用的方形底图：4650m 块，mm/px 约 3875
+                    // 旧 MotoNav 固件用的方形底图：7500m 块，mm/px 约 6250
                     val mm = (PreviewRenderer.BLOCK / MapCapture.SIZE * 1000).roundToInt()
                     val idxFull = RasterCodec.toIndices(shot, MapCapture.SIZE)
                     var bytes = RasterCodec.encodeRaster(
@@ -549,7 +549,7 @@ class MainActivity : AppCompatActivity() {
                         bytes = RasterCodec.encodeRaster(f.id, x0, y0, 600, 600, mm * 2, small)
                         log("底图较大，已降到 600×600")
                     }
-                    // 整帧预览用的 620×620 底图（旋转补角靠它四周的余量）
+                    // 整帧预览用的 1000×1000 底图（旋转补角靠它四周的余量）
                     val idxBase = RasterCodec.toIndices(shot, PreviewRenderer.BASE)
                     val sdk = PreviewRenderer.sdkBase(shot)
                     val effect = PreviewRenderer.effectBase(idxBase, PreviewRenderer.BASE)
@@ -788,7 +788,7 @@ class MainActivity : AppCompatActivity() {
         val old = currentPreview
         currentPreview = bmp
         if (old !== bmp && old != null && !old.isRecycled) old.recycle()
-        btnPreviewMode.text = if (showSdkPreview) "预览：SDK 原图" else "预览：圆屏效果"
+        btnPreviewMode.text = if (showSdkPreview) "预览：SDK 原图" else "预览：Racebrick 风格"
         btnOrientation.text = if (headingUp) "视角：车头朝上" else "视角：朝北"
 
         // 手机整帧：320×240 → 16 色 → RLE。约 1 秒一帧，编码放在后台线程。

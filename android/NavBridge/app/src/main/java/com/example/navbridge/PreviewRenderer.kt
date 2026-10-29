@@ -15,16 +15,16 @@ import kotlin.math.sin
  * 手机端导航画面模拟（320×240 横向）。
  *
  * 不放大方案：
- * - 地图块抓 4650×4650 米
+ * - 地图块抓 7500×7500 米
  * - 可见画面 320×240 对应 2400×1800 米（7.5 米/像素）
- * - 车头朝上时围绕车标旋转 620×620 的底图，用块四周的余量补角，不做缩放
+ * - 车头朝上时围绕车标旋转，四周保留足够余量补角；2x 超采样仍在手机端完成
  */
 object PreviewRenderer {
 
     const val OUT_W = 320
     const val OUT_H = 240
-    const val BASE = 760
-    const val BLOCK = 5700.0
+    const val BASE = 1000
+    const val BLOCK = 7500.0
     private const val SS = 2
 
     private const val RIDER_X = OUT_W / 2f
@@ -44,7 +44,7 @@ object PreviewRenderer {
     class TrafficSeg(val status: Int, val pts: DoubleArray)
     class CamMarker(val x: Double, val y: Double, val type: Int, val speed: Int)
 
-    /** 高德截图 → BASE×BASE 的底图（覆盖整个 4650m 块）。 */
+    /** 高德截图 → BASE×BASE 的底图（覆盖整个 7500m 块）。 */
     fun sdkBase(shot: RasterCodec.Shot, out: Int = BASE): Bitmap {
         val full = Bitmap.createBitmap(shot.pixels, shot.width, shot.height, Bitmap.Config.ARGB_8888)
         val w = shot.width
@@ -111,7 +111,7 @@ object PreviewRenderer {
                 color = 0xFFB45CFF.toInt()
                 style = Paint.Style.STROKE
                 // 缩放后线宽会跟着变，补偿回固定视觉粗细
-                strokeWidth = OUT_W / 90f / zoom
+                strokeWidth = OUT_W / 80f / zoom
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
             }
@@ -121,6 +121,17 @@ object PreviewRenderer {
             while (i + 1 < route.size) {
                 path.lineTo(px(route[i]), py(route[i + 1]))
                 i += 2
+            }
+            if (!sdkOriginal) {
+                // MotoNav/Racebrick-style black casing around the route.
+                val casing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    style = Paint.Style.STROKE
+                    strokeWidth = (OUT_W / 80f + 4f) / zoom
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                }
+                c.drawPath(path, casing)
             }
             c.drawPath(path, paint)
         }
@@ -141,6 +152,16 @@ object PreviewRenderer {
                 while (i + 1 < seg.pts.size) {
                     path.lineTo(px(seg.pts[i]), py(seg.pts[i + 1]))
                     i += 2
+                }
+                if (!sdkOriginal) {
+                    val casing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.BLACK
+                        style = Paint.Style.STROKE
+                        strokeWidth = (OUT_W / 80f + 4f) / zoom
+                        strokeCap = Paint.Cap.ROUND
+                        strokeJoin = Paint.Join.ROUND
+                    }
+                    c.drawPath(path, casing)
                 }
                 c.drawPath(path, paint)
             }
@@ -258,10 +279,23 @@ object PreviewRenderer {
                 if (bold) typeface = Typeface.DEFAULT_BOLD
             }
 
-        // 左上：单色矢量箭头。AMap 官方图标自带阴影层，着色后容易出现双箭头，
-        // 这里统一用单个箭头字符，避免重叠。
-        c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, hudColor, true))
-        c.drawText(distance(hud.dist), w * 0.17f, h * 0.165f, paint(w / 11f, hudColor, true))
+        // 左上：单色矢量箭头 + 下一动作距离。AMap 官方图标自带阴影层，
+        // 着色后容易出现双箭头，这里统一用单个箭头字符，避免重叠。
+        // 两者按字体度量垂直居中，保证箭头和距离在同一水平线上。
+        val turnColor = if (sdkOriginal) Color.BLACK else Color.WHITE
+        val arrowPaint = paint(w / 9f, turnColor, true)
+        val distPaint = paint(w / 11f, turnColor, true)
+        val turnCy = h * 0.14f
+        fun centeredBaseline(p: Paint): Float =
+            turnCy - (p.fontMetrics.ascent + p.fontMetrics.descent) / 2f
+        val arrowText = turnArrow(hud.dir)
+        c.drawText(arrowText, w * 0.025f, centeredBaseline(arrowPaint), arrowPaint)
+        c.drawText(
+            distance(hud.dist),
+            w * 0.025f + arrowPaint.measureText(arrowText) + w * 0.02f,
+            centeredBaseline(distPaint),
+            distPaint,
+        )
 
         // 顶部中间：限速；其下：车道背景 + 推荐车道
         drawSpeedLimit(c, speedLimit, w, h)

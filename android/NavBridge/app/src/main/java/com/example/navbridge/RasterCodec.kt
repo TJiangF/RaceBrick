@@ -131,7 +131,8 @@ object RasterCodec {
     }
 
     fun previewBitmap(idx: ByteArray, n: Int, out: Int = 240): Bitmap {
-        val colors = intArrayOf(0xFF242424.toInt(), 0xFFE8E8E8.toInt(), 0xFF2E6B3A.toInt(), 0xFF1F4A8A.toInt())
+        // Racebrick style: brighter ground, white roads, vivid park/water.
+        val colors = intArrayOf(0xFF1B1B22.toInt(), 0xFFF2F2F2.toInt(), 0xFF2ECC71.toInt(), 0xFF2F9BFF.toInt())
         val px = IntArray(out * out)
         for (y in 0 until out) {
             val sy = y * n / out
