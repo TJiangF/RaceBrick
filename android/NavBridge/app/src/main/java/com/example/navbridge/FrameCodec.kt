@@ -18,22 +18,22 @@ object FrameCodec {
 
     // 16 色调色板：地图 + HUD 常用色
     val PALETTE = intArrayOf(
-        0xFF000000.toInt(), // 0 黑
-        0xFF141414.toInt(), // 1
-        0xFF2B2B2B.toInt(), // 2
-        0xFF4A4A4A.toInt(), // 3
-        0xFF44FF44.toInt(), // 4 亮绿（与 LOCATION 页速度一致）
-        0xFF8F8F8F.toInt(), // 5
-        0xFF1E88E5.toInt(), // 6 蓝色 HUD（像素风文本）
-        0xFFD0D0D0.toInt(), // 7
-        0xFFF0F0F0.toInt(), // 8 白
-        0xFF2E6B3A.toInt(), // 9 绿地
-        0xFF1F4A8A.toInt(), // 10 水面
-        0xFFB45CFF.toInt(), // 11 路线紫
-        0xFF00E5FF.toInt(), // 12 车标青
-        0xFFFF3B30.toInt(), // 13 红
-        0xFFFF9500.toInt(), // 14 橙
-        0xFFFFD60A.toInt(), // 15 黄
+        0xFF000000.toInt(), // 0 黑（HUD 描边/文字）
+        0xFF2B2B2B.toInt(), // 1 深灰
+        0xFF6E6E6E.toInt(), // 2 中灰（地图文字）
+        0xFFB0B0B0.toInt(), // 3 浅灰（普通道路/建筑）
+        0xFFF0F0F0.toInt(), // 4 白（道路/圆牌）
+        0xFFF5F0E8.toInt(), // 5 米白（地图背景）
+        0xFF8FC8E8.toInt(), // 6 浅蓝（河/水面）
+        0xFF1E88E5.toInt(), // 7 蓝（HUD 像素风文字/电子眼）
+        0xFFA8D8A0.toInt(), // 8 浅绿（公园/绿地）
+        0xFF2E6B3A.toInt(), // 9 深绿（交通畅通/绿地）
+        0xFFF0C850.toInt(), // 10 黄（高架/主干道）
+        0xFFFF9500.toInt(), // 11 橙（高架/电子眼）
+        0xFFFF3B30.toInt(), // 12 红（拥堵/电子眼）
+        0xFFB00020.toInt(), // 13 深红（严重拥堵）
+        0xFFB45CFF.toInt(), // 14 路线紫
+        0xFF00E5FF.toInt(), // 15 车标青
     )
 
     val PALETTE565: IntArray = IntArray(16) { argbTo565(PALETTE[it]) }
