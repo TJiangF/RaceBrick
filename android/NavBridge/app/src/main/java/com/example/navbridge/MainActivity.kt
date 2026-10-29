@@ -781,7 +781,6 @@ class MainActivity : AppCompatActivity() {
             cams,
             laneBg,
             laneFr,
-            turnIcon,
             speedLimit,
             showSdkPreview,
         )

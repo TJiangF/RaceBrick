@@ -5,8 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import android.graphics.Typeface
 import kotlin.math.cos
@@ -27,6 +25,7 @@ object PreviewRenderer {
     const val OUT_H = 240
     const val BASE = 760
     const val BLOCK = 5700.0
+    private const val SS = 2
 
     private const val RIDER_X = OUT_W / 2f
     private const val RIDER_Y = OUT_H * 0.70f
@@ -80,7 +79,6 @@ object PreviewRenderer {
         cameras: List<CamMarker> = emptyList(),
         laneBg: IntArray = IntArray(0),
         laneFr: IntArray = IntArray(0),
-        turnIcon: Bitmap? = null,
         speedLimit: Int = 0,
         sdkOriginal: Boolean = true,
     ): Bitmap {
@@ -95,9 +93,13 @@ object PreviewRenderer {
         val cropLeft = (rbx - RIDER_X / zoom).coerceIn(0f, (s - cropW).coerceAtLeast(0f))
         val cropTop = (rby - RIDER_Y / zoom).coerceIn(0f, (s - cropH).coerceAtLeast(0f))
 
-        val out = Bitmap.createBitmap(OUT_W, OUT_H, Bitmap.Config.ARGB_8888)
-        val c = Canvas(out)
+        // 2x supersampling: lines/text are rendered at 640x480 then
+        // downsampled on the phone, which softens the stair-step edges before
+        // the 16-colour frame quantization.
+        val hi = Bitmap.createBitmap(OUT_W * SS, OUT_H * SS, Bitmap.Config.ARGB_8888)
+        val c = Canvas(hi)
         c.drawColor(Color.BLACK)
+        c.scale(SS.toFloat(), SS.toFloat())
 
         c.save()
         c.scale(zoom, zoom)
@@ -224,7 +226,9 @@ object PreviewRenderer {
             },
         )
 
-        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), turnIcon, speedLimit, laneBg, laneFr, sdkOriginal)
+        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), speedLimit, laneBg, laneFr, sdkOriginal)
+        val out = Bitmap.createScaledBitmap(hi, OUT_W, OUT_H, true)
+        hi.recycle()
         return out
     }
 
@@ -241,14 +245,12 @@ object PreviewRenderer {
         hud: NavHud,
         w: Float,
         h: Float,
-        turnIcon: Bitmap?,
         speedLimit: Int,
         laneBg: IntArray,
         laneFr: IntArray,
         sdkOriginal: Boolean,
     ) {
         val hudColor = if (sdkOriginal) Color.BLACK else 0xFF1E88E5.toInt()
-        val speedColor = 0xFF44FF44.toInt()
         fun paint(size: Float, color: Int, bold: Boolean = false): Paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = size
@@ -256,31 +258,41 @@ object PreviewRenderer {
                 if (bold) typeface = Typeface.DEFAULT_BOLD
             }
 
-        // 左上：官方转向图标（没有就用箭头字符）+ 到下一动作距离
-        if (turnIcon != null && !turnIcon.isRecycled) {
-            val size = w * 0.115f
-            c.drawBitmap(
-                turnIcon,
-                null,
-                RectF(w * 0.025f, h * 0.065f, w * 0.025f + size, h * 0.065f + size),
-                Paint(Paint.FILTER_BITMAP_FLAG).apply {
-                    colorFilter = PorterDuffColorFilter(hudColor, PorterDuff.Mode.SRC_IN)
-                },
-            )
-        } else {
-            c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, hudColor, true))
-        }
+        // 左上：单色矢量箭头。AMap 官方图标自带阴影层，着色后容易出现双箭头，
+        // 这里统一用单个箭头字符，避免重叠。
+        c.drawText(turnArrow(hud.dir), w * 0.025f, h * 0.235f, paint(w / 8f, hudColor, true))
         c.drawText(distance(hud.dist), w * 0.17f, h * 0.165f, paint(w / 11f, hudColor, true))
 
         // 顶部中间：限速；其下：车道背景 + 推荐车道
         drawSpeedLimit(c, speedLimit, w, h)
         drawLanes(c, laneBg, laneFr, w, h)
 
-        // 右上：速度
-        val speed = paint(w / 10f, speedColor, true).apply { textAlign = Paint.Align.RIGHT }
-        c.drawText("${hud.speed}", w - w * 0.03f, h * 0.18f, speed)
-        val unit = paint(w / 28f, speedColor).apply { textAlign = Paint.Align.RIGHT }
-        c.drawText("km/h", w - w * 0.03f, h * 0.27f, unit)
+        // 右上：速度圆牌
+        val badgeCx = w - w * 0.125f
+        val badgeCy = h * 0.155f
+        val badgeR = w * 0.11f
+        val textColor: Int
+        if (sdkOriginal) {
+            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0x66000000
+                style = Paint.Style.STROKE
+                strokeWidth = 1.5f
+            })
+            textColor = Color.BLACK
+        } else {
+            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK })
+            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            })
+            textColor = Color.WHITE
+        }
+        val speed = paint(w / 10.5f, textColor, true).apply { textAlign = Paint.Align.CENTER }
+        c.drawText("${hud.speed}", badgeCx, badgeCy + w * 0.012f, speed)
+        val unit = paint(w / 34f, textColor).apply { textAlign = Paint.Align.CENTER }
+        c.drawText("km/h", badgeCx, badgeCy + w * 0.072f, unit)
 
         // 左下：下一条路 + 剩余距离/时间
         val road = hud.nextRoad.ifBlank { "沿当前道路" }.take(10)
