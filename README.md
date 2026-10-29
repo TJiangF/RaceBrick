@@ -46,6 +46,9 @@ ESP32-S3：BLE 外设 → 分片重组 → RLE 解码到 PSRAM → PHONE MAP 全
 ```
 
 - 设备名：`RaceBrick`；BLE 默认开启，可在 **Settings → BLUETOOTH** 关闭/恢复。
+- App 主页面保留：连接设备、开始/停止导航、模拟导航、视图缩放、预览和日志；高德 Key/包名/SHA1/媒体权限状态统一放在“设置”页。
+- 定位始终优先手机 GPS；速度在设备 NEO 有 `#G` 时优先用设备速度（3 秒内有效），否则回退手机速度。
+- 媒体权限首次启动会自动打开系统“通知使用权”设置，不需要在主页面手动开关。
 - 配对采用 Just Works（无 6 位配对码），手机端系统弹窗确认即可。
 - 整帧格式：`u16 frameId, i32 x0, i32 y0, u16 320, u16 240, u16 (1000|0x8000), 16×RGB565 调色板, RLE`。
 - 大块分片头 15 字节：`'M', type, id, parts(LE16), seq(LE16), total(LE32), offset(LE32), payload`。
@@ -55,14 +58,14 @@ ESP32-S3：BLE 外设 → 分片重组 → RLE 解码到 PSRAM → PHONE MAP 全
 - 16 色调色板补齐浅蓝、浅绿、米白、黄色：河道不再被量化成灰色，高架黄线也能保留为黄色；车标青色本来就有精确色所以一直正常。
 - 速度改为右上角圆牌：SDK 原图为白底黑字，Racebrick 风格为黑底白边白字。
 - 手机端预览采用 **2× 超采样**（640×480 绘制后缩到 320×240），在不改变发送尺寸的前提下让路线/文字边缘更柔和。
-- 模拟导航：连接设备后可直接点“模拟导航”，**不选目的地也会生成一段约 1 km 的演示路线**；有目的地时从目的地附近约 1 km 处出发。模拟速度已提高到 **90 km/h**。
+- 模拟导航：先选目的地，点“模拟导航”后从**当前手机定位**出发，沿真实算路模拟到目的地；速度 90 km/h。点“开始导航”则使用手机 GPS 做真实导航，不会自动进入模拟。
 
 ### 使用步骤
 
 1. 刷入本仓库固件；Settings 里确认 **BLUETOOTH = ON**。
 2. 手机安装 `android/NavBridge` 编译出的 APK，授予定位/蓝牙/通知权限。
-3. App 点“连接圆屏”（实际搜索 `RaceBrick`），系统配对框确认。
-4. 输入目的地，选中联想结果，点“开始导航”；确认 **整帧发送：开**（默认开启）。
+3. App 点“连接设备”（实际搜索 `RaceBrick`），系统配对框确认。
+4. 输入目的地并选中；点“开始导航”走真实手机 GPS 导航，点“模拟导航”则从当前手机定位模拟到目的地。整帧发送始终开启，不需要设置。
 5. 设备 HOME 页按 UP/DOWN 切到 **`PHONE MAP`**，PUSH 进入即可看到手机画面。
 
 ### 音乐控制（MEDIA 页）
@@ -94,7 +97,9 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 
 高德 Key 绑定包名 `com.example.navbridge` + 签名 SHA1，申请方法见 [`android/NavBridge/README.md`](android/NavBridge/README.md)。
 
-> 每次重新出包请递增 `android/NavBridge/app/build.gradle.kts` 里的 `versionCode` 并更新 `versionName`；App 首页会显示版本号，便于区分设备上装的是哪一版。
+> 每次重新出包请递增 `android/NavBridge/app/build.gradle.kts` 里的 `versionCode` 并更新 `versionName`；设置页会显示版本号，便于区分设备上装的是哪一版。
+>
+> APK 约 54 MB 主要是高德导航/3D 地图/定位/搜索 SDK 的 arm64 原生库，不是业务代码；当前功能依赖这些库，改 UI 不会明显减小。
 
 ### 已验证
 
@@ -102,7 +107,7 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 - 用 macOS CoreBluetooth 作为模拟手机端完成端到端验证：
   - 普通帧 3,624 B / 8 分片 → 设备回 `K,5,1`，读取 framebuffer 与发送图像**逐字节一致**；
   - 最大压力帧 71,947 B / 149 分片 → 设备回 `K,5,2`，153,600 B framebuffer 仍**逐字节一致**。
-- Android 工程 `./gradlew assembleDebug` 编译通过（当前 **0.8.6 / 18**）。
+- Android 工程 `./gradlew assembleDebug` 编译通过（当前 **0.8.7 / 19**）。
 - 在 Android 模拟器中验证：MEDIA 权限授权后，通过 debug 入口发送 `TOGGLE`，Chrome 的媒体会话由 PLAYING 变为 PAUSED。
 - 尚未用真实手机 + 真实高德导航做路测；BLE 协议链路已按 App 的实际编码/分片逻辑验证。
 
@@ -111,7 +116,7 @@ export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 - BLE 与 WiFi 共用 2.4 GHz 射频：WiFi 拉图时同时 BLE 投屏会互相占用空口，画面可能降速。
 - 当前只支持一个 BLE 连接；断开后自动重新广播。
 - HUD 速度优先使用设备 NEO 的 `#G` 速度（3 秒内有效），拿不到设备速度时回退到高德回调速度；避免实际导航时右上角一直显示 0。
-- 手机端“整帧发送”关闭时会退回旧的底图/路线分包，RaceBrick 的 `PHONE MAP` 只处理 type 5，不看旧的分包。
+- 整帧发送始终启用；旧 MotoNav 底图/路线分包模式不再暴露。
 - `MEDIA` 页的媒体控制只控制手机活跃媒体会话，不改变车机蓝牙音频链路；如果是车机自己播放 U 盘/本地音乐，手机端无法控制车机播放器。
 - 整帧模式下不再发送旧的 `#p/#e/#g` 文本控制消息，避免它们抢占 BLE 控制队列；分片上限 512 B、正常发送节拍 6 ms，设备协商 2M PHY / 15 ms 连接间隔。
 

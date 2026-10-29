@@ -35,19 +35,16 @@ import kotlin.math.sin
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvStatus: TextView
-    private lateinit var tvSign: TextView
     private lateinit var tvLog: TextView
-    private lateinit var etKey: EditText
     private lateinit var etKeyword: EditText
     private lateinit var llTips: LinearLayout
     private lateinit var tvDest: TextView
     private lateinit var ivPreview: ImageView
     private lateinit var btnPreviewMode: Button
     private lateinit var btnOrientation: Button
-    private lateinit var btnGpsSource: Button
-    private lateinit var btnSendFrames: Button
-    private lateinit var btnZoom: Button
-    private lateinit var btnMediaAccess: Button
+    private lateinit var btnZoomOut: Button
+    private lateinit var btnZoomIn: Button
+    private lateinit var tvZoom: TextView
 
     private var zoom = 1f
     private var zoomIndex = 1
@@ -55,7 +52,7 @@ class MainActivity : AppCompatActivity() {
 
     private val frameWorker = Executors.newSingleThreadExecutor()
     private var encodingFrame = false
-    private var sendFrames = true
+    private val sendFrames = true
     private var frameId = 0
     private var frameGen = 0L
     private var lastFrameBytes: ByteArray? = null
@@ -77,7 +74,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private var useDeviceGps = false
     private var deviceGpsSeen = false
     private var headingUp = true
     private var guideDir = "S"
@@ -158,22 +154,17 @@ class MainActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         tvStatus = findViewById(R.id.tvStatus)
-        tvSign = findViewById(R.id.tvSign)
         tvLog = findViewById(R.id.tvLog)
-        etKey = findViewById(R.id.etKey)
         etKeyword = findViewById(R.id.etKeyword)
         llTips = findViewById(R.id.llTips)
         tvDest = findViewById(R.id.tvDest)
         ivPreview = findViewById(R.id.ivPreview)
         btnPreviewMode = findViewById(R.id.btnPreviewMode)
         btnOrientation = findViewById(R.id.btnOrientation)
-        btnGpsSource = findViewById(R.id.btnGpsSource)
-        btnSendFrames = findViewById(R.id.btnSendFrames)
-        btnZoom = findViewById(R.id.btnZoom)
-        btnMediaAccess = findViewById(R.id.btnMediaAccess)
+        btnZoomOut = findViewById(R.id.btnZoomOut)
+        btnZoomIn = findViewById(R.id.btnZoomIn)
+        tvZoom = findViewById(R.id.tvZoom)
 
-        tvSign.text = "包名：$packageName\nSHA1：${Keys.signSha1(this)}"
-        etKey.setText(Keys.amap(this))
         log("等待操作")
 
         requestPermissions()
@@ -286,20 +277,6 @@ class MainActivity : AppCompatActivity() {
             searchHandler.postDelayed(runnable, 350)
         }
 
-        findViewById<Button>(R.id.btnSaveKey).setOnClickListener {
-            val key = etKey.text.toString().trim()
-            if (key.isEmpty()) {
-                toast("Key 不能为空")
-                return@setOnClickListener
-            }
-            if (!Keys.save(this, key)) {
-                toast("Key 保存失败，请重试")
-                return@setOnClickListener
-            }
-            Keys.apply(this)
-            log("Key 已保存，重启 App 生效")
-            restartApp()
-        }
         findViewById<Button>(R.id.btnConnect).setOnClickListener { ble.connect() }
         findViewById<Button>(R.id.btnStart).setOnClickListener { startNavigation(false) }
         findViewById<Button>(R.id.btnSimulate).setOnClickListener { startNavigation(true) }
@@ -312,30 +289,20 @@ class MainActivity : AppCompatActivity() {
             headingUp = !headingUp
             updatePreview()
         }
-        btnGpsSource.setOnClickListener {
-            useDeviceGps = !useDeviceGps
-            nav.setExternalGps(useDeviceGps)
-            btnGpsSource.text = if (useDeviceGps) "定位：设备 GPS" else "定位：手机 GPS"
-            log(if (useDeviceGps) "定位来源：ESP32 设备 GPS" else "定位来源：手机 GPS")
+        btnZoomOut.setOnClickListener {
+            zoomIndex = (zoomIndex - 1 + zoomLevels.size) % zoomLevels.size
+            applyZoom(zoomLevels[zoomIndex])
         }
-        btnSendFrames.setOnClickListener {
-            sendFrames = !sendFrames
-            btnSendFrames.text = if (sendFrames) "整帧发送：开" else "整帧发送：关"
-            log(if (sendFrames) "整帧发送开启（type 5，320×240，RaceBrick）" else "整帧发送关闭")
-            lastSentGen = -1L
-            if (sendFrames) main.post(framePump)
-        }
-        btnZoom.setOnClickListener {
+        btnZoomIn.setOnClickListener {
             zoomIndex = (zoomIndex + 1) % zoomLevels.size
             applyZoom(zoomLevels[zoomIndex])
         }
-        btnMediaAccess.setOnClickListener {
-            MediaControl.openSettings(this)
-            toast("开启通知使用权后，ESP 才能控制其他音乐 App")
+        findViewById<Button>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
-        updateMediaAccessText()
+        tvZoom.text = String.format(Locale.US, "%.2f×", zoom)
+        maybePromptMediaAccess()
 
-        tvSign.text = "版本：${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" + tvSign.text
         main.post(framePump)
         main.post(mediaStatePump)
         handleDebugIntent(intent)
@@ -373,30 +340,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startNavigation(simulate: Boolean = false) {
-        var targetLat = selLat
-        var targetLng = selLng
-        var targetName = selName
-        var simStartLat: Double? = null
-        var simStartLng: Double? = null
-        if (simulate) {
-            if (targetLat.isNaN() || targetLng.isNaN()) {
-                // 没有选目的地也能演示：固定一段上海市区的短路线
-                simStartLat = 31.19875; simStartLng = 121.43375
-                targetLat = 31.21075; targetLng = 121.45275
-                targetName = "演示路线"
-            } else {
-                // 从目的地西南约 1 km 处出发，保证室内没有 GPS 也能模拟
-                simStartLat = targetLat - 0.006
-                simStartLng = targetLng - 0.008
-            }
-        } else if (targetLat.isNaN() || targetLng.isNaN()) {
+        if (selLat.isNaN() || selLng.isNaN()) {
             toast("先在搜索框里选择一个目的地")
             return
         }
         if (Keys.amap(this).isEmpty()) {
-            toast("先填高德 Key")
+            toast("请先在设置里填写高德 Key")
+            startActivity(Intent(this, SettingsActivity::class.java))
             return
         }
+        val targetLat = selLat
+        val targetLng = selLng
+        val targetName = selName
         frame = null
         haveBlock = false
         lastRaster = null
@@ -432,8 +387,9 @@ class MainActivity : AppCompatActivity() {
         currentPreview = null
         ivPreview.setImageBitmap(null)
         if (!ble.connected) log("未连接 RaceBrick：先手机端模拟，连接后自动补发")
-        log((if (simulate) "开始模拟导航 → " else "开始导航 → ") + "$targetName ($targetLat,$targetLng)")
-        nav.start(targetLat, targetLng, simulate, simStartLat, simStartLng)
+        log((if (simulate) "模拟导航（当前位置 → 目的地）→ " else "真实导航（手机 GPS）→ ") +
+            "$targetName ($targetLat,$targetLng)")
+        nav.start(targetLat, targetLng, simulate)
     }
 
     private fun stopNavigation() {
@@ -532,30 +488,37 @@ class MainActivity : AppCompatActivity() {
             }
             worker.execute {
                 try {
-                    // 旧 MotoNav 固件用的方形底图：7500m 块，mm/px 约 6250
-                    val mm = (PreviewRenderer.BLOCK / MapCapture.SIZE * 1000).roundToInt()
-                    val idxFull = RasterCodec.toIndices(shot, MapCapture.SIZE)
-                    var bytes = RasterCodec.encodeRaster(
-                        f.id, x0, y0, MapCapture.SIZE, MapCapture.SIZE, mm, idxFull,
-                    )
-                    // 固件单块上限 500 KB；太大就降到 600×600（范围不变，像素翻倍）
-                    if (bytes.size > 480 * 1024) {
-                        val small = ByteArray(600 * 600)
-                        for (y in 0 until 600) {
-                            for (x in 0 until 600) {
-                                small[y * 600 + x] = idxFull[(y * 2) * MapCapture.SIZE + x * 2]
+                    // 旧 MotoNav 固件用的方形底图只在兼容分包模式生成；
+                    // RaceBrick 整帧模式不再做这份 1200×1200 RLE，省 CPU/内存。
+                    var raster: ByteArray? = null
+                    if (!sendFrames) {
+                        val mm = (PreviewRenderer.BLOCK / MapCapture.SIZE * 1000).roundToInt()
+                        val idxFull = RasterCodec.toIndices(shot, MapCapture.SIZE)
+                        raster = RasterCodec.encodeRaster(
+                            f.id, x0, y0, MapCapture.SIZE, MapCapture.SIZE, mm, idxFull,
+                        )
+                        // 固件单块上限 500 KB；太大就降到 600×600（范围不变，像素翻倍）
+                        if (raster.size > 480 * 1024) {
+                            val small = ByteArray(600 * 600)
+                            for (y in 0 until 600) {
+                                for (x in 0 until 600) {
+                                    small[y * 600 + x] = idxFull[(y * 2) * MapCapture.SIZE + x * 2]
+                                }
                             }
+                            raster = RasterCodec.encodeRaster(f.id, x0, y0, 600, 600, mm * 2, small)
+                            log("底图较大，已降到 600×600")
                         }
-                        bytes = RasterCodec.encodeRaster(f.id, x0, y0, 600, 600, mm * 2, small)
-                        log("底图较大，已降到 600×600")
                     }
                     // 整帧预览用的 1000×1000 底图（旋转补角靠它四周的余量）
                     val idxBase = RasterCodec.toIndices(shot, PreviewRenderer.BASE)
                     val sdk = PreviewRenderer.sdkBase(shot)
                     val effect = PreviewRenderer.effectBase(idxBase, PreviewRenderer.BASE)
                     main.post {
-                        lastRaster = bytes
-                        sendRasterBytes(bytes)
+                        raster?.let {
+                            lastRaster = it
+                            sendRasterBytes(it)
+                            log("底图 ${it.size / 1024} KB 已生成")
+                        }
                         runCatching { sdkBase?.recycle(); effectBase?.recycle() }
                         sdkBase = sdk
                         effectBase = effect
@@ -566,7 +529,6 @@ class MainActivity : AppCompatActivity() {
                         haveBlock = true
                         fetching = false
                         updatePreview()
-                        log("底图 ${bytes.size / 1024} KB 已生成")
                     }
                 } catch (e: Throwable) {
                     main.post {
@@ -690,7 +652,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applyZoom(z: Float) {
         zoom = z.coerceIn(0.75f, 2.0f)
-        btnZoom.text = String.format(Locale.US, "视图：%.2f×", zoom)
+        tvZoom.text = String.format(Locale.US, "%.2f×", zoom)
         updatePreview()
         log(String.format(Locale.US, "视图大小：%.2f×", zoom))
     }
@@ -845,28 +807,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-    private fun restartApp() {
-        val i = packageManager.getLaunchIntentForPackage(packageName) ?: return
-        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(i)
-        Runtime.getRuntime().exit(0)
-    }
-
     override fun onResume() {
         super.onResume()
         if (MediaControl.hasAccess(this)) mediaPrompted = false
-        updateMediaAccessText()
         lastMediaState = null
         sendMediaState()
-    }
-
-    private fun updateMediaAccessText() {
-        if (!::btnMediaAccess.isInitialized) return
-        btnMediaAccess.text = if (MediaControl.hasAccess(this)) {
-            "媒体控制权限：已授权"
-        } else {
-            "媒体控制权限：未授权（点此开启）"
-        }
     }
 
     private fun sendMediaState() {
@@ -890,10 +835,20 @@ class MainActivity : AppCompatActivity() {
         if (!MediaControl.hasAccess(this) && !mediaPrompted) {
             mediaPrompted = true
             log("请开启通知使用权，ESP 才能控制其他音乐 App")
-            updateMediaAccessText()
             MediaControl.openSettings(this)
         }
         main.postDelayed({ sendMediaState() }, 450)
+    }
+
+    private fun maybePromptMediaAccess() {
+        if (MediaControl.hasAccess(this)) return
+        val prefs = getSharedPreferences("navbridge", MODE_PRIVATE)
+        if (prefs.getBoolean("media_prompted", false)) return
+        prefs.edit().putBoolean("media_prompted", true).apply()
+        main.postDelayed({
+            toast("请开启 NavBridge 的通知使用权，ESP 才能控制手机音乐")
+            MediaControl.openSettings(this)
+        }, 1200)
     }
 
     override fun onDestroy() {
