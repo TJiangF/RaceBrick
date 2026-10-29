@@ -184,9 +184,12 @@ object PreviewRenderer {
             }
         }
         for (cam in cameras.take(24)) {
-            if (cam.type == 2) continue // 红绿灯点位不画
             val (sx, sy) = cameraPos(cam.x, cam.y)
-            if (sx < 8f || sx > OUT_W - 8f || sy < 8f || sy > OUT_H - 8f) continue
+            if (sx < 10f || sx > OUT_W - 10f || sy < 10f || sy > OUT_H - 10f) continue
+            if (cam.type == 2) {
+                drawTrafficLightMarker(c, sx, sy)
+                continue
+            }
             val col = when (cam.type) {
                 0, 8, 9, 10 -> 0xFFE53935.toInt()
                 1 -> 0xFF1E88E5.toInt()
@@ -328,6 +331,12 @@ object PreviewRenderer {
         val unit = paint(w / 34f, textColor).apply { textAlign = Paint.Align.CENTER }
         c.drawText("km/h", badgeCx, badgeCy + w * 0.072f, unit)
 
+        // 右中：红绿灯距离/剩余灯数
+        if (hud.lightDist >= 0 || hud.lights > 0) {
+            val lightText = if (hud.lightDist >= 0) distance(hud.lightDist) else "×${hud.lights}"
+            drawTrafficPill(c, w, lightText, sdkOriginal, badgeCy + badgeR + 15f)
+        }
+
         // 左下：下一条路 + 剩余距离/时间
         val road = hud.nextRoad.ifBlank { "沿当前道路" }.take(10)
         c.drawText(road, w * 0.03f, h - h * 0.105f, paint(w / 21f, hudColor))
@@ -337,6 +346,60 @@ object PreviewRenderer {
             h - h * 0.025f,
             paint(w / 24f, hudColor),
         )
+    }
+
+    private fun drawTrafficLightMarker(c: Canvas, x: Float, y: Float) {
+        val w0 = 10f
+        val h0 = 20f
+        val left = x - w0 / 2f
+        val top = y - h0 / 2f
+        c.drawRoundRect(RectF(left - 1f, top - 1f, left + w0 + 1f, top + h0 + 1f),
+            4f, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6FFFFFF.toInt() })
+        c.drawRoundRect(RectF(left, top, left + w0, top + h0),
+            3f, 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE0202020.toInt() })
+        val cx = x
+        val r = 2.6f
+        c.drawCircle(cx, top + 4f, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF3B30.toInt() })
+        c.drawCircle(cx, top + 10f, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD60A.toInt() })
+        c.drawCircle(cx, top + 16f, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF34C759.toInt() })
+    }
+
+    private fun drawTrafficPill(
+        c: Canvas,
+        w: Float,
+        text: String,
+        sdkOriginal: Boolean,
+        cy: Float,
+    ) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = w / 30f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val tw = p.measureText(text)
+        val h = 22f
+        val width = 30f + tw
+        val right = w - 6f
+        val left = right - width
+        val top = cy - h / 2f
+        val fill = if (sdkOriginal) Color.WHITE else Color.BLACK
+        val line = if (sdkOriginal) 0x66000000 else Color.WHITE
+        val textColor = if (sdkOriginal) Color.BLACK else Color.WHITE
+        c.drawRoundRect(RectF(left, top, right, top + h), h / 2f, h / 2f,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill })
+        c.drawRoundRect(RectF(left, top, right, top + h), h / 2f, h / 2f,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = line
+                style = Paint.Style.STROKE
+                strokeWidth = if (sdkOriginal) 1.5f else 2.5f
+            })
+        // 迷你红绿灯
+        val lx = left + 10f
+        val lc = top + h / 2f
+        c.drawCircle(lx, lc - 5f, 2.4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF3B30.toInt() })
+        c.drawCircle(lx, lc, 2.4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD60A.toInt() })
+        c.drawCircle(lx, lc + 5f, 2.4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF34C759.toInt() })
+        p.color = textColor
+        c.drawText(text, left + 20f, lc - (p.fontMetrics.ascent + p.fontMetrics.descent) / 2f, p)
     }
 
     private fun drawSpeedLimit(c: Canvas, limit: Int, w: Float, h: Float) {
