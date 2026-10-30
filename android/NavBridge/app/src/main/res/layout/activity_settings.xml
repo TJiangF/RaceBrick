@@ -126,6 +126,41 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="后台运行"
+                android:textColor="#F0F6F4"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="开始导航后 App 会启动前台服务。为保证切换 App 后仍持续定位/渲染/蓝牙推流，请在应用详情里把定位设为“始终允许”，电池设为“不受限制”。"
+                android:textColor="#A9C4BE"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnBackground"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:text="打开应用权限/电池设置"
+                android:textColor="#D7E7E4" />
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

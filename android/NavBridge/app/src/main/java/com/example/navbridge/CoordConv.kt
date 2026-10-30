@@ -46,4 +46,16 @@ object CoordConv {
         dLng = (dLng * 180.0) / (A / sqrtMagic * cos(radLat) * Math.PI)
         return doubleArrayOf(lat + dLat, lng + dLng)
     }
+
+    /** GCJ-02 → WGS-84（高德路线/定位转到天地图 WGS84 时使用）。 */
+    fun gcjToWgs(lat: Double, lng: Double): DoubleArray {
+        var wLat = lat
+        var wLng = lng
+        repeat(4) {
+            val gcj = wgsToGcj(wLat, wLng)
+            wLat -= gcj[0] - lat
+            wLng -= gcj[1] - lng
+        }
+        return doubleArrayOf(wLat, wLng)
+    }
 }

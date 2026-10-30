@@ -5,3 +5,6 @@ sdk.dir=/Users/you/Library/Android/sdk
 # 高德 Android 平台 Key。必须和高德控制台里的“包名 + SHA1”一致。
 # 也可以不填，在 App 里手动填写（保存后重启 App）。
 AMAP_KEY=
+
+# 天地图 tk（vec_w 路网）；不填时 App 走 RaceBrick 服务端 /api/tile 代理
+TIANDITU_KEY=

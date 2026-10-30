@@ -130,9 +130,26 @@ object RasterCodec {
         return dilateRoads(idx, n, n)
     }
 
-    fun previewBitmap(idx: ByteArray, n: Int, out: Int = 240): Bitmap {
-        // Racebrick style: brighter ground, white roads, vivid park/water.
-        val colors = intArrayOf(0xFF1B1B22.toInt(), 0xFFF2F2F2.toInt(), 0xFF2ECC71.toInt(), 0xFF2F9BFF.toInt())
+    fun toIndices(bitmap: Bitmap, n: Int): ByteArray {
+        val w = bitmap.width
+        val h = bitmap.height
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        if (w == n && h == n) {
+            val bg = backgroundLum(px)
+            val idx = ByteArray(n * n)
+            for (i in idx.indices) idx[i] = classifyPixel(px[i], bg).toByte()
+            return dilateRoads(idx, n, n)
+        }
+        return toIndices(Shot(px, w, h, 0f, 0f, w.toFloat(), h.toFloat()), n)
+    }
+
+    fun previewBitmap(
+        idx: ByteArray,
+        n: Int,
+        out: Int = 240,
+        colors: IntArray = MapStyles.DEFAULT.baseColors,
+    ): Bitmap {
         val px = IntArray(out * out)
         for (y in 0 until out) {
             val sy = y * n / out

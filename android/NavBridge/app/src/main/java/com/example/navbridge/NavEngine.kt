@@ -53,6 +53,7 @@ class NavEngine(private val app: Context, private val cb: Callback) {
     private var lastRouteKey = ""
     private var started = false
     private var simulate = false
+    private var travelMode = TravelMode.DEFAULT
 
     private var useExternalGps = false
     private var externalFix: Location? = null
@@ -151,7 +152,9 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         simulate: Boolean = false,
         startLat: Double? = null,
         startLng: Double? = null,
+        travelMode: TravelMode = TravelMode.DEFAULT,
     ) {
+        this.travelMode = travelMode
         val n = runCatching { AMapNavi.getInstance(app) }.getOrNull()
         if (n == null) { cb.onStatus("高德导航初始化失败，检查 Key"); return }
         navi = n
@@ -242,12 +245,32 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         cb.onFix(fromLat, fromLng)
         cb.onStatus("正在规划路线…")
         val result = runCatching {
-            n.calculateDriveRoute(
-                arrayListOf(NaviLatLng(fromLat, fromLng)),
-                arrayListOf(NaviLatLng(destLat, destLng)),
-                arrayListOf<NaviLatLng>(),
-                PathPlanningStrategy.DRIVING_DEFAULT,
-            )
+            when (travelMode) {
+                TravelMode.BICYCLE -> n.calculateRideRoute(
+                    NaviLatLng(fromLat, fromLng),
+                    NaviLatLng(destLat, destLng),
+                )
+                TravelMode.MOTORCYCLE -> {
+                    val ok = n.calculateDriveRoute(
+                        arrayListOf(NaviLatLng(fromLat, fromLng)),
+                        arrayListOf(NaviLatLng(destLat, destLng)),
+                        arrayListOf<NaviLatLng>(),
+                        PathPlanningStrategy.MOTOR_MULTIPLE_DEFAULT,
+                    )
+                    if (!ok) n.calculateDriveRoute(
+                        arrayListOf(NaviLatLng(fromLat, fromLng)),
+                        arrayListOf(NaviLatLng(destLat, destLng)),
+                        arrayListOf<NaviLatLng>(),
+                        PathPlanningStrategy.DRIVING_DEFAULT,
+                    ) else ok
+                }
+                TravelMode.CAR -> n.calculateDriveRoute(
+                    arrayListOf(NaviLatLng(fromLat, fromLng)),
+                    arrayListOf(NaviLatLng(destLat, destLng)),
+                    arrayListOf<NaviLatLng>(),
+                    PathPlanningStrategy.DRIVING_DEFAULT,
+                )
+            }
         }
         result.onFailure { cb.onStatus("发起算路失败：${it.message}") }
     }
@@ -259,7 +282,7 @@ class NavEngine(private val app: Context, private val cb: Callback) {
         started = true
         checkRoute()
         val mode = if (simulate) NaviType.EMULATOR else NaviType.GPS
-        runCatching { n.setEmulatorNaviSpeed(90) }
+        runCatching { n.setEmulatorNaviSpeed(travelMode.simulateKmh) }
         runCatching { n.startNavi(mode) }
             .onFailure { cb.onStatus("启动导航失败：${it.message}") }
         cb.onStatus(if (simulate) "模拟导航中" else "导航中")

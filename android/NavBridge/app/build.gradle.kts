@@ -11,6 +11,7 @@ val local = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val amapKey = (local.getProperty("AMAP_KEY") ?: System.getenv("AMAP_KEY") ?: "").trim()
+val tiandituKey = (local.getProperty("TIANDITU_KEY") ?: System.getenv("TIANDITU_KEY") ?: "").trim()
 
 android {
     namespace = "com.example.navbridge"
@@ -21,10 +22,11 @@ android {
         minSdk = 26
         targetSdk = 35
         // 每次重新出包必须递增，便于区分设备上旧包/新包。
-        versionCode = 21
-        versionName = "0.8.9"
+        versionCode = 25
+        versionName = "0.9.3"
 
         buildConfigField("String", "AMAP_KEY", "\"$amapKey\"")
+        buildConfigField("String", "TIANDITU_KEY", "\"$tiandituKey\"")
         manifestPlaceholders["AMAP_KEY"] = amapKey
 
         // 高德 10.x 只带常用 ABI；现代手机基本是 arm64

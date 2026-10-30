@@ -1,7 +1,9 @@
 package com.example.navbridge
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -28,6 +30,12 @@ class SettingsActivity : AppCompatActivity() {
         tvVersion.text = "NavBridge ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnBackground).setOnClickListener {
+            startActivity(Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName"),
+            ))
+        }
         findViewById<Button>(R.id.btnSaveKey).setOnClickListener {
             val key = etKey.text.toString().trim()
             if (key.isEmpty()) {

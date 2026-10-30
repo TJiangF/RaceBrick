@@ -24,8 +24,14 @@ object PreviewRenderer {
     const val OUT_W = 320
     const val OUT_H = 240
     const val BASE = 1000
+    /** Tianditu 底图：800px 足够保留支路细节，再经 2× 超采样缩到 320×240。 */
+    const val TDT_BASE = 800
     const val BLOCK = 7500.0
     private const val SS = 2
+
+    // MotoNav 默认主题（罪恶都市）：品红路线 + 深品红描边。
+    private val ROUTE_COLOR = 0xFFF749C5.toInt()
+    private val ROUTE_CASE = 0xFF7B1C63.toInt()
 
     private const val RIDER_X = OUT_W / 2f
     private const val RIDER_Y = OUT_H * 0.70f
@@ -60,9 +66,13 @@ object PreviewRenderer {
         return scaled
     }
 
-    /** 4 色索引图（BASE×BASE）→ 4 色底图。 */
-    fun effectBase(idx: ByteArray, n: Int, out: Int = BASE): Bitmap =
-        RasterCodec.previewBitmap(idx, n, out)
+    /** 4 色索引图（BASE×BASE）→ 当前风格底图。 */
+    fun effectBase(
+        idx: ByteArray,
+        n: Int,
+        out: Int = BASE,
+        style: MapStyle = MapStyles.DEFAULT,
+    ): Bitmap = RasterCodec.previewBitmap(idx, n, out, style.baseColors)
 
     fun overlay(
         base: Bitmap,
@@ -80,6 +90,7 @@ object PreviewRenderer {
         laneBg: IntArray = IntArray(0),
         laneFr: IntArray = IntArray(0),
         speedLimit: Int = 0,
+        mapStyle: MapStyle = MapStyles.DEFAULT,
         sdkOriginal: Boolean = true,
     ): Bitmap {
         val s = base.width.toFloat()
@@ -108,10 +119,10 @@ object PreviewRenderer {
         c.drawBitmap(base, 0f, 0f, null)
         if (route != null && route.size >= 4) {
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0xFFB45CFF.toInt()
+                color = mapStyle.route
                 style = Paint.Style.STROKE
                 // 缩放后线宽会跟着变，补偿回固定视觉粗细
-                strokeWidth = OUT_W / 80f / zoom
+                strokeWidth = OUT_W / 64f / zoom
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
             }
@@ -123,11 +134,11 @@ object PreviewRenderer {
                 i += 2
             }
             if (!sdkOriginal) {
-                // MotoNav/Racebrick-style black casing around the route.
+                // MotoNav 风格的路线描边是深品红，不是纯黑。
                 val casing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.BLACK
+                    color = mapStyle.routeCase
                     style = Paint.Style.STROKE
-                    strokeWidth = (OUT_W / 80f + 4f) / zoom
+                    strokeWidth = (OUT_W / 64f + 2.5f) / zoom
                     strokeCap = Paint.Cap.ROUND
                     strokeJoin = Paint.Join.ROUND
                 }
@@ -136,9 +147,10 @@ object PreviewRenderer {
             c.drawPath(path, paint)
         }
         if (traffic.isNotEmpty()) {
-            val tw = OUT_W / 80f / zoom
+            val tw = OUT_W / 64f / zoom
             for (seg in traffic) {
-                if (seg.pts.size < 4) continue
+                // MotoNav 只把缓行/拥堵叠到路线上；畅通段保留品红路线，不铺绿线。
+                if (seg.status <= 1 || seg.pts.size < 4) continue
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = trafficColor(seg.status)
                     style = Paint.Style.STROKE
@@ -155,9 +167,9 @@ object PreviewRenderer {
                 }
                 if (!sdkOriginal) {
                     val casing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.BLACK
+                        color = mapStyle.routeCase
                         style = Paint.Style.STROKE
-                        strokeWidth = (OUT_W / 80f + 4f) / zoom
+                        strokeWidth = (OUT_W / 64f + 2.5f) / zoom
                         strokeCap = Paint.Cap.ROUND
                         strokeJoin = Paint.Join.ROUND
                     }
@@ -224,44 +236,34 @@ object PreviewRenderer {
             }
         }
 
-        // 车标：车头朝上时箭头固定朝上，朝北时按 heading 旋转
+        // 车标：MotoNav 的白色箭头 + 深色描边，不再用蓝色圆点。
         val sunkX = (rbx - cropLeft) * zoom
         val sunY = (rby - cropTop) * zoom
         val arrowHeading = if (headingUp) 0f else heading
-        val r = OUT_W / 42f
-        c.drawCircle(sunkX, sunY, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF00E5FF.toInt()
+        c.save()
+        c.translate(sunkX, sunY)
+        c.rotate(arrowHeading)
+        c.drawPath(riderArrowPath(1.35f, 1.2f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
             style = Paint.Style.FILL
         })
-        c.drawCircle(sunkX, sunY, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        c.drawPath(riderArrowPath(1f, 0f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = OUT_W / 220f
+            style = Paint.Style.FILL
         })
-        val rad = Math.toRadians(arrowHeading.toDouble())
-        c.drawLine(
-            sunkX, sunY,
-            sunkX + (sin(rad) * r * 1.9f).toFloat(),
-            sunY - (cos(rad) * r * 1.9f).toFloat(),
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                strokeWidth = OUT_W / 130f
-                strokeCap = Paint.Cap.ROUND
-            },
-        )
+        c.restore()
 
-        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), speedLimit, laneBg, laneFr, sdkOriginal)
+        drawHud(c, hud, OUT_W.toFloat(), OUT_H.toFloat(), speedLimit, laneBg, laneFr, mapStyle, sdkOriginal)
         val out = Bitmap.createScaledBitmap(hi, OUT_W, OUT_H, true)
         hi.recycle()
         return out
     }
 
     private fun trafficColor(status: Int): Int = when (status) {
-        1 -> 0xFF34C759.toInt() // 畅通
-        2 -> 0xFFFFD60A.toInt() // 缓行
-        3 -> 0xFFFF3B30.toInt() // 拥堵
-        4 -> 0xFFB00020.toInt() // 严重拥堵
-        else -> 0xFFB45CFF.toInt()
+        2 -> 0xFFFFB600.toInt() // 缓行
+        3 -> 0xFFEE1C20.toInt() // 拥堵
+        4 -> 0xFF940000.toInt() // 严重拥堵
+        else -> ROUTE_COLOR
     }
 
     private fun drawHud(
@@ -272,31 +274,52 @@ object PreviewRenderer {
         speedLimit: Int,
         laneBg: IntArray,
         laneFr: IntArray,
+        mapStyle: MapStyle,
         sdkOriginal: Boolean,
     ) {
-        val hudColor = if (sdkOriginal) Color.BLACK else 0xFF1E88E5.toInt()
+        val hudColor = if (sdkOriginal) Color.BLACK else mapStyle.hud
         fun paint(size: Float, color: Int, bold: Boolean = false): Paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = size
                 this.color = color
                 if (bold) typeface = Typeface.DEFAULT_BOLD
+                if (!sdkOriginal) setShadowLayer(1.4f, 0f, 1.4f, Color.BLACK)
             }
+        fun infoPanel(rect: RectF) {
+            c.drawRoundRect(rect, 4f, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+            if (mapStyle.light) {
+                c.drawRoundRect(rect, 4f, 4f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.2f
+                })
+            }
+        }
 
-        // 左上：单色矢量箭头 + 下一动作距离。AMap 官方图标自带阴影层，
-        // 着色后容易出现双箭头，这里统一用单个箭头字符，避免重叠。
-        // 两者按字体度量垂直居中，保证箭头和距离在同一水平线上。
-        val turnColor = if (sdkOriginal) Color.BLACK else Color.WHITE
-        val arrowPaint = paint(w / 9f, turnColor, true)
-        val distPaint = paint(w / 11f, turnColor, true)
-        val turnCy = h * 0.14f
-        fun centeredBaseline(p: Paint): Float =
-            turnCy - (p.fontMetrics.ascent + p.fontMetrics.descent) / 2f
+        // 左上：转向箭头 + 距离，放在白色信息底框里；浅色风格带黑边。
         val arrowText = turnArrow(hud.dir)
-        c.drawText(arrowText, w * 0.025f, centeredBaseline(arrowPaint), arrowPaint)
+        val distText = distance(hud.dist)
+        val arrowPaint = paint(w / 11f, Color.BLACK, true)
+        val distPaint = paint(w / 13f, Color.BLACK, true)
+        val gap = w * 0.018f
+        val padX = w * 0.015f
+        val padY = 2.5f
+        val textH = maxOf(
+            arrowPaint.fontMetrics.descent - arrowPaint.fontMetrics.ascent,
+            distPaint.fontMetrics.descent - distPaint.fontMetrics.ascent,
+        )
+        val turnCy = h * 0.11f
+        val panelLeft = w * 0.025f
+        val panelTop = turnCy - textH / 2 - padY
+        val panelRight = panelLeft + arrowPaint.measureText(arrowText) + gap +
+            distPaint.measureText(distText) + padX * 2
+        infoPanel(RectF(panelLeft, panelTop, panelRight, panelTop + textH + padY * 2))
+        val baseline = turnCy - (arrowPaint.fontMetrics.ascent + arrowPaint.fontMetrics.descent) / 2
+        c.drawText(arrowText, panelLeft + padX, baseline, arrowPaint)
         c.drawText(
-            distance(hud.dist),
-            w * 0.025f + arrowPaint.measureText(arrowText) + w * 0.02f,
-            centeredBaseline(distPaint),
+            distText,
+            panelLeft + padX + arrowPaint.measureText(arrowText) + gap,
+            baseline,
             distPaint,
         )
 
@@ -304,42 +327,70 @@ object PreviewRenderer {
         drawSpeedLimit(c, speedLimit, w, h)
         drawLanes(c, laneBg, laneFr, w, h)
 
-        // 右上：速度圆牌
-        val badgeCx = w - w * 0.125f
-        val badgeCy = h * 0.155f
-        val badgeR = w * 0.11f
+        // 右上：速度圆牌，中心到上沿/右边距离相等；整体略缩小。
+        val badgeCy = w * 0.125f
+        val badgeCx = w - badgeCy
+        val badgeR = w * 0.095f
         val textColor: Int
-        if (sdkOriginal) {
-            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
-            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0x66000000
-                style = Paint.Style.STROKE
-                strokeWidth = 1.5f
-            })
-            textColor = Color.BLACK
-        } else {
-            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK })
-            c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                style = Paint.Style.STROKE
-                strokeWidth = 3f
-            })
-            textColor = Color.WHITE
-        }
-        val speed = paint(w / 10.5f, textColor, true).apply { textAlign = Paint.Align.CENTER }
-        c.drawText("${hud.speed}", badgeCx, badgeCy + w * 0.012f, speed)
-        val unit = paint(w / 34f, textColor).apply { textAlign = Paint.Align.CENTER }
-        c.drawText("km/h", badgeCx, badgeCy + w * 0.072f, unit)
+        c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+        c.drawCircle(badgeCx, badgeCy, badgeR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+        })
+        textColor = Color.BLACK
+        val speed = paint(w / 11.5f, textColor, true).apply { textAlign = Paint.Align.CENTER }
+        c.drawText("${hud.speed}", badgeCx, badgeCy + w * 0.010f, speed)
+        val unit = paint(w / 36f, textColor).apply { textAlign = Paint.Align.CENTER }
+        c.drawText("km/h", badgeCx, badgeCy + w * 0.065f, unit)
 
-        // 左下：下一条路 + 剩余距离/时间
+        // 左下道路名 + 右下剩余距离/时间：同字号、同底边、都有白色底框。
+        val bottomPadX = w * 0.018f
+        val bottomPadY = 3f
+        val bottomMargin = w * 0.03f
+        val bottomY = h - h * 0.025f
+        val bottomPaint = paint(w / 24f, Color.BLACK)
+        val bm = bottomPaint.fontMetrics
+        val bottomH = bm.descent - bm.ascent
+
         val road = hud.nextRoad.ifBlank { "沿当前道路" }.take(10)
-        c.drawText(road, w * 0.03f, h - h * 0.105f, paint(w / 21f, hudColor))
-        c.drawText(
-            "${distance(hud.remainM)}  ${duration(hud.remainS)}",
-            w * 0.03f,
-            h - h * 0.025f,
-            paint(w / 24f, hudColor),
+        val roadRect = RectF(
+            bottomMargin,
+            bottomY - bottomH - bottomPadY * 2,
+            bottomMargin + bottomPaint.measureText(road) + bottomPadX * 2,
+            bottomY,
         )
+        infoPanel(roadRect)
+        c.drawText(road, roadRect.left + bottomPadX, roadRect.top + bottomPadY - bm.ascent, bottomPaint)
+
+        val remainText = "${distance(hud.remainM)}  ${duration(hud.remainS)}"
+        val remainRight = w - bottomMargin
+        val remainRect = RectF(
+            remainRight - bottomPaint.measureText(remainText) - bottomPadX * 2,
+            bottomY - bottomH - bottomPadY * 2,
+            remainRight,
+            bottomY,
+        )
+        infoPanel(remainRect)
+        c.drawText(
+            remainText,
+            remainRect.left + bottomPadX,
+            remainRect.top + bottomPadY - bm.ascent,
+            bottomPaint,
+        )
+    }
+
+
+    /** MotoNav drawPlayer 的箭头轮廓：白芯 + 黑色外框。 */
+    private fun riderArrowPath(scale: Float, dy: Float): Path {
+        val k = OUT_W / 320f * scale
+        return Path().apply {
+            moveTo(0f, (-13f * k) + dy)
+            lineTo(-10f * k, (10.5f * k) + dy)
+            lineTo(0f, (5f * k) + dy)
+            lineTo(10f * k, (10.5f * k) + dy)
+            close()
+        }
     }
 
     private fun drawTrafficLightMarker(c: Canvas, x: Float, y: Float) {
