@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.location.Location
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -166,6 +167,7 @@ class MainActivity : AppCompatActivity() {
     private var lastKmh = 0
     private var navigating = false
     private var remainM = -1
+    private var routeTotalM = 0.0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -201,6 +203,7 @@ class MainActivity : AppCompatActivity() {
                     lastMediaState = null
                     sendMediaState()
                     sendPosition()
+                    sendLedProgress()
                     if (!sendFrames) {
                         lastRaster?.let { sendRasterBytes(it) }
                         lastRoute?.let { sendRouteBytes(it) }
@@ -245,6 +248,7 @@ class MainActivity : AppCompatActivity() {
                 val eta = java.util.Calendar.getInstance().apply { add(java.util.Calendar.SECOND, remainS) }
                 val hhmm = eta.get(java.util.Calendar.HOUR_OF_DAY) * 100 + eta.get(java.util.Calendar.MINUTE)
                 if (ble.verified && !sendFrames) ble.send("#e,$remainM,$hhmm,$lights")
+                sendLedProgress(remainM)
                 status("剩余 ${formatDistance(remainM)}，约 ${remainS / 60} 分钟")
                 updatePreview()
             }
@@ -268,6 +272,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onArrive() {
                 navigating = false
+                sendLedProgress(0)
                 NavKeepAliveService.stop(this@MainActivity)
                 if (ble.verified && !sendFrames) ble.send("A,0")
                 status("已到达目的地")
@@ -436,6 +441,8 @@ class MainActivity : AppCompatActivity() {
         guideDist = -1
         nextRoad = ""
         remainS = -1
+        routeTotalM = 0.0
+        clearLedProgress()
         lights = 0
         lightDist = -1
         laneBg = IntArray(0)
@@ -459,6 +466,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopNavigation() {
         navigating = false
+        clearLedProgress()
         nav.stop()
         haveBlock = false
         NavKeepAliveService.stop(this)
@@ -687,6 +695,8 @@ class MainActivity : AppCompatActivity() {
             pts[2 * i + 1] = f.y(coords[i].latitude)
         }
         lastRoutePts = pts
+        routeTotalM = routeLengthMeters(coords)
+        sendLedProgress(if (remainM >= 0) remainM else routeTotalM.roundToInt())
         routeWorker.execute {
             try {
                 val bytes = RasterCodec.encodeRoute(f.id, pts)
@@ -1022,6 +1032,32 @@ class MainActivity : AppCompatActivity() {
             maybeCapture()
         }
         updatePreview()
+    }
+
+
+    private fun routeLengthMeters(coords: List<LatLng>): Double {
+        if (coords.size < 2) return 0.0
+        var total = 0.0
+        val out = FloatArray(1)
+        for (i in 1 until coords.size) {
+            Location.distanceBetween(
+                coords[i - 1].latitude, coords[i - 1].longitude,
+                coords[i].latitude, coords[i].longitude, out,
+            )
+            total += out[0]
+        }
+        return total
+    }
+
+    private fun sendLedProgress(remain: Int = remainM) {
+        if (!this::ble.isInitialized || !ble.verified) return
+        val total = routeTotalM.roundToInt()
+        if (total <= 0 || remain < 0) return
+        ble.send("#P,${remain.coerceIn(0, total)},$total")
+    }
+
+    private fun clearLedProgress() {
+        if (this::ble.isInitialized && ble.verified) ble.send("#P,-1,0")
     }
 
     private fun formatDistance(m: Int): String {

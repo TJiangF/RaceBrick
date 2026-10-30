@@ -63,6 +63,8 @@ static volatile int s_frames, s_last_bytes;
 static volatile int64_t s_last_us;
 
 static volatile bool s_media_playing;
+static volatile int s_nav_remain = -1;
+static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
 static volatile bool s_k_pending;
 static volatile int s_k_id;
@@ -228,6 +230,22 @@ static void handle_write(const uint8_t *b, int len) {
     }
     if (len >= 4 && memcmp(b, "#GB?", 4) == 0) s_ready_pending = true;
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
+    else if (len >= 4 && memcmp(b, "#P,", 3) == 0) {
+        char tmp[64];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n);
+        tmp[n] = 0;
+        int rem = -1, total = 0;
+        if (sscanf(tmp + 3, "%d,%d", &rem, &total) == 2) {
+            if (rem >= 0 && total > 0) {
+                s_nav_remain = rem;
+                s_nav_total = total;
+            } else {
+                s_nav_remain = -1;
+                s_nav_total = 0;
+            }
+        }
+    }
     /* #t/#m/#n and route/HUD text are ignored: the phone renders the whole frame. */
 }
 
@@ -306,6 +324,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_ready_pending = false;
         s_k_pending = false;
+        s_nav_remain = -1;
+        s_nav_total = 0;
         reset_rx();
         ESP_LOGI(TAG, "disconnected (reason %d)", event->disconnect.reason);
         advertise();
@@ -441,6 +461,10 @@ bool btmap_subscribed(void) { return s_subscribed; }
 int btmap_frames(void) { return s_frames; }
 int btmap_last_bytes(void) { return s_last_bytes; }
 bool btmap_has_frame(void) { return s_have; }
+bool btmap_nav_active(void) { return s_nav_remain >= 0 && s_nav_total > 0; }
+int btmap_nav_remain(void) { return s_nav_remain; }
+int btmap_nav_total(void) { return s_nav_total; }
+
 bool btmap_media_playing(void) { return s_media_playing; }
 
 void btmap_media_cmd(const char *cmd) {

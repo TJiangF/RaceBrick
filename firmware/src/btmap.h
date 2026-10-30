@@ -22,6 +22,11 @@ bool btmap_has_frame(void);
 void btmap_media_cmd(const char *cmd);
 bool btmap_media_playing(void);
 
+/* Navigation progress sent by the phone as "#P,remain_m,total_m"; -1 clears. */
+bool btmap_nav_active(void);
+int  btmap_nav_remain(void);
+int  btmap_nav_total(void);
+
 /* Latest decoded 320x240 RGB565 frame; hold the lock only while blitting. */
 const uint16_t *btmap_frame_lock(int *w, int *h);
 void btmap_frame_unlock(void);

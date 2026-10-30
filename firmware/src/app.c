@@ -17,6 +17,7 @@
 #include "string.h"
 #include <stdio.h>
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -248,6 +249,33 @@ static void hsv2rgb(float h, float s, float v, uint8_t *r, uint8_t *g, uint8_t *
     *b = (uint8_t)((bb + m) * 255);
 }
 
+
+/* Navigation progress: rainbow LEDs breathe; the number of bright LEDs grows
+ * as the phone-reported remaining distance shrinks. */
+static bool ledfx_nav_progress(void) {
+    if (!btmap_nav_active()) return false;
+    int rem = btmap_nav_remain();
+    int total = btmap_nav_total();
+    if (rem < 0 || total <= 0) return false;
+    float p = 1.0f - (float)rem / (float)total;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    float t = (float)esp_timer_get_time() / 1000000.0f;
+    float breath = 0.28f + 0.72f * (0.5f + 0.5f * sinf(t * 4.2f));
+    float lit = p * LED_COUNT;
+    for (int i = 0; i < LED_COUNT; i++) {
+        uint8_t r, g, b;
+        hsv2rgb(t * 110.0f + i * 36.0f, 1.0f, 1.0f, &r, &g, &b);
+        float level;
+        float d = (float)i + 0.5f;
+        if (d <= lit) level = breath;
+        else if (d < lit + 1.0f) level = breath * (lit + 1.0f - d);
+        else level = 0.06f * breath;
+        ws2812_set(i, (uint8_t)(r * level), (uint8_t)(g * level), (uint8_t)(b * level));
+    }
+    return true;
+}
+
 /* per-screen WS2812 effects, kept in sync with the on-screen LED bar */
 static void ledfx_update(void) {
     ws2812_set_brightness(g.set_ledbright);
@@ -277,6 +305,10 @@ static void ledfx_update(void) {
         }
         break;
     }
+    case SC_NAV:
+    case SC_PHONE:
+        ledfx_nav_progress();
+        break;
     case SC_RACING:
     case SC_RACING_RECORDED:
         for (int i = 0; i < LED_COUNT; i++) {

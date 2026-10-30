@@ -42,6 +42,7 @@ pio device monitor -b 115200              # 串口日志
 
 - **PHONE MAP**：BLE 接收 NavBridge 发来的 320×240 整帧并全屏显示；设备名 `RaceBrick`，服务 `6e400001...`，协议与 App 见仓库根 README。
 - **MEDIA**：三个圆形按钮（上一首 / 播放暂停 / 下一首），通过 BLE 的 `M,PREV` / `M,TOGGLE` / `M,NEXT` 控制手机当前媒体会话；`M,STATE,0/1` 回传播放状态。
+- **导航 LED 进度**：Phone/Location 导航页收到手机的 `#P,remain,total` 后，WS2812 以循环彩虹呼吸显示进度；越接近目的地亮起的 LED 越多，到达时全部点亮。
 - **LOCATION 实时地图页**（HOME 轮播，与 Start Race 同级；**PUSH 进入**，未进入时 UP/DOWN 切换轮播页）：从 RaceBrick_Sat2Pixel 拉取当前位置的像素风路网图（`pal16`），heading-up 显示，自车箭头；速度右上角亮绿显示，GPS/地图状态右下角，WiFi 状态在电池胶囊内。
 
 ### 页面布局（240px 全高）
