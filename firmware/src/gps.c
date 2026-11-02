@@ -60,6 +60,7 @@ int gps_pps_period_ms(void) { return s_pps_period_us > 0 ? (int)(s_pps_period_us
 
 static void gps_pps_init(void) {
     if (s_pps_inited) return;
+#if PIN_GPS_TP >= 0
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << PIN_GPS_TP,
         .mode = GPIO_MODE_INPUT,
@@ -72,6 +73,10 @@ static void gps_pps_init(void) {
     gpio_isr_handler_add(PIN_GPS_TP, pps_isr, NULL);
     s_pps_inited = true;
     ESP_LOGI(TAG, "1PPS capture on GPIO%d", PIN_GPS_TP);
+#else
+    s_pps_inited = true;
+    ESP_LOGW(TAG, "1PPS disabled (TP shares LCD_DC / not wired)");
+#endif
 }
 
 gps_state_t *gps_get(void) { return &s_st; }
@@ -692,5 +697,5 @@ void gps_set_rate(int hz) {
     gps_set_nav_rate(hz);
     ubx_tp5_1pps();
     vTaskDelay(pdMS_TO_TICKS(120));
-    ESP_LOGI(TAG, "GPS rate -> %d Hz (UART 115200, TP 1PPS on)", hz);
+    ESP_LOGI(TAG, "GPS rate -> %d Hz (UART 115200, TP %s)", hz, PIN_GPS_TP >= 0 ? "1PPS on" : "off");
 }

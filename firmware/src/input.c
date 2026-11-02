@@ -18,7 +18,9 @@ static float    s_clock = 0;
 static event_t s_q[QN];
 static int s_head = 0, s_tail = 0;
 
-static bool repeatable(btn_id_t b) { return b == BTN_UP || b == BTN_DOWN; }
+static bool repeatable(btn_id_t b) {
+    return b == BTN_UP || b == BTN_DOWN || b == BTN_LEFT || b == BTN_RIGHT;
+}
 
 static void emit(ev_type_t type, btn_id_t b) {
     int nx = (s_tail + 1) % QN;
@@ -42,8 +44,8 @@ void input_init(void) {
     s_clock = 0;
 
 #if BTN_ENABLE
-    const int pins[BTN_COUNT] = {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_PUSH,
-                                 PIN_BTN_OK, PIN_BTN_BACK};
+    const int pins[BTN_COUNT] = {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_LEFT,
+                                 PIN_BTN_RIGHT, PIN_BTN_PUSH, PIN_BTN_BACK};
     for (int i = 0; i < BTN_COUNT; i++) {
         gpio_config_t cfg = {
             .pin_bit_mask = 1ULL << pins[i],
@@ -129,8 +131,8 @@ static bool s_deb[BTN_COUNT];
 static float s_deb_t[BTN_COUNT];
 
 void input_poll_hw(void) {
-    const int pins[BTN_COUNT] = {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_PUSH,
-                                 PIN_BTN_OK, PIN_BTN_BACK};
+    const int pins[BTN_COUNT] = {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_LEFT,
+                                 PIN_BTN_RIGHT, PIN_BTN_PUSH, PIN_BTN_BACK};
     for (int i = 0; i < BTN_COUNT; i++) {
         int raw = gpio_get_level((gpio_num_t)pins[i]);
         bool active = BTN_ACTIVE_LOW ? !raw : !!raw;

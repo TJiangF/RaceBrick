@@ -12,29 +12,29 @@ pio run -t upload --upload-port /dev/cu.wchusbserial1140   # 端口以实际为�
 pio device monitor -b 115200              # 串口日志
 ```
 
-## 硬件（生产板 Rev.B）
+## 硬件（生产板 Rev.C）
 
 | 功能 | 引脚 |
 |---|---|
-| LCD ST7789 CS / SCK / MOSI / DC / BL | 12 / 11 / 14 / 9 / 10 |
-| 按键 UP / DOWN / PUSH / OK / BACK | 40 / 42 / 41 / 5 / 4（UP/DOWN 已按滚轮方向交换） |
-| I2C SCL / SDA（MPU6050 @0x68） | 16 / 17 |
-| MPU6050 INT | 15 |
-| GNSS NEO-M9N：ESP TX / ESP RX / TP | 19 / 20 / 8（`NEO-RX`=ESP TX，`NEO-TX`=ESP RX） |
-| 蜂鸣器 BEE / WS2812 DI | 47 / 48 |
-| VBAT 检测使能 / ADC | 21 / 1（使能拉高采样，读数 ×2） |
-| 外置 Flash CS / MISO / SCK / MOSI | 39 / 38 / 37 / 36（W25Q128，SPI3）——**当前未使用**（与 Octal PSRAM 引脚冲突，见下） |
+| LCD ST7789 CS / SCK / MISO / MOSI / DC / BL | 12 / 13 / 14 / 21 / 10 / 11 |
+| 五向开关 UP / DOWN / LEFT / RIGHT / PUSH / BACK | 8 / 17 / 15 / 18 / 16 / 5（低电平有效） |
+| I2C SCL / SDA（MPU6050 @0x68） | 7 / 6 |
+| MPU6050 INT | 4 |
+| GNSS NEO-M9N：ESP TX / ESP RX / TP | 19 / 20 / 9（`NEO-RX`=ESP TX，`NEO-TX`=ESP RX） |
+| 蜂鸣器 BEE / WS2812 DI | 42 / 48 |
+| VBAT 检测使能 / ADC | 47 / 1（使能拉高采样，读数 ×2） |
+| 外置 Flash CS / MISO / SCK / MOSI | 41 / 40 / 39 / 38（W25Q128，SPI3） |
 
 ## 已实现
 
 - 像素 UI（原始帧缓冲）：HOME / 赛道 / 设置 / 历史 / 定位 / 调试等页面与状态机。
-- ST7789（40 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律）。
+- ST7789（20 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律，默认静音）。
 - NEO-M9N：UART（自动扫描波特率找到模块），UBX 配置 1/5/10/25 Hz（Settings → GPS RATE）。
 - **按页自动节能**：只有需要实时 GNSS 的页面（导航/性能/定位/比赛/录制/GPS 调试）使用设定速率，其余页面自动降到 **1 Hz**（进页即切换，切换仅发 CFG-RATE/CFG-MSG，不做波特率扫描）。
-- **1PPS 时间脉冲**：CFG-TP5 配置 1 Hz/100 ms 脉冲，NEO 的 TP 脚接 **GPIO8**，上升沿 ISR（IRAM，`esp_timer_get_time`）测周期；调试页/导航页显示 `PPS` 状态（实测 999 ms）。
-- MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），自动识别竖直轴。
+- **1PPS 时间脉冲**：CFG-TP5 配置 1 Hz/100 ms 脉冲，Rev.C 的 NEO TP 接 **GPIO9**，上升沿 ISR（IRAM，`esp_timer_get_time`）测周期；调试页/导航页显示 `PPS` 状态。
+- MPU6050：I2C 真实读数；**开机姿态 = 零点**（扣除重力/安装角），采样重力方向建立水平面基座，并把真实加速度投影为车辆前后/左右/上下分量；无磁力计，无法确定绝对航向。启动校准页使用真实 MPU 样本。
 - 设置持久化（NVS）：主题/亮度/LED/声音/GPS 速率等。
-- Debug 页：GPS 实时页（2 页，UP/DOWN 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
+- Debug 页：GPS 实时页（2 页，LEFT/RIGHT 切换，第 2 页按 SNR 排序卫星）、IMU DEBUG。
 - 性能测试页（HOME 轮播页，**PUSH 进入**）：**0-100 km/h** 与 **100-0 km/h** 计时，水平加速度模值超过阈值触发开始，GPS 速度判定完成。无 GPS fix 时无法 arm，会提示并可直接跳到 GPS 调试页。
   - 触发不再依赖单一 Z 轴的正负号，而是排除重力轴后的水平加速度模值；PERF 页显示实时 `G x.xx / 阈值`。
   - 没有防抖：单次采样超过阈值即触发（阈值可在 Settings → LAUNCH G 调整，如 0.10G）。
@@ -110,7 +110,7 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 
 ### 存储
 - 赛道保存到**内部 flash 的 `storage` 分区**（2 MiB，data/spiffs）：固定 5 个 4 KiB 槽，每槽一条赛道 + FNV 校验；结构约 3000 字节。
-- **外部 W25Q128 暂时不用**：Octal PSRAM 占用 GPIO33–37，与外部 Flash 的 SCK=37 / MOSI=36 冲突（初始化 SPI3 会破坏 PSRAM）。若以后要用外部 Flash，需改板把它的引脚挪开，或改用 Quad PSRAM。
+- **外部 W25Q128**：Rev.C 已挪到 GPIO41/40/39/38，避开 Octal PSRAM 的 GPIO33–37；`tstore` 仍可用内部 flash。
 - RAM 中最多 6 条赛道（1 条样例 + 5 条录制），开机从 flash 加载。
 - 「Recorded Track」(TRACKS) 页面显示 **`FLASH n/5`** 与剩余 KB。
 

@@ -74,6 +74,13 @@ static int nav_dir(const event_t *ev) {
     return 0;
 }
 
+static int lr_dir(const event_t *ev) {
+    if (ev->type != EV_PRESS && ev->type != EV_LONG && ev->type != EV_REPEAT) return 0;
+    if (ev->button == BTN_LEFT) return -1;
+    if (ev->button == BTN_RIGHT) return 1;
+    return 0;
+}
+
 /* screens that need a live, high-rate GNSS fix; everything else uses 1 Hz */
 static bool screen_needs_gps(scid_t id) {
     switch (id) {
@@ -110,7 +117,7 @@ static void render_home(void) {
         int dx = CW / 2 - 42 + i * 12;
         gfx_fill(dx, 170, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
     }
-    hint_c("UP/DOWN  SWITCH PAGE", 200);
+    hint_c("LEFT/RIGHT  SWITCH PAGE", 200);
     hint_c("PUSH  START", 214);
 }
 
@@ -123,10 +130,9 @@ static float s_perf_g = 0;
 static bool perf_read_g(float *gmag) {
     float ax, ay, az, gx, gy, gz, tp;
     if (!g.imu_ok || !mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) return false;
-    float a3[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
-    float v = a3[g.i_vaxis];                 /* gravity axis (already zeroed) */
-    float h2 = a3[0] * a3[0] + a3[1] * a3[1] + a3[2] * a3[2] - v * v;
-    *gmag = h2 > 0 ? sqrtf(h2) : 0.0f;
+    float hr, hf, hu;
+    if (!app_imu_axes(ax, ay, az, &hr, &hf, &hu)) return false;
+    *gmag = sqrtf(hr * hr + hf * hf);
     return true;
 }
 
@@ -206,7 +212,7 @@ static void render_perf(void) {
     gfx_text_center(CW / 2, 170, st, sc, 1);
     if (!g.entered) gfx_text(6, HINT_Y, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
     else if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
-    else gfx_text(6, HINT_Y, "UP/DN MODE - PUSH ARM - BACK", PAL.dim, 0);
+    else gfx_text(6, HINT_Y, "LEFT/RIGHT MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
 /* ================= LOCATION (real-time pixel road map) ================= */
@@ -451,12 +457,15 @@ static void render_settings(void) {
         panel_box(10, y, CW - 20, h - 4, on, false);
         gfx_text(20, y + 7, settings_key(i), PAL.text, 2);
         char v[16]; settings_val(i, v);
-        gfx_text_right(CW - 18, y + 7, v, PAL.cyan, 2);
+        bool editing = g.entered && g.set_edit && i == g.sel;
+        if (editing && ((int)(g.now / 250) & 1)) strcpy(v, "  ");
+        gfx_text_right(CW - 18, y + 7, v, editing ? PAL.yellow : PAL.cyan, 2);
         y += h;
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
     if (end < 12) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    hint_c("UP/DN SELECT - PUSH EDIT - L/R ADJUST", HINT_Y);
 }
 
 /* ================= SOUND ================= */
@@ -755,7 +764,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             snprintf(bb, sizeof bb, "LAST %s", b);
         } else snprintf(bb, sizeof bb, "LAST --:--.---");
         gfx_text_center(CW / 2, 198, bb, PAL.dim, 1);
-        hint_c("UP/DOWN SWITCH PANEL", HINT_Y);
+        hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else if (g.panel == 2) {
         int sx = (int)lroundf(engine_speed_kmh(e));
         snprintf(b, sizeof b, "%d", sx);
@@ -822,7 +831,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                 start = sections[i];
             }
         }
-        hint_c("PUSH END RACE - UP/DOWN PANEL", HINT_Y);
+        hint_c("PUSH END RACE - LEFT/RIGHT PANEL", HINT_Y);
     }
 }
 
@@ -1222,7 +1231,7 @@ static void render_phone(void) {
         gfx_text_center(CW / 2, 138, b, PAL.dim, 0);
         gfx_text_center(CW / 2, 170, "PUSH TO VIEW", PAL.white, 1);
         gfx_text_center(CW / 2, 198, "OPEN NAVBRIDGE ON PHONE", PAL.dim, 0);
-        gfx_text_center(CW / 2, 214, "UP/DN PAGE - BACK HOME", PAL.dim, 0);
+        gfx_text_center(CW / 2, 214, "L/R PAGE - BACK HOME", PAL.dim, 0);
         return;
     }
 
@@ -1301,7 +1310,7 @@ static void render_media(void) {
         gfx_text_center(CW / 2, 126, btmap_connected() ? "BT CONNECTED" : "BT NO LINK",
                         btmap_connected() ? PAL.green : PAL.red, 1);
         gfx_text_center(CW / 2, 160, "PUSH TO ENTER", PAL.yellow, 1);
-        gfx_text_center(CW / 2, 210, "UP/DN PAGE - BACK HOME", PAL.dim, 0);
+        gfx_text_center(CW / 2, 210, "L/R PAGE - BACK HOME", PAL.dim, 0);
         return;
     }
 
@@ -1331,7 +1340,7 @@ static void render_media(void) {
     snprintf(b, sizeof b, "%s", st);
     gfx_text_center(CW / 2, 182, b, sc, 1);
 
-    gfx_text_center(CW / 2, 212, "UP PREV   DOWN NEXT   PUSH PLAY/PAUSE", PAL.dim, 0);
+    gfx_text_center(CW / 2, 212, "LEFT PREV   RIGHT NEXT   PUSH PLAY/PAUSE", PAL.dim, 0);
 }
 
 /* ================= CHINA MAP (flat map + GPS) ================= */
@@ -1398,6 +1407,16 @@ static void render_location(void) {
 }
 
 /* ================= IMU CALIB ================= */
+static imu6_t read_real_imu(void) {
+    imu6_t s = {0, 0, 0, 0, 0, 0};
+    if (!g.imu_ok) return s;
+    float tp;
+    if (!mpu6050_read(&s.ax, &s.ay, &s.az, &s.gx, &s.gy, &s.gz, &tp)) {
+        s.ax = s.ay = s.az = s.gx = s.gy = s.gz = 0;
+    }
+    return s;
+}
+
 static void imu_bubble(void) {
     gfx_fill(0, 0, 176, CH, PAL.stage);
     float cx = 88, cy = 112, R = 74;
@@ -1411,8 +1430,8 @@ static void imu_bubble(void) {
     gfx_fill((int)cx - 1, (int)cy - 6, 2, 12, PAL.gmcenter);
     if (g.imu_ns) {
         imu6_t s = g.imu_samples[g.imu_ns - 1];
-        float bx = cx + s.ax * scale, by = cy + s.ay * scale;
-        float off = hypotf(s.ax, s.ay);
+        float bx = cx + (s.ax - g.i_ox) * scale, by = cy + (s.ay - g.i_oy) * scale;
+        float off = hypotf(s.ax - g.i_ox, s.ay - g.i_oy);
         uint16_t col = off < 0.03f ? PAL.green : (off < 0.08f ? PAL.yellow : PAL.red);
         gfx_fill((int)bx - 3, (int)by - 3, 6, 6, col);
         gfx_fill((int)bx - 1, (int)by - 1, 2, 2, PAL.mapbg);
@@ -1497,7 +1516,7 @@ void screens_enter(scid_t id) {
         mpu_clear_calibration(&g.imu);
         break;
     case SC_TRACK_EDIT: g.sel = 0; g.entered = false; break;
-    case SC_SETTINGS: g.sel = 0; g.entered = false; break;
+    case SC_SETTINGS: g.sel = 0; g.entered = false; g.set_edit = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
@@ -1576,10 +1595,14 @@ void screens_update(float dt) {
     switch (g.cur) {
     case SC_IMU_CALIB: {
         if (g.imu_phase == 0) {
-            if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = mpu_sample_static(&g.imu);
-            else {
-                memmove(&g.imu_samples[0], &g.imu_samples[1], sizeof(imu6_t) * 99);
-                g.imu_samples[99] = mpu_sample_static(&g.imu);
+            static float next_real_sample = 0;
+            if (g.now >= next_real_sample) {
+                next_real_sample = g.now + 20.0f;   /* 50 Hz, don't block every frame */
+                if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = read_real_imu();
+                else {
+                    memmove(&g.imu_samples[0], &g.imu_samples[1], sizeof(imu6_t) * 99);
+                    g.imu_samples[99] = read_real_imu();
+                }
             }
             int n = g.imu_ns;
             float stA = 0, stG = 0;
@@ -1615,7 +1638,10 @@ void screens_update(float dt) {
                     }
                     m.ax /= n2; m.ay /= n2; m.az /= n2; m.gx /= n2; m.gy /= n2; m.gz /= n2;
                 }
-                mpu_apply_calibration(&g.imu, m);
+                app_apply_imu_reference(&m);
+                ESP_LOGI("imu", "calibrated: a(%.3f,%.3f,%.3f) g(%.1f,%.1f,%.1f)",
+                         m.ax, m.ay, m.az, m.gx, m.gy, m.gz);
+                g.i_gmax = 0;
                 g.imu_phase = 1;
                 g.imu_doneTimer = 0.8f;
                 app_toast("IMU CALIBRATED");
@@ -1624,6 +1650,19 @@ void screens_update(float dt) {
         } else if (g.imu_phase == 1) {
             g.imu_doneTimer -= dt;
             if (g.imu_doneTimer <= 0) app_go_home_to(0);
+        }
+        break;
+    }
+    case SC_SETTINGS: {
+        static int phase = -1;
+        if (g.entered && g.set_edit && g.sel == 0) {
+            int p = (int)(g.now / 250) & 1;
+            if (p != phase) {
+                phase = p;
+                lcd_set_brightness(p ? g.set_brightness : (g.set_brightness / 5));
+            }
+        } else {
+            phase = -1;
         }
         break;
     }
@@ -1697,12 +1736,12 @@ void screens_update(float dt) {
                 /* real G for the G-meter panel */
                 float ax, ay, az, gx, gy, gz, tp;
                 if (g.imu_ok && mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) {
-                    float a3[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
-                    float gl = a3[IMU_GM_LAT_AXIS] * IMU_GM_LAT_SIGN;
-                    float gn = a3[IMU_GM_LONG_AXIS] * IMU_GM_LONG_SIGN;
-                    const float k = 0.25f;
-                    e->gLat = e->gLat * (1 - k) + gl * k;
-                    e->gLong = e->gLong * (1 - k) + gn * k;
+                    float gl, gn, gu;
+                    if (app_imu_axes(ax, ay, az, &gl, &gn, &gu)) {
+                        const float k = 0.25f;
+                        e->gLat = e->gLat * (1 - k) + gl * k;
+                        e->gLong = e->gLong * (1 - k) + gn * k;
+                    }
                     e->gTick = (e->gTick + 1) % 2;
                     if (e->gTick == 0) {
                         if (e->nGTrail < 70) e->gTrail[e->nGTrail++] = (gpt_t){e->gLat, e->gLong};
@@ -1729,10 +1768,11 @@ void screens_update(float dt) {
             g.i_temp = tp;
             g.i_ax = ax - g.i_ox; g.i_ay = ay - g.i_oy; g.i_az = az - g.i_oz;
             g.i_gx = gx - g.i_ogx; g.i_gy = gy - g.i_ogy; g.i_gz = gz - g.i_ogz;
-            float a3[3] = {g.i_ax, g.i_ay, g.i_az};
-            float h1 = a3[(g.i_vaxis + 1) % 3], h2 = a3[(g.i_vaxis + 2) % 3];
-            float mag = sqrtf(h1 * h1 + h2 * h2);   /* horizontal plane only */
-            if (mag > g.i_gmax) g.i_gmax = mag;
+            float hr, hf, hu;
+            if (app_imu_axes(ax, ay, az, &hr, &hf, &hu)) {
+                float mag = sqrtf(hr * hr + hf * hf);
+                if (mag > g.i_gmax) g.i_gmax = mag;
+            }
         }
         break;
     }
@@ -1768,13 +1808,14 @@ static void cb_section_finish_yes(void) {
 /* ================= handle ================= */
 void screens_handle(const event_t *ev) {
     int d = nav_dir(ev);
+    int lr = lr_dir(ev);
     engine_t *e = &g.engine;
     switch (g.cur) {
     case SC_HOME:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) app_go(SC_MODE_SELECT, 1);
-        else if (ev->button == BTN_DOWN) app_go_home(1);
-        else if (ev->button == BTN_UP) app_go_home(-1);
+        else if (ev->button == BTN_RIGHT) app_go_home(1);
+        else if (ev->button == BTN_LEFT) app_go_home(-1);
         break;
 
     case SC_NAV:
@@ -1814,7 +1855,7 @@ void screens_handle(const event_t *ev) {
             return;
         }
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; nav_set_active(true); nav_refresh(); }
             else if (ev->button == BTN_BACK) app_go_home_to(0);
@@ -1827,7 +1868,7 @@ void screens_handle(const event_t *ev) {
 
     case SC_PHONE:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
@@ -1839,7 +1880,7 @@ void screens_handle(const event_t *ev) {
 
     case SC_MEDIA:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
@@ -1848,8 +1889,8 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_BACK) { g.entered = false; return; }
             int hit = -1;
             const char *cmd = NULL, *msg = NULL;
-            if (ev->button == BTN_UP) { hit = 0; cmd = "PREV"; msg = "PREV"; }
-            else if (ev->button == BTN_DOWN) { hit = 2; cmd = "NEXT"; msg = "NEXT"; }
+            if (ev->button == BTN_LEFT) { hit = 0; cmd = "PREV"; msg = "PREV"; }
+            else if (ev->button == BTN_RIGHT) { hit = 2; cmd = "NEXT"; msg = "NEXT"; }
             else if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
                 hit = 1; cmd = "TOGGLE"; msg = "PLAY/PAUSE";
             }
@@ -1870,14 +1911,14 @@ void screens_handle(const event_t *ev) {
 
     case SC_PERF:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; g.perf_state = 0; g.perf_time = 0; }
             else if (ev->button == BTN_BACK) app_go_home_to(0);
             break;
         }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+        if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
             if (g.perf_state != 2) { g.perf_mode ^= 1; g.perf_state = 0; g.perf_time = 0; }
         } else if (ev->button == BTN_PUSH) {
             bool fix = (gps_get()->fix_type >= 1 && gps_get()->has_pos);
@@ -1893,7 +1934,7 @@ void screens_handle(const event_t *ev) {
 
     case SC_TRACK_EDIT:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; }
             else if (ev->button == BTN_BACK) app_go_home_to(0);
@@ -1907,17 +1948,64 @@ void screens_handle(const event_t *ev) {
 
     case SC_SETTINGS:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
+            if (g.set_edit) {
+                if (ev->type == EV_PRESS || ev->type == EV_LONG || ev->type == EV_REPEAT) {
+                    if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
+                        int step = g.sel == 8 ? 5 : 10;
+                        int delta = (ev->button == BTN_RIGHT ? step : -step);
+                        if (g.sel == 0) {
+                            g.set_brightness += delta;
+                            if (g.set_brightness < 10) g.set_brightness = 10;
+                            if (g.set_brightness > 100) g.set_brightness = 100;
+                            lcd_set_brightness(g.set_brightness);
+                        } else if (g.sel == 2) {
+                            g.set_ledbright += delta;
+                            if (g.set_ledbright < 0) g.set_ledbright = 0;
+                            if (g.set_ledbright > 100) g.set_ledbright = 100;
+                            ws2812_set_brightness(g.set_ledbright);
+                        } else if (g.sel == 8) {
+                            g.perf_trig_g100 += delta;
+                            if (g.perf_trig_g100 < 5) g.perf_trig_g100 = 5;
+                            if (g.perf_trig_g100 > 50) g.perf_trig_g100 = 50;
+                        }
+                        return;
+                    }
+                    if (ev->button == BTN_PUSH) {
+                        g.set_edit = false;
+                        lcd_set_brightness(g.set_brightness);
+                        ws2812_set_brightness(g.set_ledbright);
+                        app_save_settings();
+                        app_toast("SETTING SAVED");
+                        return;
+                    }
+                    if (ev->button == BTN_BACK) {
+                        g.set_edit = false;
+                        if (g.sel == 0) { g.set_brightness = g.set_edit_old; lcd_set_brightness(g.set_brightness); }
+                        else if (g.sel == 2) { g.set_ledbright = g.set_edit_old; ws2812_set_brightness(g.set_ledbright); }
+                        else if (g.sel == 8) g.perf_trig_g100 = g.set_edit_old;
+                        app_toast("EDIT CANCELLED");
+                        return;
+                    }
+                }
+                return;
+            }
             if (d) { g.sel = (g.sel + d + 12) % 12; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
-                if (g.sel == 0) { g.set_brightness = g.set_brightness >= 100 ? 20 : g.set_brightness + 20; lcd_set_brightness(g.set_brightness); }
-                else if (g.sel == 1) g.set_ledcolor = (g.set_ledcolor + 1) % 4;
-                else if (g.sel == 2) { g.set_ledbright = g.set_ledbright >= 100 ? 10 : g.set_ledbright + 10; ws2812_set_brightness(g.set_ledbright); }
+                if (g.sel == 0 || g.sel == 2 || g.sel == 8) {
+                    g.set_edit = true;
+                    g.set_edit_old = g.sel == 0 ? g.set_brightness :
+                        (g.sel == 2 ? g.set_ledbright : g.perf_trig_g100);
+                    app_toast(g.sel == 0 ? "BRIGHTNESS - L/R ADJUST" :
+                              g.sel == 2 ? "LED BRIGHT - L/R ADJUST" : "LAUNCH G - L/R ADJUST");
+                    return;
+                }
+                if (g.sel == 1) g.set_ledcolor = (g.set_ledcolor + 1) % 4;
                 else if (g.sel == 3) { g.theme_light = !g.theme_light; theme_set(g.theme_light); }
                 else if (g.sel == 4) app_go(SC_WIFI_SETUP, 1);
                 else if (g.sel == 5) { g.set_bt = !g.set_bt; btmap_set_enabled(g.set_bt != 0); }
@@ -1927,13 +2015,10 @@ void screens_handle(const event_t *ev) {
                     app_toast(g.gps_rate_hz == 1 ? "GPS 1 HZ" : g.gps_rate_hz == 5 ? "GPS 5 HZ" :
                               g.gps_rate_hz == 10 ? "GPS 10 HZ" : "GPS 25 HZ");
                 }
-                else if (g.sel == 8) {
-                    g.perf_trig_g100 = g.perf_trig_g100 >= 30 ? 10 : g.perf_trig_g100 + 5;
-                }
                 else if (g.sel == 9) app_go(SC_IMU_DEBUG, 1);
                 else if (g.sel == 10) app_go(SC_GPS_DEBUG, 1);
                 else if (g.sel == 11) app_go(SC_LOCATION, 1);
-                if (g.sel <= 5 || g.sel == 7 || g.sel == 8) app_save_settings();   /* persist changes */
+                if (g.sel <= 5 || g.sel == 7) app_save_settings();
             } else if (ev->button == BTN_BACK) g.entered = false;
         }
         break;
@@ -1990,8 +2075,8 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_RACING:
-        if (ev->type == EV_PRESS && (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
-            g.panel = (g.panel + (ev->button == BTN_UP ? -1 : 1) + 4) % 4;
+        if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
+            g.panel = (g.panel + (ev->button == BTN_LEFT ? -1 : 1) + 4) % 4;
             return;
         }
         if (ev->button == BTN_BACK && ev->type == EV_LONG) {
@@ -2047,9 +2132,9 @@ void screens_handle(const event_t *ev) {
     }
 
     case SC_SECTION_MARKING:
-        if (d) {
+        if (lr) {
             float step = (ev->type == EV_REPEAT || ev->type == EV_LONG) ? 0.05f : 0.02f;
-            g.sec_pos = u_clampf(g.sec_pos + d * step, 0.01f, 0.99f);
+            g.sec_pos = u_clampf(g.sec_pos + lr * step, 0.01f, 0.99f);
             return;
         }
         if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
@@ -2130,8 +2215,8 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_TRACK_START: {
-        if (d) {
-            g.start_f += d * 0.004f;
+        if (lr) {
+            g.start_f += lr * 0.004f;
             g.start_f = fmodf(g.start_f + 1.0f, 1.0f);
             return;
         }
@@ -2160,7 +2245,7 @@ void screens_handle(const event_t *ev) {
 
     case SC_HISTORY:
         if (!g.entered) {
-            if (d) { app_go_home(d); return; }
+            if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_go_home_to(0);
@@ -2182,7 +2267,7 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_GPS_DEBUG:
-        if (ev->type == EV_PRESS && (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
+        if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
             g.dbg_page = (g.dbg_page + 1) % 2;   /* switch debug sub-page */
             return;
         }
@@ -2240,7 +2325,8 @@ void screens_handle(const event_t *ev) {
                 }
                 m.ax /= n2; m.ay /= n2; m.az /= n2; m.gx /= n2; m.gy /= n2; m.gz /= n2;
             }
-            mpu_apply_calibration(&g.imu, m);
+            app_apply_imu_reference(&m);
+            g.i_gmax = 0;
             g.imu_phase = 1; g.imu_doneTimer = 0.8f; g.imu_progress = IMU_CALIB_MS;
             app_toast("IMU CALIBRATED");
             if (g.set_snd_calib) buzzer_play_id(SND_CALIB);
@@ -2257,8 +2343,8 @@ void screens_handle(const event_t *ev) {
 
 /* racing panel switching shared by RACING and RACING_RECORDED */
 void screens_handle_racing_common(const event_t *ev) {
-    if (ev->type == EV_PRESS && (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
-        g.panel = (g.panel + (ev->button == BTN_UP ? -1 : 1) + 4) % 4;
+    if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
+        g.panel = (g.panel + (ev->button == BTN_LEFT ? -1 : 1) + 4) % 4;
         return;
     }
     if (ev->button == BTN_BACK && ev->type == EV_LONG) {

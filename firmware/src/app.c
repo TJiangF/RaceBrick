@@ -250,6 +250,89 @@ static void hsv2rgb(float h, float s, float v, uint8_t *r, uint8_t *g, uint8_t *
 }
 
 
+static float vdot(const float a[3], const float b[3]) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+static void vcross(const float a[3], const float b[3], float out[3]) {
+    out[0] = a[1] * b[2] - a[2] * b[1];
+    out[1] = a[2] * b[0] - a[0] * b[2];
+    out[2] = a[0] * b[1] - a[1] * b[0];
+}
+static bool vnorm(float v[3]) {
+    float n = sqrtf(vdot(v, v));
+    if (n < 1e-5f) return false;
+    v[0] /= n; v[1] /= n; v[2] /= n;
+    return true;
+}
+
+/* Real boot reference: subtract the measured gravity/bias vector and build a
+ * gravity-level vehicle frame. Accelerometer alone cannot know yaw, so the
+ * in-plane forward direction is the configured chip-long axis projected onto
+ * the horizontal plane. */
+void app_apply_imu_reference(const imu6_t *mean) {
+    g.i_ox = mean->ax; g.i_oy = mean->ay; g.i_oz = mean->az;
+    g.i_ogx = mean->gx; g.i_ogy = mean->gy; g.i_ogz = mean->gz;
+
+    float up[3] = { mean->ax, mean->ay, mean->az };
+    bool ok = vnorm(up);
+    g.i_vaxis = 0;
+    float am = fabsf(up[0]);
+    if (fabsf(up[1]) > am) { am = fabsf(up[1]); g.i_vaxis = 1; }
+    if (fabsf(up[2]) > am) { g.i_vaxis = 2; }
+    if (!ok) {
+        g.i_frame_ok = false;
+        return;
+    }
+
+    /* Pick a board axis that is not parallel to gravity. */
+    int longAxis = IMU_GM_LONG_AXIS;
+    float fwd[3] = {0, 0, 0};
+    for (int tries = 0; tries < 3; tries++) {
+        fwd[0] = fwd[1] = fwd[2] = 0;
+        fwd[longAxis] = IMU_GM_LONG_SIGN;
+        float d = vdot(fwd, up);
+        for (int k = 0; k < 3; k++) fwd[k] -= d * up[k];
+        if (vnorm(fwd)) break;
+        longAxis = (longAxis + 1) % 3;
+    }
+    if (!vnorm(fwd)) { g.i_frame_ok = false; return; }
+
+    float lat[3] = {0, 0, 0};
+    lat[IMU_GM_LAT_AXIS] = IMU_GM_LAT_SIGN;
+    float d = vdot(lat, up);
+    for (int k = 0; k < 3; k++) lat[k] -= d * up[k];
+    vnorm(lat);
+
+    float right[3];
+    vcross(fwd, up, right);
+    if (!vnorm(right)) { g.i_frame_ok = false; return; }
+    if (vdot(right, lat) < 0) {
+        right[0] = -right[0]; right[1] = -right[1]; right[2] = -right[2];
+    }
+    float worldUp[3];
+    vcross(right, fwd, worldUp);
+    if (vdot(worldUp, up) < 0) {
+        right[0] = -right[0]; right[1] = -right[1]; right[2] = -right[2];
+        vcross(right, fwd, worldUp);
+    }
+    vnorm(worldUp);
+
+    g.i_fwd[0] = fwd[0]; g.i_fwd[1] = fwd[1]; g.i_fwd[2] = fwd[2];
+    g.i_right[0] = right[0]; g.i_right[1] = right[1]; g.i_right[2] = right[2];
+    g.i_up[0] = worldUp[0]; g.i_up[1] = worldUp[1]; g.i_up[2] = worldUp[2];
+    g.i_frame_ok = true;
+    ESP_LOGI("imu", "orientation: gravity=(%.2f,%.2f,%.2f) vaxis=%d", up[0], up[1], up[2], g.i_vaxis);
+}
+
+bool app_imu_axes(float ax, float ay, float az, float *right, float *forward, float *up) {
+    if (!g.i_frame_ok) return false;
+    float c[3] = { ax - g.i_ox, ay - g.i_oy, az - g.i_oz };
+    *right = vdot(c, g.i_right);
+    *forward = vdot(c, g.i_fwd);
+    *up = vdot(c, g.i_up);
+    return true;
+}
+
 /* Navigation progress: rainbow LEDs breathe; the number of bright LEDs grows
  * as the phone-reported remaining distance shrinks. */
 static bool ledfx_nav_progress(void) {
@@ -412,7 +495,10 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "ledbr", &v) == ESP_OK) g.set_ledbright = v;
     if (nvs_get_i32(h, "wifi", &v) == ESP_OK) g.set_wifi = v ? 1 : 0;
     if (nvs_get_i32(h, "bt2", &v) == ESP_OK) g.set_bt = v ? 1 : 0;
-    if (nvs_get_i32(h, "sndvol", &v) == ESP_OK) g.set_sound_vol = v;
+    /* Rev.C: default buzzer OFF; old sndvol is migrated only after the user
+     * changes it (sndv2 exists). */
+    if (nvs_get_i32(h, "sndv2", &v) == ESP_OK) g.set_sound_vol = v;
+    else g.set_sound_vol = 0;
     if (nvs_get_i32(h, "sndcfm", &v) == ESP_OK) g.set_snd_confirm = v ? 1 : 0;
     if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
     if (nvs_get_i32(h, "sndfix", &v) == ESP_OK) g.set_snd_fix = v ? 1 : 0;
@@ -439,6 +525,7 @@ void app_save_settings(void) {
     nvs_set_i32(h, "wifi", g.set_wifi);
     nvs_set_i32(h, "bt2", g.set_bt);
     nvs_set_i32(h, "sndvol", g.set_sound_vol);
+    nvs_set_i32(h, "sndv2", g.set_sound_vol);
     nvs_set_i32(h, "sndcfm", g.set_snd_confirm);
     nvs_set_i32(h, "sndcal", g.set_snd_calib);
     nvs_set_i32(h, "sndfix", g.set_snd_fix);
@@ -499,13 +586,8 @@ void app_init(void) {
             vTaskDelay(pdMS_TO_TICKS(6));
         }
         if (n) {
-            g.i_ox = sx / n; g.i_oy = sy / n; g.i_oz = sz / n;
-            g.i_ogx = rx / n; g.i_ogy = ry / n; g.i_ogz = rz / n;
-            /* the axis carrying gravity is the vertical one (board mounted
-             * upright); racing G is measured in the other two axes */
-            float am = fabsf(g.i_ox); g.i_vaxis = 0;
-            if (fabsf(g.i_oy) > am) { am = fabsf(g.i_oy); g.i_vaxis = 1; }
-            if (fabsf(g.i_oz) > am) { am = fabsf(g.i_oz); g.i_vaxis = 2; }
+            imu6_t mean = { sx / n, sy / n, sz / n, rx / n, ry / n, rz / n };
+            app_apply_imu_reference(&mean);
             ESP_LOGI("imu", "boot zero: a(%d,%d,%d)mg  r(%d,%d,%d)mdps  vaxis=%d",
                      (int)(g.i_ox * 1000), (int)(g.i_oy * 1000), (int)(g.i_oz * 1000),
                      (int)(g.i_ogx * 1000), (int)(g.i_ogy * 1000), (int)(g.i_ogz * 1000),

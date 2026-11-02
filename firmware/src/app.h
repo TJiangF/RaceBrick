@@ -67,6 +67,7 @@ typedef struct {
     /* ---- per-screen scratch ---- */
     int sel, cursor, entered;
     int set_brightness, set_ledcolor, set_ledbright; bool set_wifi, set_bt;
+    bool set_edit; int set_edit_old;   /* Settings value editing (left/right) */
     int set_sound_vol; bool set_snd_confirm, set_snd_calib, set_snd_fix;
     int gps_rate_hz;           /* GPS output rate: 1 / 5 / 10 / 25 Hz */
     int nav_mode;              /* nav style: 0=road 1=satellite 2=blend */
@@ -79,9 +80,11 @@ typedef struct {
     /* real MPU6050 (IMU debug page) */
     bool  imu_ok;
     float i_ax, i_ay, i_az, i_gx, i_gy, i_gz, i_temp;
-    float i_ox, i_oy, i_oz, i_ogx, i_ogy, i_ogz;   /* zero offsets (boot orientation) */
+    float i_ox, i_oy, i_oz, i_ogx, i_ogy, i_ogz;   /* raw boot bias */
+    float i_fwd[3], i_right[3], i_up[3];           /* boot orientation basis */
+    bool  i_frame_ok;                              /* orientation basis valid */
     float i_gmax;                                  /* peak |G| in the horizontal plane */
-    int   i_vaxis;                                 /* vertical axis (gravity) detected at boot */
+    int   i_vaxis;                                 /* strongest gravity axis */
 
     /* real track recording (NEW TRACK) */
     int    rec_state;          /* 0 ready, 1 recording */
@@ -152,6 +155,11 @@ void app_push_confirm(const char *text, const char *yes, const char *no,
 void app_pop_overlay(void);
 void app_record_race(int mode);
 void app_save_settings(void);
+
+/* Apply a real MPU6050 boot sample: zero bias + gravity-referenced axes. */
+void app_apply_imu_reference(const imu6_t *mean);
+/* Project raw chip acceleration into vehicle axes; returns false if no basis. */
+bool app_imu_axes(float ax, float ay, float az, float *right, float *forward, float *up);
 
 void screens_enter(scid_t id);
 void screens_handle(const event_t *ev);

@@ -8,7 +8,11 @@
 #pragma once
 #include <stdbool.h>
 
-typedef enum { BTN_UP = 0, BTN_DOWN, BTN_PUSH, BTN_OK, BTN_BACK, BTN_COUNT } btn_id_t;
+typedef enum {
+    BTN_UP = 0, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_PUSH, BTN_BACK,
+    BTN_OK = BTN_PUSH,                 /* legacy alias used by the web demo */
+    BTN_COUNT = 6
+} btn_id_t;
 typedef enum { EV_PRESS, EV_LONG, EV_REPEAT, EV_RELEASED, EV_DOUBLE } ev_type_t;
 
 typedef struct {
