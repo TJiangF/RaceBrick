@@ -14,7 +14,7 @@
 #define LCD_BL     11
 
 #define LCD_HOST    SPI2_HOST
-#define LCD_PCLK_HZ (20 * 1000 * 1000)
+#define LCD_PCLK_HZ (40 * 1000 * 1000)
 
 /* 1 = boot straight into a color/geometry test pattern instead of the UI */
 #define LCD_SELFTEST 0
@@ -74,7 +74,7 @@
 #define EXT_FLASH_SCLK  39
 #define EXT_FLASH_MOSI  38
 #define EXT_FLASH_HZ    (10 * 1000 * 1000)
-#define EXT_FLASH_TEST  0     /* TEMP: diagnose octal-PSRAM / ext-flash pin conflict */
+#define EXT_FLASH_TEST  1     /* boot probe: JEDEC only, non-destructive */
 
 /* ---------------- other on-board peripherals (Rev.C) -----------------------
  * I2C (MPU6050) Scl-io7  Sda-io6   (MPU6050 INT io4)

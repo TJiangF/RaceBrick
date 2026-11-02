@@ -135,6 +135,11 @@ bool ext_flash_read(uint32_t addr, void *buf, int n) { return s_init && read_dat
 bool ext_flash_write(uint32_t addr, const void *buf, int n) { return s_init && write_data(addr, (const uint8_t *)buf, n); }
 uint32_t ext_flash_size(void) { return 16u * 1024u * 1024u; }   /* W25Q128 */
 
+bool ext_flash_probe(uint8_t id[3]) {
+    if (!ext_flash_init()) return false;
+    return ext_flash_read_jedec(id);
+}
+
 bool ext_flash_selftest(void) {
     if (!ext_flash_init()) return false;
 

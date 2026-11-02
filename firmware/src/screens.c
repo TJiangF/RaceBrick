@@ -1595,14 +1595,10 @@ void screens_update(float dt) {
     switch (g.cur) {
     case SC_IMU_CALIB: {
         if (g.imu_phase == 0) {
-            static float next_real_sample = 0;
-            if (g.now >= next_real_sample) {
-                next_real_sample = g.now + 20.0f;   /* 50 Hz, don't block every frame */
-                if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = read_real_imu();
-                else {
-                    memmove(&g.imu_samples[0], &g.imu_samples[1], sizeof(imu6_t) * 99);
-                    g.imu_samples[99] = read_real_imu();
-                }
+            if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = read_real_imu();
+            else {
+                memmove(&g.imu_samples[0], &g.imu_samples[1], sizeof(imu6_t) * 99);
+                g.imu_samples[99] = read_real_imu();
             }
             int n = g.imu_ns;
             float stA = 0, stG = 0;

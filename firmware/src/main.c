@@ -55,9 +55,12 @@ void app_main(void) {
     selftest();
 #endif
 #if EXT_FLASH_TEST
-    ESP_LOGI("main", "external flash self-test:");
-    if (ext_flash_selftest()) ESP_LOGI("main", "EXT FLASH: PASS");
-    else                      ESP_LOGI("main", "EXT FLASH: FAIL");
+    {
+        uint8_t id[3] = {0, 0, 0};
+        bool ok = ext_flash_probe(id);
+        ESP_LOGI("main", "external flash probe: %s JEDEC=%02X %02X %02X",
+                 ok ? "OK" : "FAIL", id[0], id[1], id[2]);
+    }
 #endif
     /* GPS bring-up over UART (ESP RX=20, TX=19 @ 38400) */
     gps_begin();

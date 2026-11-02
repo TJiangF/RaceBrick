@@ -23,12 +23,12 @@ pio device monitor -b 115200              # 串口日志
 | GNSS NEO-M9N：ESP TX / ESP RX / TP | 19 / 20 / 9（`NEO-RX`=ESP TX，`NEO-TX`=ESP RX） |
 | 蜂鸣器 BEE / WS2812 DI | 42 / 48 |
 | VBAT 检测使能 / ADC | 47 / 1（使能拉高采样，读数 ×2） |
-| 外置 Flash CS / MISO / SCK / MOSI | 41 / 40 / 39 / 38（W25Q128，SPI3） |
+| 外置 Flash CS / MISO / SCK / MOSI | 41 / 40 / 39 / 38（W25Q128，SPI3，JEDEC EF 40 18） |
 
 ## 已实现
 
 - 像素 UI（原始帧缓冲）：HOME / 赛道 / 设置 / 历史 / 定位 / 调试等页面与状态机。
-- ST7789（20 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律，默认静音）。
+- ST7789（40 MHz）、WS2812（RMT）灯效、蜂鸣器（无源 PWM 旋律，默认静音）。
 - NEO-M9N：UART（自动扫描波特率找到模块），UBX 配置 1/5/10/25 Hz（Settings → GPS RATE）。
 - **按页自动节能**：只有需要实时 GNSS 的页面（导航/性能/定位/比赛/录制/GPS 调试）使用设定速率，其余页面自动降到 **1 Hz**（进页即切换，切换仅发 CFG-RATE/CFG-MSG，不做波特率扫描）。
 - **1PPS 时间脉冲**：CFG-TP5 配置 1 Hz/100 ms 脉冲，Rev.C 的 NEO TP 接 **GPIO9**，上升沿 ISR（IRAM，`esp_timer_get_time`）测周期；调试页/导航页显示 `PPS` 状态。
@@ -110,7 +110,7 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 
 ### 存储
 - 赛道保存到**内部 flash 的 `storage` 分区**（2 MiB，data/spiffs）：固定 5 个 4 KiB 槽，每槽一条赛道 + FNV 校验；结构约 3000 字节。
-- **外部 W25Q128**：Rev.C 已挪到 GPIO41/40/39/38，避开 Octal PSRAM 的 GPIO33–37；`tstore` 仍可用内部 flash。
+- **外部 W25Q128**：Rev.C 已挪到 GPIO41/40/39/38，避开 Octal PSRAM 的 GPIO33–37；启动探测确认 `EF 40 18`，外置 Flash 与 PSRAM 可同时工作。当前 `tstore` 仍存内部 flash，外置 16 MB 暂未用于赛道记录。
 - RAM 中最多 6 条赛道（1 条样例 + 5 条录制），开机从 flash 加载。
 - 「Recorded Track」(TRACKS) 页面显示 **`FLASH n/5`** 与剩余 KB。
 

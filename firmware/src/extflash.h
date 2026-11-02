@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 bool ext_flash_selftest(void);       /* init + JEDEC id + erase/write/read */
+bool ext_flash_probe(uint8_t id[3]); /* non-destructive init + JEDEC probe */
 bool ext_flash_read_jedec(uint8_t id[3]);
 
 /* data access (W25Q128 = 16 MiB) */
