@@ -18,6 +18,7 @@
 #include "nav.h"
 #include "btmap.h"
 #include "china_map.h"
+#include "home_logos.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -105,20 +106,78 @@ static const char *fix_str(int fix) {
 }
 
 /* ================= HOME ================= */
+static void draw_home_logo(int x, int y, int idx) {
+    if (idx < 0 || idx >= 4) return;
+    const home_logo_t *logo = &HOME_LOGOS[idx];
+    for (int py = 0; py < 64; py++) {
+        for (int px = 0; px < 64; px++) {
+            uint8_t v = logo->idx[py * 64 + px];
+            if (v) gfx_pixel(x + px, y + py, logo->pal[v]);
+        }
+    }
+}
+
+
 static void render_home(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    gfx_text_center(CW / 2, 44, "RACE", PAL.white, 3);
-    gfx_text_center(CW / 2, 76, "CHRONO", PAL.cyan, 2);
-    int bw = 190, bh = 34, bx = (CW - bw) / 2, by = 116;
-    gfx_pxbox(bx, by, bw, bh, PAL.yellow, 0, 0);
-    if (((int)(g.now / 500)) % 2 == 0)
-        gfx_text_center(CW / 2, by + (bh - 14) / 2, "START RACING", PAL.yellow, 2);
-    for (int i = 0; i < 8; i++) {
-        int dx = CW / 2 - 42 + i * 12;
-        gfx_fill(dx, 170, 6, 6, i == g.homeIndex ? PAL.cyan : PAL.dotoff);
+    gfx_text(10, 7, "RACEBRICK", PAL.white, 2);
+    gfx_fill(10, 27, 102, 3, PAL.cyan);
+    gfx_fill(114, 27, 18, 3, PAL.dim);
+
+    static const char *items[4] = {"RACE", "NAV", "MEDIA", "SET"};
+    const int gap = 8;
+    const int margin = 10;
+    const int w = (CW - margin * 2 - gap) / 2;
+    const int h = 72;
+    const int ys[2] = {42, 122};
+    for (int i = 0; i < 4; i++) {
+        int col = i & 1, row = i >> 1;
+        int x = margin + col * (w + gap);
+        int y = ys[row];
+        bool on = i == g.homeIndex;
+        panel_box(x, y, w, h, on, false);
+        if (on) {
+            gfx_fill(x + 3, y + 3, 4, h - 6, PAL.cyan);
+            gfx_fill(x + 3, y + 3, w - 6, 3, PAL.cyan);
+        }
+        draw_home_logo(x + 6, y + 4, i);
+        gfx_text(x + 76, y + 29, items[i], on ? PAL.cyan : PAL.white, 2);
     }
-    hint_c("LEFT/RIGHT  SWITCH PAGE", 200);
-    hint_c("PUSH  START", 214);
+    gfx_text_center(CW / 2, 214, "UP/DN/L/R SELECT   PUSH OPEN", PAL.dim, 0);
+}
+
+static void render_race_menu(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("RACE", 6);
+    static const char *items[4] = {"START RACE", "RACE LOG", "TRACKS", "PERFORMANCE"};
+    static const char *subs[4] = {"NEW / RECORDED", "PAST RACES", "TRACK MANAGEMENT", "0-100 / 100-0"};
+    const int h = 40;
+    int y = 38;
+    for (int i = 0; i < 4; i++) {
+        bool on = i == g.sel;
+        panel_box(18, y, CW - 36, h - 4, on, false);
+        gfx_text(30, y + 7, items[i], on ? PAL.cyan : PAL.text, 2);
+        gfx_text(30, y + 24, subs[i], PAL.dim, 0);
+        y += h;
+    }
+    hint_c("UP/DOWN SELECT - PUSH OPEN - BACK", HINT_Y);
+}
+
+static void render_nav_menu(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("NAVIGATION", 6);
+    static const char *items[2] = {"NAVIGATION", "SATELLITE POSITION"};
+    static const char *subs[2] = {"PHONE MAP / ROUTE", "LIVE LOCATION IMAGERY"};
+    const int h = 48;
+    int y = 56;
+    for (int i = 0; i < 2; i++) {
+        bool on = i == g.sel;
+        panel_box(18, y, CW - 36, h - 4, on, false);
+        gfx_text(30, y + 9, items[i], on ? PAL.cyan : PAL.text, 2);
+        gfx_text(30, y + 28, subs[i], PAL.dim, 0);
+        y += h;
+    }
+    hint_c("UP/DOWN SELECT - PUSH OPEN - BACK", HINT_Y);
 }
 
 /* ================= PERFORMANCE (0-100 / 100-0) ================= */
@@ -458,7 +517,6 @@ static void render_settings(void) {
         gfx_text(20, y + 7, settings_key(i), PAL.text, 2);
         char v[16]; settings_val(i, v);
         bool editing = g.entered && g.set_edit && i == g.sel;
-        if (editing && ((int)(g.now / 250) & 1)) strcpy(v, "  ");
         gfx_text_right(CW - 18, y + 7, v, editing ? PAL.yellow : PAL.cyan, 2);
         y += h;
     }
@@ -1476,6 +1534,8 @@ static void render_imu_calib(void) {
 void screens_render(void) {
     switch (g.cur) {
     case SC_HOME: render_home(); break;
+    case SC_RACE_MENU: render_race_menu(); break;
+    case SC_NAV_MENU: render_nav_menu(); break;
     case SC_PERF: render_perf(); break;
     case SC_NAV: render_nav(); break;
     case SC_PHONE: render_phone(); break;
@@ -1515,6 +1575,8 @@ void screens_enter(scid_t id) {
         g.imu_doneTimer = 0;
         mpu_clear_calibration(&g.imu);
         break;
+    case SC_RACE_MENU: g.sel = 0; break;
+    case SC_NAV_MENU: g.sel = 0; break;
     case SC_TRACK_EDIT: g.sel = 0; g.entered = false; break;
     case SC_SETTINGS: g.sel = 0; g.entered = false; g.set_edit = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
@@ -1646,19 +1708,6 @@ void screens_update(float dt) {
         } else if (g.imu_phase == 1) {
             g.imu_doneTimer -= dt;
             if (g.imu_doneTimer <= 0) app_go_home_to(0);
-        }
-        break;
-    }
-    case SC_SETTINGS: {
-        static int phase = -1;
-        if (g.entered && g.set_edit && g.sel == 0) {
-            int p = (int)(g.now / 250) & 1;
-            if (p != phase) {
-                phase = p;
-                lcd_set_brightness(p ? g.set_brightness : (g.set_brightness / 5));
-            }
-        } else {
-            phase = -1;
         }
         break;
     }
@@ -1801,6 +1850,29 @@ static void cb_section_finish_yes(void) {
     app_go(SC_VEHICLE_SELECT, 1);
 }
 
+static void open_race_item(int i) {
+    if (i == 0) app_go(SC_MODE_SELECT, 1);
+    else if (i == 1) { app_go(SC_HISTORY, 1); g.entered = true; }
+    else if (i == 2) { app_go(SC_TRACK_EDIT, 1); g.entered = true; }
+    else { app_go(SC_PERF, 1); g.entered = true; g.perf_state = 0; g.perf_time = 0; }
+}
+
+static void open_nav_item(int i) {
+    if (i == 0) {
+        app_go(SC_PHONE, 1);
+        g.entered = true;
+    } else {
+        g.nav_mode = 1;
+        g.nav_sat = 100;
+        nav_set_mode(1, 100);
+        app_save_settings();
+        app_go(SC_NAV, 1);
+        g.entered = true;
+        nav_set_active(true);
+        nav_refresh();
+    }
+}
+
 /* ================= handle ================= */
 void screens_handle(const event_t *ev) {
     int d = nav_dir(ev);
@@ -1809,9 +1881,32 @@ void screens_handle(const event_t *ev) {
     switch (g.cur) {
     case SC_HOME:
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) app_go(SC_MODE_SELECT, 1);
-        else if (ev->button == BTN_RIGHT) app_go_home(1);
-        else if (ev->button == BTN_LEFT) app_go_home(-1);
+        if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
+            g.homeIndex ^= 1;
+        } else if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+            g.homeIndex ^= 2;
+        } else if (ev->button == BTN_PUSH) {
+            if (g.homeIndex == 0) app_go(SC_RACE_MENU, 1);
+            else if (g.homeIndex == 1) app_go(SC_NAV_MENU, 1);
+            else if (g.homeIndex == 2) { app_go(SC_MEDIA, 1); g.entered = true; }
+            else { app_go(SC_SETTINGS, 1); g.entered = true; }
+        }
+        break;
+
+    case SC_RACE_MENU:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+            g.sel = (g.sel + (ev->button == BTN_DOWN ? 1 : -1) + 4) % 4;
+        } else if (ev->button == BTN_PUSH) open_race_item(g.sel);
+        else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        break;
+
+    case SC_NAV_MENU:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+            g.sel = (g.sel + (ev->button == BTN_DOWN ? 1 : -1) + 2) % 2;
+        } else if (ev->button == BTN_PUSH) open_nav_item(g.sel);
+        else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         break;
 
     case SC_NAV:
@@ -1859,7 +1954,7 @@ void screens_handle(const event_t *ev) {
         }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { g.nav_menu = 1; g.nav_sel = 0; }
-        else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); }
+        else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); app_go(SC_HOME, -1); }
         break;
 
     case SC_PHONE:
@@ -1870,7 +1965,7 @@ void screens_handle(const event_t *ev) {
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_BACK) g.entered = false;
+            if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
         break;
 
@@ -1882,7 +1977,7 @@ void screens_handle(const event_t *ev) {
             else if (ev->button == BTN_BACK) app_go_home_to(0);
         } else {
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_BACK) { g.entered = false; return; }
+            if (ev->button == BTN_BACK) { app_go(SC_HOME, -1); return; }
             int hit = -1;
             const char *cmd = NULL, *msg = NULL;
             if (ev->button == BTN_LEFT) { hit = 0; cmd = "PREV"; msg = "PREV"; }
@@ -1925,7 +2020,7 @@ void screens_handle(const event_t *ev) {
             } else {
                 g.perf_state = 0; g.perf_time = 0; app_toast("CANCELLED");
             }
-        } else if (ev->button == BTN_BACK) g.entered = false;
+        } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         break;
 
     case SC_TRACK_EDIT:
@@ -1938,7 +2033,7 @@ void screens_handle(const event_t *ev) {
             if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) app_toast("EDIT ON PHONE APP");
-            else if (ev->button == BTN_BACK) g.entered = false;
+            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
         break;
 
@@ -2015,7 +2110,7 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 10) app_go(SC_GPS_DEBUG, 1);
                 else if (g.sel == 11) app_go(SC_LOCATION, 1);
                 if (g.sel <= 5 || g.sel == 7) app_save_settings();
-            } else if (ev->button == BTN_BACK) g.entered = false;
+            } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
         break;
 
@@ -2023,7 +2118,7 @@ void screens_handle(const event_t *ev) {
         if (d) { g.sel = (g.sel + d + 2) % 2; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) app_go(g.sel == 0 ? SC_NEW_TRACK_MARK_START : SC_TRACK_LIST, 1);
-        else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        else if (ev->button == BTN_BACK) app_go(SC_RACE_MENU, -1);
         break;
 
     case SC_MOUNT_SELECT:
@@ -2244,17 +2339,17 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         } else {
             if (d && g.nlog) { g.sel = (g.sel + d + g.nlog) % g.nlog; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH && g.nlog) { g.hist_rec = g.nlog - 1 - g.sel; app_go(SC_HISTORY_DETAIL, 1); }
-            else if (ev->button == BTN_BACK) g.entered = false;
+            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
         break;
 
     case SC_HISTORY_DETAIL:
-        if (ev->type == EV_PRESS && ev->button == BTN_BACK) { app_go(SC_HISTORY, -1); return; }
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) { app_go(SC_HOME, -1); return; }
         if (d && g.hist_rec >= 0 && g.hist_rec < g.nlog) {
             int n = g.log[g.hist_rec].lapCount;
             if (n) g.sel = (g.sel + d + n) % n;
@@ -2356,7 +2451,9 @@ void screens_chrome(void) {
     g.statusColor = PAL.dim;
     for (int i = 0; i < LED_COUNT; i++) g.leds[i] = 0;
     switch (g.cur) {
-    case SC_HOME: snprintf(g.status, sizeof g.status, "HOME - START RACING"); break;
+    case SC_HOME: snprintf(g.status, sizeof g.status, "MAIN MENU"); break;
+    case SC_RACE_MENU: snprintf(g.status, sizeof g.status, "RACE MENU"); break;
+    case SC_NAV_MENU: snprintf(g.status, sizeof g.status, "NAVIGATION MENU"); break;
     case SC_PERF:
         snprintf(g.status, sizeof g.status, "PERF %s  %s", g.perf_mode == 0 ? "0-100" : "100-0",
                  g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");

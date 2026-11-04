@@ -63,6 +63,8 @@ static volatile int s_frames, s_last_bytes;
 static volatile int64_t s_last_us;
 
 static volatile bool s_media_playing;
+static volatile int s_media_pos_ms = 0;
+static volatile int s_media_dur_ms = 0;
 static volatile int s_nav_remain = -1;
 static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
@@ -230,6 +232,19 @@ static void handle_write(const uint8_t *b, int len) {
     }
     if (len >= 4 && memcmp(b, "#GB?", 4) == 0) s_ready_pending = true;
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
+    else if (len >= 6 && memcmp(b, "M,POS,", 6) == 0) {
+        char tmp[64];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n);
+        tmp[n] = 0;
+        int pos = 0, dur = 0;
+        if (sscanf(tmp + 6, "%d,%d", &pos, &dur) == 2 && dur > 0) {
+            if (pos < 0) pos = 0;
+            if (pos > dur) pos = dur;
+            s_media_pos_ms = pos;
+            s_media_dur_ms = dur;
+        }
+    }
     else if (len >= 4 && memcmp(b, "#P,", 3) == 0) {
         char tmp[64];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
@@ -326,6 +341,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_k_pending = false;
         s_nav_remain = -1;
         s_nav_total = 0;
+        s_media_pos_ms = 0;
+        s_media_dur_ms = 0;
         reset_rx();
         ESP_LOGI(TAG, "disconnected (reason %d)", event->disconnect.reason);
         advertise();
@@ -466,6 +483,12 @@ int btmap_nav_remain(void) { return s_nav_remain; }
 int btmap_nav_total(void) { return s_nav_total; }
 
 bool btmap_media_playing(void) { return s_media_playing; }
+bool btmap_media_progress(int *pos_ms, int *dur_ms) {
+    if (s_media_dur_ms <= 0) return false;
+    if (pos_ms) *pos_ms = s_media_pos_ms;
+    if (dur_ms) *dur_ms = s_media_dur_ms;
+    return true;
+}
 
 void btmap_media_cmd(const char *cmd) {
     char b[32];

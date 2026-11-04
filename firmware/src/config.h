@@ -59,8 +59,8 @@
 #define BTN_ENABLE   1
 #define PIN_BTN_UP    8
 #define PIN_BTN_DOWN 17
-#define PIN_BTN_LEFT 15
-#define PIN_BTN_RIGHT 18
+#define PIN_BTN_LEFT 18   /* swapped to match physical labels */
+#define PIN_BTN_RIGHT 15
 #define PIN_BTN_PUSH 16
 #define PIN_BTN_BACK  5
 #define BTN_ACTIVE_LOW 1

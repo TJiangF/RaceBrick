@@ -348,13 +348,57 @@ static bool ledfx_nav_progress(void) {
     float lit = p * LED_COUNT;
     for (int i = 0; i < LED_COUNT; i++) {
         uint8_t r, g, b;
-        hsv2rgb(t * 110.0f + i * 36.0f, 1.0f, 1.0f, &r, &g, &b);
+        hsv2rgb(t * 55.0f + i * 36.0f, 1.0f, 1.0f, &r, &g, &b);
         float level;
         float d = (float)i + 0.5f;
         if (d <= lit) level = breath;
         else if (d < lit + 1.0f) level = breath * (lit + 1.0f - d);
         else level = 0.06f * breath;
         ws2812_set(i, (uint8_t)(r * level), (uint8_t)(g * level), (uint8_t)(b * level));
+    }
+    return true;
+}
+
+static void ledfx_rainbow(float speed) {
+    float base = g.now / 1000.0f * speed;
+    for (int i = 0; i < LED_COUNT; i++) {
+        float hue = base + i * 36.0f;
+        uint8_t r, gg, b;
+        hsv2rgb(hue, 1.0f, 1.0f, &r, &gg, &b);
+        ws2812_set(i, r, gg, b);
+    }
+}
+
+static void ledfx_white_bar(float fraction, bool blink) {
+    if (fraction < 0) fraction = 0;
+    if (fraction > 1) fraction = 1;
+    int lit = (int)(fraction * LED_COUNT + 0.5f);
+    /* Slow breathing (about 2 s period) while a value is being adjusted. */
+    uint8_t v = 255;
+    if (blink) {
+        float t = g.now / 1000.0f;
+        float breath = 0.18f + 0.82f * (0.5f + 0.5f * sinf(t * 3.0f));
+        v = (uint8_t)(255.0f * breath);
+    }
+    for (int i = 0; i < LED_COUNT; i++)
+        ws2812_set(i, i < lit ? v : 0, i < lit ? v : 0, i < lit ? v : 0);
+}
+
+static bool ledfx_media_progress(void) {
+    int pos = 0, dur = 0;
+    if (!btmap_media_progress(&pos, &dur)) return false;
+    float p = dur > 0 ? (float)pos / (float)dur : 0;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    int lit = (int)(p * LED_COUNT + 0.5f);
+    bool playing = btmap_media_playing();
+    for (int i = 0; i < LED_COUNT; i++) {
+        if (i < lit) {
+            uint8_t v = playing ? 255 : 80;
+            ws2812_set(i, 0, v, v);          /* cyan progress */
+        } else {
+            ws2812_set(i, 0, 0, 0);
+        }
     }
     return true;
 }
@@ -377,17 +421,26 @@ static void ledfx_update(void) {
         }
         break;
     }
-    case SC_HOME: {
-        /* colourful running rainbow marquee */
-        float base = g.now / 1000.0f * 140.0f;   /* scroll speed */
-        for (int i = 0; i < LED_COUNT; i++) {
-            float hue = base + i * 36.0f;
-            uint8_t r, gg, b;
-            hsv2rgb(hue, 1.0f, 1.0f, &r, &gg, &b);
-            ws2812_set(i, r, gg, b);
+    case SC_HOME:
+        ledfx_rainbow(70.0f);                    /* 2x slower than before */
+        break;
+    case SC_SETTINGS:
+        if (g.set_edit) {
+            float p = 0;
+            if (g.sel == 0) p = g.set_brightness / 100.0f;
+            else if (g.sel == 2) p = g.set_ledbright / 100.0f;
+            else if (g.sel == 8) p = (g.perf_trig_g100 - 5) / 45.0f;
+            ledfx_white_bar(p, true);
+        } else {
+            ledfx_rainbow(70.0f);
         }
         break;
-    }
+    case SC_SOUND:
+        if (g.sel == 0) ledfx_white_bar(g.set_sound_vol / 100.0f, true);
+        break;
+    case SC_MEDIA:
+        ledfx_media_progress();
+        break;
     case SC_NAV:
     case SC_PHONE:
         ledfx_nav_progress();

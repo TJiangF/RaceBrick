@@ -73,7 +73,8 @@ class MainActivity : AppCompatActivity() {
     private val mediaStatePump = object : Runnable {
         override fun run() {
             sendMediaState()
-            main.postDelayed(this, 2000)
+            sendMediaProgress()
+            main.postDelayed(this, 1000)
         }
     }
 
@@ -202,6 +203,7 @@ class MainActivity : AppCompatActivity() {
                     lastSentGen = -1L
                     lastMediaState = null
                     sendMediaState()
+                    sendMediaProgress()
                     sendPosition()
                     sendLedProgress()
                     if (!sendFrames) {
@@ -1083,6 +1085,12 @@ class MainActivity : AppCompatActivity() {
         sendMediaState()
     }
 
+    private fun sendMediaProgress() {
+        if (!::ble.isInitialized || !ble.verified) return
+        val p = MediaControl.progress(this) ?: return
+        ble.send("M,POS,${p.positionMs},${p.durationMs}")
+    }
+
     private fun sendMediaState() {
         if (!::ble.isInitialized || !ble.verified) return
         val playing = MediaControl.isPlaying(this) ?: return
@@ -1106,7 +1114,7 @@ class MainActivity : AppCompatActivity() {
             log("请开启通知使用权，ESP 才能控制其他音乐 App")
             MediaControl.openSettings(this)
         }
-        main.postDelayed({ sendMediaState() }, 450)
+        main.postDelayed({ sendMediaState(); sendMediaProgress() }, 450)
     }
 
     private fun maybePromptMediaAccess() {

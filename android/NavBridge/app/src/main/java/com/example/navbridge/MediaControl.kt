@@ -4,15 +4,18 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
 import androidx.core.app.NotificationManagerCompat
 
 /** Controls whichever media session is currently active on the phone. */
 object MediaControl {
+    data class Progress(val positionMs: Long, val durationMs: Long, val playing: Boolean)
     fun hasAccess(context: Context): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
@@ -41,6 +44,20 @@ object MediaControl {
     fun isPlaying(context: Context): Boolean? {
         val c = controller(context) ?: return null
         return c.playbackState?.state == PlaybackState.STATE_PLAYING
+    }
+
+    fun progress(context: Context): Progress? {
+        val c = controller(context) ?: return null
+        val ps = c.playbackState ?: return null
+        val duration = c.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        if (duration <= 0L) return null
+        var pos = ps.position.coerceAtLeast(0L)
+        val playing = ps.state == PlaybackState.STATE_PLAYING
+        if (playing && ps.lastPositionUpdateTime > 0L) {
+            val elapsed = (SystemClock.elapsedRealtime() - ps.lastPositionUpdateTime).coerceAtLeast(0L)
+            pos += (elapsed * ps.playbackSpeed).toLong().coerceAtLeast(0L)
+        }
+        return Progress(pos.coerceIn(0L, duration), duration, playing)
     }
 
     fun toggle(context: Context): Boolean {
