@@ -128,8 +128,8 @@ static void render_home(void) {
     const int gap = 8;
     const int margin = 10;
     const int w = (CW - margin * 2 - gap) / 2;
-    const int h = 72;
-    const int ys[2] = {42, 122};
+    const int h = 80;
+    const int ys[2] = {38, 126};
     for (int i = 0; i < 4; i++) {
         int col = i & 1, row = i >> 1;
         int x = margin + col * (w + gap);
@@ -140,8 +140,8 @@ static void render_home(void) {
             gfx_fill(x + 3, y + 3, 4, h - 6, PAL.cyan);
             gfx_fill(x + 3, y + 3, w - 6, 3, PAL.cyan);
         }
-        draw_home_logo(x + 6, y + 4, i);
-        gfx_text(x + 76, y + 29, items[i], on ? PAL.cyan : PAL.white, 2);
+        draw_home_logo(x + 6, y + 8, i);
+        gfx_text(x + 76, y + 33, items[i], on ? PAL.cyan : PAL.white, 2);
     }
     gfx_text_center(CW / 2, 214, "UP/DN/L/R SELECT   PUSH OPEN", PAL.dim, 0);
 }
