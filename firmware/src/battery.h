@@ -1,5 +1,5 @@
 /* Battery voltage sense.
- * VBAT_EN (GPIO21) is normally LOW; pulse HIGH to connect the divider, then
+ * VBAT_EN (GPIO47) is normally LOW; pulse HIGH to connect the divider, then
  * read VBAT_ADC (GPIO1, ADC1_CH0). The pin voltage is half the battery, so the
  * real battery voltage = measured * 2.
  */

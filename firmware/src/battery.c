@@ -11,7 +11,7 @@
 
 static const char *TAG = "batt";
 
-#define VBAT_EN_GPIO  PIN_VBAT_EN     /* 21 */
+#define VBAT_EN_GPIO  PIN_VBAT_EN     /* GPIO47: HIGH = divider connected */
 #define VBAT_ADC_CH   ADC_CHANNEL_0   /* GPIO1 = ADC1_CH0 on ESP32-S3 */
 #define VBAT_ATTEN    ADC_ATTEN_DB_12 /* ~0..3.3V full scale */
 

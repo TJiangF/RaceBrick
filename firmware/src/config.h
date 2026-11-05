@@ -80,7 +80,7 @@
  * I2C (MPU6050) Scl-io7  Sda-io6   (MPU6050 INT io4)
  * GNSS NEO-M9N  NEO-RX-io19 (=ESP TX)  NEO-TX-io20 (=ESP RX)
  * Buzzer BEE-io42   WS2812 DI-io48
- * VBAT sense  switch-io21 (drive HIGH to sample)  adc-io1  (reading x2)
+ * VBAT sense  switch-io47 (drive HIGH to sample)  adc-io1  (reading x2)
  *
  * NEO-M9N_TP is io9 (free now that LCD DC moved to io10). */
 #define PIN_I2C_SCL 7
