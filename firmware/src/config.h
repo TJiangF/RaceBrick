@@ -135,7 +135,7 @@
 #define TRACE_MAX       160       /* fused points kept per lap */
 #define GPS_MAX         80        /* raw GPS points kept per lap */
 #define MAX_SECTIONS    8
-#define MAX_TRACKS      6
+#define MAX_TRACKS      16
 #define HISTORY_RECORDS 5
 #define HISTORY_LAPS    16
 #define REC_MAX         400   /* max points while recording a real track (~800 m) */

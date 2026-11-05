@@ -5,7 +5,8 @@
 #include <stdbool.h>
 #include "sim.h"
 
-#define TSTORE_SLOTS 5
+#define TSTORE_EXT_SLOTS 256
+#define TSTORE_INT_SLOTS 5
 
 bool tstore_begin(void);              /* init flash + count valid slots */
 int  tstore_count(void);
@@ -13,3 +14,4 @@ int  tstore_capacity(void);
 int  tstore_first_free(void);         /* -1 when full */
 bool tstore_load(int slot, track_t *t);
 bool tstore_save(int slot, const track_t *t);
+bool tstore_delete(int slot);

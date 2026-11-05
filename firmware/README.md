@@ -84,6 +84,24 @@ pio device monitor -b 115200              # 串口日志
 - 完成判定：受 **GPS 速度更新率**限制（10/25 Hz → 40–100 ms）与速度精度（~0.1 m/s）。
 - 结论：计时器本身很准，实际误差主要来自 GPS 速度采样率；**25 Hz 下 0-100 典型误差约 ±40–60 ms**。
 
+## 外置 Flash 赛道/比赛存储（Rev.C）
+
+- 外置 W25Q128 16 MiB 已启用，JEDEC `EF 40 18`。
+- 赛道区：`0x000000–0x100000`，256 × 4 KiB 槽；每槽保存 360 点赛道几何、GPS 原点/变换、起终线、sections、名称和 hash。
+- Session 区：`0x100000–0xFFFFFF`，7 × 2 MiB 槽；每槽 4 KiB header + 原始 16B 样本：
+  `t_ms, lat_e7, lon_e7, speed_0.1, lap, flags`。
+- 不压缩、不分层。2 MiB 槽约 130,800 样本：
+  - 10 Hz 约 3.6 小时
+  - 25 Hz 约 87 分钟
+- 首次启动若外置赛道区为空，会自动把内置样例赛道写入 slot 0 并回读校验。
+- 新增 HTTP API：
+  - `GET /api/tracks`
+  - `GET /api/track?id=` / `DELETE /api/track?id=`
+  - `GET /api/sessions`
+  - `GET /api/session?id=` / `DELETE /api/session?id=`
+  - `DELETE /api/session/lap?id=&lap=`
+  - `GET /api/session/file?id=`（CSV 样本）
+
 ## 真实 GNSS 赛道模式（进行中）
 
 目标：用 **NEO-M9N 的真实定位**替代原来的模拟轨迹。当前阶段**只使用 GNSS**（不融合 IMU）来建立轨迹、计算速度与圈速。

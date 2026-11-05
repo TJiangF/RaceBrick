@@ -19,6 +19,7 @@
 #include "btmap.h"
 #include "china_map.h"
 #include "home_logos.h"
+#include "race_store.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -1598,6 +1599,10 @@ void screens_enter(scid_t id) {
         if (g.engine_valid) {
             engine_set_profile(&g.engine, g.race_mount);
             g.engine.logged = false;
+            if (g.engine.track) {
+                race_store_begin(g.engine.track->store_slot,
+                                 g.engine.track->name, id == SC_RACING ? 0 : 1);
+            }
         }
         break;
     case SC_LAP_SELECT:
@@ -1773,6 +1778,11 @@ void screens_update(float dt) {
     case SC_RACING:
     case SC_RACING_RECORDED:
         if (g.engine_valid) {
+            gps_state_t *rgp = gps_get();
+            if (e->real && rgp->has_pos && rgp->fix_type >= 1) {
+                race_store_sample(rgp->lat, rgp->lon, rgp->speed_kmh,
+                                  e->lap, true, rgp->last_rx_us);
+            }
             e->speedMul = g.simSpeed;
             if (e->real) {
                 gps_state_t *gp = gps_get();
@@ -2172,6 +2182,7 @@ void screens_handle(const event_t *ev) {
         }
         if (ev->button == BTN_BACK && ev->type == EV_LONG) {
             e->paused = true;
+            race_store_end(e);
             app_record_race(0);
             app_push_confirm("SAVE THIS RECORD\nAS A NEW TRACK?", "YES", "NO", cb_racing_yes, cb_racing_no);
         }
@@ -2180,6 +2191,7 @@ void screens_handle(const event_t *ev) {
     case SC_RACING_RECORDED:
         if (ev->type == EV_PRESS && ev->button == BTN_BACK) {
             e->paused = true;
+            race_store_end(e);
             app_record_race(1);
             app_go(SC_TRACK_LIST, -1);
             return;

@@ -16,6 +16,7 @@
 #include "math.h"
 #include "string.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -650,13 +651,32 @@ void app_init(void) {
     gnss_init(&g.gnss);
     seed_tracks();
     seed_history();
-    g.tracks[0].store_slot = -1;   /* the simulated sample lives in RAM only */
-    /* load recorded tracks from the external flash */
+    g.tracks[0].store_slot = -1;   /* seed sample until a flash track exists */
+    /* Load tracks from external flash; if empty, persist the built-in sample
+     * once so the external-flash path is exercised on first boot. */
     if (tstore_begin()) {
+        if (tstore_count() == 0) {
+            if (tstore_save(0, &g.tracks[0])) {
+                g.tracks[0].store_slot = 0;
+                ESP_LOGI("tstore", "external flash sample track saved: %s",
+                         g.tracks[0].name);
+            }
+        }
+        g.ntracks = 0;
         for (int s = 0; s < tstore_capacity() && g.ntracks < MAX_TRACKS; s++) {
             if (tstore_load(s, &g.tracks[g.ntracks])) {
                 g.tracks[g.ntracks].store_slot = s;
                 g.ntracks++;
+            }
+        }
+        if (g.ntracks > 0) {
+            track_t *verify = (track_t *)malloc(sizeof(track_t));
+            if (verify) {
+                if (tstore_load(0, verify) && verify->N == TRK_N) {
+                    ESP_LOGI("tstore", "flash track verify OK: slot=0 points=%d len=%.1fm",
+                             verify->N, (double)verify->lengthM);
+                }
+                free(verify);
             }
         }
     }
