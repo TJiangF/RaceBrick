@@ -23,7 +23,7 @@ typedef struct {
 
 void input_init(void);
 void input_tick(float dt_ms);
-void input_poll_hw(void);              /* only meaningful when BTN_ENABLE */
+void input_poll_hw(void);              /* kept for compatibility; BTN_ENABLE uses a 1 kHz task */
 void input_press(btn_id_t b);
 void input_release(btn_id_t b);
 bool input_pop(event_t *out);

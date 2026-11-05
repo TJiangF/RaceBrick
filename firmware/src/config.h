@@ -64,7 +64,12 @@
 #define PIN_BTN_PUSH 16
 #define PIN_BTN_BACK  5
 #define BTN_ACTIVE_LOW 1
-#define DEBOUNCE_MS  20
+/* No RC capacitor on the button lines: scan at 1 kHz and require a stable
+ * level before accepting an edge. Press is deliberately faster than release
+ * so taps feel immediate while release chatter cannot create extra presses. */
+#define DEBOUNCE_PRESS_MS   12
+#define DEBOUNCE_RELEASE_MS 28
+#define DEBOUNCE_LOCKOUT_MS 10
 
 /* ---------------- external SPI flash (W25Q128), Rev.C ----------------
  * FLASH-CS-io41  FLASH-MISO-io40  FLASH-SCK-io39  FLASH-MOSI-io38

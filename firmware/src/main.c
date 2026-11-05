@@ -91,9 +91,7 @@ void app_main(void) {
         if (dt > 0.1f) dt = 0.1f;
 
         input_tick(dt * 1000.0f);
-#if BTN_ENABLE
-        input_poll_hw();
-#else
+#if !BTN_ENABLE
         app_autopilot(dt);
 #endif
 
