@@ -335,6 +335,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<Button>(R.id.btnRace).setOnClickListener {
+            startActivity(Intent(this, RaceActivity::class.java))
+        }
         mapStyle = MapStyles.byId(
             getSharedPreferences("navbridge", MODE_PRIVATE).getString("map_style", MapStyles.DEFAULT.id)
         )

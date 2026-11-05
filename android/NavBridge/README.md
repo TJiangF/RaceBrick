@@ -6,7 +6,7 @@ Android MVP：用高德 SDK 算路/导航，把 320×240 全帧（地图 + 路�
 协议对齐 [MotoNav](https://github.com/zyn950929/MotoNav) 的 UART 服务（`6e400001...`、`M` 大块头、`#p` 定位、`R/L/S` 转向）。
 RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面全屏显示。
 
-> 状态：已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；模拟导航和 HUD 已在 Android 模拟器验证。仅供个人非商业使用。
+> 状态：**0.9.6 / 28**，已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；NAV、RACE 数据列表/导出已接入，RACE 的完整对比/编辑仍在进行。仅供个人非商业使用。
 >
 > APK 约 54 MB，主要是高德导航/3D 地图/定位/搜索 SDK 的 arm64 原生库；业务代码很小，当前功能下无法显著裁剪。
 >
@@ -52,6 +52,8 @@ RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面
 - **后台保活**：开始导航启动前台服务 + PARTIAL_WAKE_LOCK，切换 App 后继续 GPS/渲染/BLE 推流；需授权“始终允许定位”和关闭电池限制
 - **LED 导航进度**：App 发送 `#P,remain,total`；导航页 WS2812 彩虹呼吸，距离越近亮起越多，到达全亮；真实/模拟导航均生效
 - 没连设备也能先导航；底图/路线/整帧会缓存，连上设备后自动补发
+- **RACE 数据管理（0.9.6 起）**：首页 RACE 进入；可读取 ESP 的 `/api/tracks`、`/api/sessions`；按赛道筛选场次；查看圈速、删除赛道/场次/单圈、导出 RaceChrono CSV v3 并分享
+- **设备地址**：设置页或 RACE 页填写；同网 STA 填 ESP 局域网 IP，ESP AP 模式默认 `http://192.168.4.1`（AP 密码 `racebrick`）
 
 ## 架构
 

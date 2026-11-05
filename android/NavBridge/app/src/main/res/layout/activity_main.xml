@@ -21,10 +21,21 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="NAVBRIDGE"
+                android:text="RACEBRICK"
                 android:textColor="#66E0D2"
                 android:textSize="20sp"
                 android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnRace"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:minHeight="40dp"
+                android:text="RACE"
+                android:textColor="#F2B95C" />
 
             <Button
                 android:id="@+id/btnSettings"

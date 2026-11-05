@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 
 class SettingsActivity : AppCompatActivity() {
     private lateinit var etKey: EditText
+    private lateinit var etRaceUrl: EditText
     private lateinit var tvSign: TextView
     private lateinit var tvVersion: TextView
     private lateinit var tvMediaStatus: TextView
@@ -21,15 +22,22 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         etKey = findViewById(R.id.etKey)
+        etRaceUrl = findViewById(R.id.etRaceUrl)
         tvSign = findViewById(R.id.tvSign)
         tvVersion = findViewById(R.id.tvVersion)
         tvMediaStatus = findViewById(R.id.tvMediaStatus)
 
         etKey.setText(Keys.amap(this))
+        etRaceUrl.setText(RaceApi.baseUrl(this))
         tvSign.text = "包名：$packageName\nSHA1：${Keys.signSha1(this)}"
-        tvVersion.text = "NavBridge ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+        tvVersion.text = "RaceBrick ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnSaveRaceUrl).setOnClickListener {
+            val saved = RaceApi.saveBaseUrl(this, etRaceUrl.text.toString())
+            etRaceUrl.setText(saved)
+            Toast.makeText(this, "设备地址已保存：$saved", Toast.LENGTH_SHORT).show()
+        }
         findViewById<Button>(R.id.btnBackground).setOnClickListener {
             startActivity(Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

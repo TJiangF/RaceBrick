@@ -393,7 +393,7 @@ static esp_err_t h_api_track(httpd_req_t *req) {
     for (int i = 0; i < t->nsec && n < 15200; i++)
         n += snprintf(b + n, 16000 - n, "%s%.5f", i ? "," : "", (double)t->sections[i]);
     n += snprintf(b + n, 16000 - n, "],\"points\":[");
-    for (int i = 0; i < t->N && n < 15300; i += 2)
+    for (int i = 0; i < t->N && n < 15300; i++)
         n += snprintf(b + n, 16000 - n, "%s%.4f,%.4f", i ? "," : "",
                       (double)t->points[i].x, (double)t->points[i].y);
     n += snprintf(b + n, 16000 - n, "]}");
@@ -466,19 +466,20 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
         return ESP_FAIL;
     }
     httpd_resp_set_type(req, "text/csv");
-    char line[256];
+    char line[512];
     int n = snprintf(line, sizeof line,
         "Format,3\nSession title,\"%s\"\nSession type,Lap timing\nTrack name,\"%s\"\n"
         "timestamp,fragment_id,lap_number,elapsed_time,latitude,longitude,speed\n"
-        "unix time,,,s,deg,deg,km/h\n", h.track_name, h.track_name);
+        "unix time,,,s,deg,deg,m/s\n"
+        ",,,,100: gps,100: gps,100: gps\n", h.track_name, h.track_name);
     httpd_resp_send_chunk(req, line, n);
     for (uint32_t i = 0; i < h.sample_count; i++) {
         race_sample_t sm;
         if (!race_store_read_sample(id, (int)i, &sm)) break;
         if (sm.lap > 0 && (h.lap_deleted_mask & (1u << (sm.lap - 1)))) continue;
-        n = snprintf(line, sizeof line, "%lu,0,%u,%.3f,%.7f,%.7f,%.1f\n",
-                     (unsigned long)(h.start_epoch + sm.t_ms / 1000), sm.lap, sm.t_ms / 1000.0,
-                     sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 10.0);
+        n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
+                     (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
+                     sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
         httpd_resp_send_chunk(req, line, n);
     }
     httpd_resp_send_chunk(req, NULL, 0);
