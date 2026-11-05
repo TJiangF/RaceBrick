@@ -770,6 +770,8 @@ static void engine_gnss_lap(engine_t *e) {
         lap_t *lap = &e->laps[e->nLaps];
         lap->index = e->nLaps + 1;
         lap->time = e->elapsed;
+        engine_fill_times(e);
+        memcpy(lap->times, e->currentTimes, sizeof(float) * TRK_N);
         lap->nTrace = e->nTrace;
         memcpy(lap->trace, e->lapTrace, sizeof(pt_t) * e->nTrace);
         lap->nGps = e->nGps;
@@ -787,6 +789,7 @@ static void engine_gnss_lap(engine_t *e) {
     e->nTrace = 0;
     e->nGps = 0;
     e->diff = 0;
+    for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
 }
 
 void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
@@ -830,8 +833,13 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
     e->time += dt;
     e->elapsed += dt;
 
-    int idx = (int)s;
-    if (idx != (int)e->sPrev) {
+    int prevIdx = (int)floorf(e->sPrev);
+    int idx = (int)floorf(s);
+    if (idx != prevIdx) {
+        for (int j = prevIdx + 1; j <= idx; j++) {
+            int jj = ((j % t->N) + t->N) % t->N;
+            e->currentTimes[jj] = e->elapsed;
+        }
         if (e->nTrace < TRACE_MAX) e->lapTrace[e->nTrace++] = q;
         if (e->nGps < GPS_MAX) e->gpsLapTrace[e->nGps++] = q;
     }
@@ -846,7 +854,7 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
     e->alongPrev = along;
     e->sPrev = e->s;
     e->s = s;
-    engine_led_state(e);
+    engine_compute_diff(e);
 }
 
 void engine_section_deltas(const engine_t *e, float *out) {
