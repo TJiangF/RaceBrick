@@ -79,7 +79,8 @@
   - 横向偏差 `< 3m`。
   - 本圈时间 `> 2s`。
   - 才调用 `engine_gnss_lap()`。
-- 真实圈只记录 `trace` 和 `gps`；**没有填 `lap->times`**，所以真实 GNSS 圈目前算不出逐采样点的分段差值。
+- 真实圈会按赛道采样点记录 `currentTimes`；完成圈时 `engine_fill_times()` 补齐并复制到 `lap->times`，因此最佳圈逐点时间和分段差值可用。
+- 每个 GNSS 更新都会调用 `engine_compute_diff()`；第二圈开始即可用最佳圈的同样采样点时间计算实时 delta，驱动 Race 页面红/绿 LED。
 
 ## 5. 新赛道录制
 
@@ -156,7 +157,6 @@
 - 新赛道录制最多 `REC_MAX = 400` 点，约 800m。
 - 赛道存储 `TSTORE_SLOTS = 5`，当前使用内部 flash。
 - 外置 W25Q128 已能探测，但尚未用于赛道存储。
-- 真实 GNSS 圈速缺少逐点 `times`，真实圈的分段差值目前不完整。
 - 模拟赛道走 `engine_update()`；真实 GNSS 赛道走 `engine_update_gnss()`。
 
 ## 11. 关键代码位置
