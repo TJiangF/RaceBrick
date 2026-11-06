@@ -1476,6 +1476,63 @@ static imu6_t read_real_imu(void) {
     return s;
 }
 
+static imu6_t s_imu_win[IMU_STABLE_WIN];
+static int    s_imu_win_n = 0;
+static int    s_imu_win_i = 0;
+
+static void imu_win_reset(void) {
+    s_imu_win_n = 0;
+    s_imu_win_i = 0;
+}
+
+static void imu_win_push(const imu6_t *s) {
+    s_imu_win[s_imu_win_i] = *s;
+    s_imu_win_i = (s_imu_win_i + 1) % IMU_STABLE_WIN;
+    if (s_imu_win_n < IMU_STABLE_WIN) s_imu_win_n++;
+}
+
+/* Require both low variance and no isolated spike.  The old implementation
+ * used the whole 100-sample rolling buffer, so motion could keep the screen
+ * "MOVING" for several seconds after the device was already still. */
+static bool imu_win_is_stable(void) {
+    if (s_imu_win_n < IMU_STABLE_WIN) return false;
+    float ma[3] = {0, 0, 0}, mg[3] = {0, 0, 0};
+    for (int i = 0; i < s_imu_win_n; i++) {
+        const imu6_t *s = &s_imu_win[i];
+        ma[0] += s->ax; ma[1] += s->ay; ma[2] += s->az;
+        mg[0] += s->gx; mg[1] += s->gy; mg[2] += s->gz;
+    }
+    for (int k = 0; k < 3; k++) {
+        ma[k] /= (float)s_imu_win_n;
+        mg[k] /= (float)s_imu_win_n;
+    }
+    float va[3] = {0, 0, 0}, vg[3] = {0, 0, 0};
+    float pa = 0, pg = 0;
+    for (int i = 0; i < s_imu_win_n; i++) {
+        const imu6_t *s = &s_imu_win[i];
+        float a[3] = { s->ax, s->ay, s->az };
+        float g[3] = { s->gx, s->gy, s->gz };
+        for (int k = 0; k < 3; k++) {
+            float da = a[k] - ma[k];
+            float dg = g[k] - mg[k];
+            va[k] += da * da;
+            vg[k] += dg * dg;
+            if (fabsf(da) > pa) pa = fabsf(da);
+            if (fabsf(dg) > pg) pg = fabsf(dg);
+        }
+    }
+    float na = sqrtf(ma[0] * ma[0] + ma[1] * ma[1] + ma[2] * ma[2]);
+    /* MPU6050 modules often read ~1.1-1.2 g at rest; only reject free-fall or
+     * strong linear acceleration, not normal sensor scale error. */
+    if (na < 0.75f || na > 1.35f) return false;
+    if (pa > IMU_STABLE_PEAK_A || pg > IMU_STABLE_PEAK_G) return false;
+    for (int k = 0; k < 3; k++) {
+        if (sqrtf(va[k] / (float)s_imu_win_n) > IMU_STABLE_TILT) return false;
+        if (sqrtf(vg[k] / (float)s_imu_win_n) > IMU_STABLE_GYRO) return false;
+    }
+    return true;
+}
+
 static void imu_bubble(void) {
     gfx_fill(0, 0, 176, CH, PAL.stage);
     float cx = 88, cy = 112, R = 74;
@@ -1526,9 +1583,9 @@ static void render_imu_calib(void) {
     gfx_fill(rx + 1, 93, (int)(118 * g.imu_progress / IMU_CALIB_MS), 6, PAL.cyan);
     snprintf(b, sizeof b, "%d%%", (int)(g.imu_progress / IMU_CALIB_MS * 100));
     gfx_text_center(rx + 60, 104, b, PAL.cyan, 1);
-    gfx_text(rx, 150, "PUSH DONE  2xPUSH REDO", PAL.dim, 0);
+    gfx_text(rx, 150, "PUSH FORCE  2xPUSH REDO", PAL.dim, 0);
     gfx_text(rx, 166, "BACK SKIP", PAL.dim, 0);
-    gfx_text(rx, 210, "PLACE DEVICE LEVEL", PAL.dim, 0);
+    gfx_text(rx, 210, "KEEP DEVICE STILL - BACK SKIP", PAL.dim, 0);
 }
 
 /* ================= dispatch ================= */
@@ -1574,6 +1631,7 @@ void screens_enter(scid_t id) {
     case SC_IMU_CALIB:
         g.imu_phase = 0; g.imu_ns = 0; g.imu_progress = 0; g.imu_stable = false;
         g.imu_doneTimer = 0;
+        imu_win_reset();
         mpu_clear_calibration(&g.imu);
         break;
     case SC_RACE_MENU: g.sel = 0; break;
@@ -1662,36 +1720,25 @@ void screens_update(float dt) {
     switch (g.cur) {
     case SC_IMU_CALIB: {
         if (g.imu_phase == 0) {
-            if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = read_real_imu();
-            else {
-                memmove(&g.imu_samples[0], &g.imu_samples[1], sizeof(imu6_t) * 99);
-                g.imu_samples[99] = read_real_imu();
+            imu6_t s = read_real_imu();
+            imu_win_push(&s);
+            bool stable = imu_win_is_stable();
+            if (!stable) {
+                /* Any real motion invalidates the run; the next still period
+                 * starts a fresh calibration instead of reusing old samples. */
+                g.imu_stable = false;
+                g.imu_ns = 0;
+                g.imu_progress = 0;
+            } else {
+                if (!g.imu_stable) {
+                    g.imu_ns = 0;
+                    g.imu_progress = 0;
+                }
+                g.imu_stable = true;
+                if (g.imu_ns < 100) g.imu_samples[g.imu_ns++] = s;
+                g.imu_progress += dt * 1000.0f;
             }
-            int n = g.imu_ns;
-            float stA = 0, stG = 0;
-            if (n >= 8) {
-                float meanA[3] = {0, 0, 0}, meanG[3] = {0, 0, 0};
-                for (int i = 0; i < n; i++) {
-                    meanA[0] += g.imu_samples[i].ax; meanA[1] += g.imu_samples[i].ay; meanA[2] += g.imu_samples[i].az;
-                    meanG[0] += g.imu_samples[i].gx; meanG[1] += g.imu_samples[i].gy; meanG[2] += g.imu_samples[i].gz;
-                }
-                for (int k = 0; k < 3; k++) { meanA[k] /= n; meanG[k] /= n; }
-                float varA[3] = {0, 0, 0}, varG[3] = {0, 0, 0};
-                for (int i = 0; i < n; i++) {
-                    float a[3] = {g.imu_samples[i].ax, g.imu_samples[i].ay, g.imu_samples[i].az};
-                    float gg[3] = {g.imu_samples[i].gx, g.imu_samples[i].gy, g.imu_samples[i].gz};
-                    for (int k = 0; k < 3; k++) { varA[k] += (a[k] - meanA[k]) * (a[k] - meanA[k]); varG[k] += (gg[k] - meanG[k]) * (gg[k] - meanG[k]); }
-                }
-                for (int k = 0; k < 3; k++) {
-                    float sa = sqrtf(varA[k] / n), sg = sqrtf(varG[k] / n);
-                    if (sa > stA) stA = sa;
-                    if (sg > stG) stG = sg;
-                }
-            }
-            g.imu_stable = (stA < IMU_STABLE_TILT && stG < IMU_STABLE_GYRO);
-            g.imu_progress += (g.imu_stable ? dt * 1000.0f : -dt * 600.0f);
-            if (g.imu_progress < 0) g.imu_progress = 0;
-            if (g.imu_progress >= IMU_CALIB_MS) {
+            if (g.imu_phase == 0 && g.imu_progress >= IMU_CALIB_MS) {
                 imu6_t m = {0, 0, 0, 0, 0, 0};
                 int n2 = g.imu_ns;
                 if (n2) {
@@ -2419,25 +2466,31 @@ void screens_handle(const event_t *ev) {
     case SC_IMU_CALIB:
         if (ev->type != EV_PRESS && ev->type != EV_DOUBLE) return;
         if (ev->type == EV_PRESS && ev->button == BTN_PUSH) {
+            if (!g.imu_stable || g.imu_ns < 8) {
+                app_toast("HOLD STILL");
+                break;
+            }
             imu6_t m = {0, 0, 0, 0, 0, 0};
             int n2 = g.imu_ns;
-            if (n2) {
-                for (int i = 0; i < n2; i++) {
-                    m.ax += g.imu_samples[i].ax; m.ay += g.imu_samples[i].ay; m.az += g.imu_samples[i].az;
-                    m.gx += g.imu_samples[i].gx; m.gy += g.imu_samples[i].gy; m.gz += g.imu_samples[i].gz;
-                }
-                m.ax /= n2; m.ay /= n2; m.az /= n2; m.gx /= n2; m.gy /= n2; m.gz /= n2;
+            for (int i = 0; i < n2; i++) {
+                m.ax += g.imu_samples[i].ax; m.ay += g.imu_samples[i].ay; m.az += g.imu_samples[i].az;
+                m.gx += g.imu_samples[i].gx; m.gy += g.imu_samples[i].gy; m.gz += g.imu_samples[i].gz;
             }
+            m.ax /= n2; m.ay /= n2; m.az /= n2; m.gx /= n2; m.gy /= n2; m.gz /= n2;
             app_apply_imu_reference(&m);
             g.i_gmax = 0;
             g.imu_phase = 1; g.imu_doneTimer = 0.8f; g.imu_progress = IMU_CALIB_MS;
             app_toast("IMU CALIBRATED");
             if (g.set_snd_calib) buzzer_play_id(SND_CALIB);
         } else if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH) {   /* 2x push = resample */
-            g.imu_ns = 0; g.imu_progress = 0; g.imu_phase = 0;
+            g.imu_ns = 0; g.imu_progress = 0; g.imu_phase = 0; g.imu_stable = false;
+            imu_win_reset();
             mpu_clear_calibration(&g.imu);
             app_toast("RESAMPLING");
-        } else if (ev->button == BTN_BACK) app_go_home_to(0);
+        } else if (ev->button == BTN_BACK) {
+            app_toast("IMU SKIPPED");
+            app_go_home_to(0);
+        }
         break;
 
     default: break;

@@ -150,9 +150,12 @@
 #define PERF_BRAKE_G    0.25f
 
 /* MPU6050 + GPS/IMU fusion (RC.CONFIG.IMU) */
-#define IMU_CALIB_MS    2500.0f
-#define IMU_STABLE_TILT 0.02f
-#define IMU_STABLE_GYRO 2.5f
+#define IMU_CALIB_MS        1500.0f
+#define IMU_STABLE_TILT     0.02f
+#define IMU_STABLE_GYRO     2.5f
+#define IMU_STABLE_WIN      24
+#define IMU_STABLE_PEAK_A   0.08f
+#define IMU_STABLE_PEAK_G   8.0f
 #define IMU_ACC_NOISE   0.012f
 #define IMU_GYRO_NOISE  0.35f
 #define GPS_NOISE       0.017f
