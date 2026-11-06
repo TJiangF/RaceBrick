@@ -3,6 +3,8 @@ package com.example.navbridge
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import android.graphics.Typeface
 import android.text.InputFilter
 import android.os.Bundle
@@ -42,6 +44,7 @@ class RaceActivity : AppCompatActivity() {
     private var filterTrack: Int? = null
     private var showingSessions = false
     private var directPending = false
+    private var awaitingWriteSettings = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +75,20 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun directWithPermission() {
+        if (!Settings.System.canWrite(this)) {
+            awaitingWriteSettings = true
+            status("直连需要“修改系统设置”权限，请在系统页允许后返回")
+            val intent = Intent(
+                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+            try {
+                startActivity(intent)
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            }
+            return
+        }
         val needed = ArrayList<String>()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED
@@ -89,6 +106,14 @@ class RaceActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, needed.toTypedArray(), 101)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (awaitingWriteSettings && Settings.System.canWrite(this)) {
+            awaitingWriteSettings = false
+            directWithPermission()
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -100,7 +125,7 @@ class RaceActivity : AppCompatActivity() {
             grantResults.all { it == PackageManager.PERMISSION_GRANTED }
         if (granted && directPending) {
             directPending = false
-            toggleDirect()
+            directWithPermission()
         } else {
             directPending = false
             fail("缺少定位/附近 WiFi 权限，无法直连")
