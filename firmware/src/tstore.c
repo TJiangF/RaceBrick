@@ -31,6 +31,7 @@ static ts_rec_t s_rec;
 static int s_count;
 static int s_cap;
 static bool s_ext;
+static uint8_t s_used[(TSTORE_EXT_SLOTS + 7) / 8];
 static const esp_partition_t *s_part;
 
 _Static_assert(sizeof(ts_rec_t) <= TSTORE_SLOT, "ts_rec_t exceeds a slot");
@@ -48,6 +49,16 @@ static bool rec_valid(void) {
     if (s_rec.ver != 1 || s_rec.N != TRK_N) return false;
     uint32_t h = fnv((const uint8_t *)&s_rec, (int)offsetof(ts_rec_t, hash));
     return h == s_rec.hash;
+}
+
+static bool slot_used(int slot) {
+    return slot >= 0 && slot < s_cap && (s_used[slot >> 3] & (1u << (slot & 7)));
+}
+
+static void set_used(int slot, bool used) {
+    if (slot < 0 || slot >= s_cap) return;
+    if (used) s_used[slot >> 3] |= (uint8_t)(1u << (slot & 7));
+    else s_used[slot >> 3] &= (uint8_t)~(1u << (slot & 7));
 }
 
 static bool ext_available(void) {
@@ -85,9 +96,12 @@ bool tstore_begin(void) {
         ESP_LOGW(TAG, "external flash unavailable, fallback internal %d slots", s_cap);
     }
     s_count = 0;
+    memset(s_used, 0, sizeof(s_used));
     for (int i = 0; i < s_cap; i++) {
-        if (!read_slot(i)) continue;
-        if (rec_valid()) s_count++;
+        if (read_slot(i) && rec_valid()) {
+            s_count++;
+            set_used(i, true);
+        }
     }
     ESP_LOGI(TAG, "%d/%d track slots used (%s)", s_count, s_cap, s_ext ? "external" : "internal");
     return true;
@@ -95,6 +109,14 @@ bool tstore_begin(void) {
 
 int tstore_count(void) { return s_count; }
 int tstore_capacity(void) { return s_cap; }
+
+int tstore_slots(int *out, int cap) {
+    int n = 0;
+    for (int i = 0; i < s_cap && n < cap; i++) {
+        if (slot_used(i) && out) out[n++] = i;
+    }
+    return n;
+}
 
 int tstore_first_free(void) {
     if (!s_ext && !s_part) return -1;
@@ -136,7 +158,10 @@ bool tstore_save(int slot, const track_t *t) {
         ESP_LOGE(TAG, "write slot %d failed", slot);
         return false;
     }
-    if (s_count < s_cap) s_count++;
+    if (!slot_used(slot)) {
+        if (s_count < s_cap) s_count++;
+        set_used(slot, true);
+    }
     ESP_LOGI(TAG, "saved '%s' to slot %d (%d bytes, %s)", t->name, slot, (int)sizeof(s_rec), s_ext ? "ext" : "int");
     return true;
 }
@@ -175,6 +200,9 @@ bool tstore_delete(int slot) {
     if (slot < 0 || slot >= s_cap) return false;
     memset(&s_rec, 0xFF, sizeof(s_rec));
     bool ok = write_slot(slot);
-    if (ok && s_count > 0) s_count--;
+    if (ok && slot_used(slot)) {
+        if (s_count > 0) s_count--;
+        set_used(slot, false);
+    }
     return ok;
 }

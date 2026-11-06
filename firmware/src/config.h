@@ -74,6 +74,8 @@
 /* Keep the RaceBrick-XXXX SoftAP available even without saved home WiFi, so
  * the phone can connect directly for track/session sync. */
 #define WIFI_AP_ALWAYS 1
+/* 0.25 dBm units: 34 = 8.5 dBm. Lower peak current helps USB/battery rails. */
+#define WIFI_AP_TX_POWER_QDBM 34
 
 /* ---------------- external SPI flash (W25Q128), Rev.C ----------------
  * FLASH-CS-io41  FLASH-MISO-io40  FLASH-SCK-io39  FLASH-MOSI-io38

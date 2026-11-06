@@ -10,6 +10,7 @@
 #include "extflash.h"
 #include "gps.h"
 #include "battery.h"
+#include "esp_system.h"
 #include "buzzer.h"
 #include "netcfg.h"
 #include "nav.h"
@@ -77,7 +78,8 @@ void app_main(void) {
 #endif
     btmap_set_enabled(g.set_bt != 0);             /* after WiFi reserves its memory */
 
-    ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d)", LCD_W, LCD_H);
+    ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d) reset_reason=%d",
+             LCD_W, LCD_H, (int)esp_reset_reason());
 
     const float target_dt = 1.0f / 30.0f;
     int64_t last = esp_timer_get_time();

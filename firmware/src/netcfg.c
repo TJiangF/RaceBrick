@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -145,6 +146,10 @@ static void wifi_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_connected = false;
             if (s_connecting) esp_wifi_connect();
+        } else if (id == WIFI_EVENT_AP_STACONNECTED) {
+            ESP_LOGI(TAG, "phone joined AP");
+        } else if (id == WIFI_EVENT_AP_STADISCONNECTED) {
+            ESP_LOGI(TAG, "phone left AP");
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
@@ -321,6 +326,7 @@ static esp_err_t h_save(httpd_req_t *req) {
 }
 
 static esp_err_t h_api_status(httpd_req_t *req) {
+    ESP_LOGI(TAG, "api status start");
     char b[320];
     gps_state_t *gp = gps_get();
     int n = snprintf(b, sizeof b,
@@ -334,17 +340,23 @@ static esp_err_t h_api_status(httpd_req_t *req) {
         nav_status(), nav_age_ms(), nav_frames(), nav_last_bytes(),
         nav_zoom_level(), g.nav_full, g.nav_mode);
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, b, n);
+    esp_err_t r = httpd_resp_send(req, b, n);
+    ESP_LOGI(TAG, "api status sent (%d): %s", n, esp_err_to_name(r));
+    return r;
 }
 
 static esp_err_t h_api_tracks(httpd_req_t *req) {
-    char *b = (char *)malloc(24000);
+    ESP_LOGI(TAG, "api tracks start");
+    int slots[TSTORE_EXT_SLOTS];
+    int nslots = tstore_slots(slots, TSTORE_EXT_SLOTS);
+    char *b = (char *)heap_caps_malloc(24000, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!b) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
-    int n = snprintf(b, 24000, "{\"count\":%d,\"tracks\":[", tstore_count());
+    int n = snprintf(b, 24000, "{\"count\":%d,\"tracks\":[", nslots);
     bool first = true;
-    track_t *t = (track_t *)malloc(sizeof(track_t));
+    track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!t) { free(b); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
-    for (int i = 0; i < tstore_capacity() && n < 23000; i++) {
+    for (int k = 0; k < nslots && n < 23000; k++) {
+        int i = slots[k];
         if (!tstore_load(i, t)) continue;
         n += snprintf(b + n, 24000 - n,
             "%s{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,\"sections\":%d}",
@@ -356,6 +368,7 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
     n += snprintf(b + n, 24000 - n, "]}");
     httpd_resp_set_type(req, "application/json");
     esp_err_t r = httpd_resp_send(req, b, n);
+    ESP_LOGI(TAG, "api tracks sent slots=%d len=%d: %s", nslots, n, esp_err_to_name(r));
     free(b);
     return r;
 }
@@ -376,7 +389,7 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         httpd_resp_set_type(req, "application/json");
         return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
     }
-    track_t *t = (track_t *)malloc(sizeof(track_t));
+    track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
     if (id < 0 || !tstore_load(id, t)) {
         free(t);
@@ -591,7 +604,7 @@ static esp_err_t h_api_fb(httpd_req_t *req) {
 static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size = 4096;
+    cfg.stack_size = 8192;
     cfg.max_uri_handlers = 24;   /* UI + debug + race storage */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };
@@ -667,6 +680,8 @@ void netcfg_start_ap(void) {
 
     ESP_ERROR_CHECK(esp_wifi_start());
     s_started = true;
+    esp_err_t tx = esp_wifi_set_max_tx_power(WIFI_AP_TX_POWER_QDBM);
+    ESP_LOGI(TAG, "AP TX power set %d qdBm: %s", WIFI_AP_TX_POWER_QDBM, esp_err_to_name(tx));
 
     /* scan while the STA is idle (scanning while connecting returns nothing) */
     do_scan();

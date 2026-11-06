@@ -12,6 +12,7 @@ bool tstore_begin(void);              /* init flash + count valid slots */
 int  tstore_count(void);
 int  tstore_capacity(void);
 int  tstore_first_free(void);         /* -1 when full */
+int  tstore_slots(int *out, int cap); /* valid slot indices, fastest path for HTTP */
 bool tstore_load(int slot, track_t *t);
 bool tstore_save(int slot, const track_t *t);
 bool tstore_delete(int slot);

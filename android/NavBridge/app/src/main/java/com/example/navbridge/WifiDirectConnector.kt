@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.Handler
@@ -28,10 +29,25 @@ class WifiDirectConnector(private val context: Context) {
 
     private val main = Handler(Looper.getMainLooper())
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private var callback: ConnectivityManager.NetworkCallback? = null
     private var network: Network? = null
 
     val isConnected: Boolean get() = network != null
+
+    /** Bind the WiFi network if the user already joined RaceBrick manually. */
+    fun bindCurrentEsp(): Boolean {
+        val ssid = runCatching { wifi.connectionInfo.ssid }.getOrNull()
+            ?.trim('"').orEmpty()
+        if (!ssid.startsWith(AP_PREFIX)) return false
+        val existing = cm.allNetworks.firstOrNull { n ->
+            val caps = cm.getNetworkCapabilities(n) ?: return@firstOrNull false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        } ?: return false
+        network = existing
+        cm.bindProcessToNetwork(existing)
+        return true
+    }
 
     fun connect(onResult: (ok: Boolean, message: String) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -39,6 +55,16 @@ class WifiDirectConnector(private val context: Context) {
             return
         }
         disconnect()
+
+        // The user may already have joined RaceBrick manually. In that case
+        // requesting WifiNetworkSpecifier would fail, so bind the existing
+        // WiFi network instead and reuse it.
+        if (bindCurrentEsp()) {
+            val ssid = runCatching { wifi.connectionInfo.ssid }.getOrNull()
+                ?.trim('"').orEmpty()
+            onResult(true, "已连接 ESP WiFi：$ssid")
+            return
+        }
 
         val specifier = WifiNetworkSpecifier.Builder()
             .setSsidPattern(PatternMatcher(AP_PREFIX, PatternMatcher.PATTERN_PREFIX))

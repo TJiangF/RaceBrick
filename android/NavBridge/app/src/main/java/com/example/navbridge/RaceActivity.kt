@@ -90,6 +90,7 @@ class RaceActivity : AppCompatActivity() {
     private fun base(): String = RaceApi.saveBaseUrl(this, etUrl.text.toString())
 
     private fun loadAll() {
+        direct.bindCurrentEsp()
         val gen = ++generation
         val b = base()
         status("正在读取赛道和场次…")
