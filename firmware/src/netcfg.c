@@ -382,8 +382,34 @@ static int query_int(httpd_req_t *req, const char *name, int defv) {
     return defv;
 }
 
+static bool query_str(httpd_req_t *req, const char *name, char *out, int cap) {
+    char q[128] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK) return false;
+    if (httpd_query_key_value(q, name, out, cap) != ESP_OK) return false;
+    urldecode(out);
+    return true;
+}
+
 static esp_err_t h_api_track(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
+    if (req->method == HTTP_POST) {
+        char name[16] = {0};
+        if (id < 0 || !query_str(req, "name", name, sizeof name) || !name[0]) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "id/name required");
+            return ESP_FAIL;
+        }
+        track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+        bool ok = tstore_load(id, t);
+        if (ok) {
+            strncpy(t->name, name, sizeof(t->name) - 1);
+            t->name[sizeof(t->name) - 1] = 0;
+            ok = tstore_save(id, t);
+        }
+        free(t);
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+    }
     if (req->method == HTTP_DELETE) {
         bool ok = id >= 0 && tstore_delete(id);
         httpd_resp_set_type(req, "application/json");
@@ -626,6 +652,7 @@ static void start_httpd(void) {
     httpd_uri_t u17 = { .uri = "/api/session", .method = HTTP_DELETE, .handler = h_api_session };
     httpd_uri_t u18 = { .uri = "/api/session/lap", .method = HTTP_DELETE, .handler = h_api_session_lap_delete };
     httpd_uri_t u19 = { .uri = "/api/session/file", .method = HTTP_GET, .handler = h_api_session_file };
+    httpd_uri_t u20 = { .uri = "/api/track", .method = HTTP_POST, .handler = h_api_track };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -645,6 +672,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u17);
     httpd_register_uri_handler(s_httpd, &u18);
     httpd_register_uri_handler(s_httpd, &u19);
+    httpd_register_uri_handler(s_httpd, &u20);
 }
 
 void netcfg_start_ap(void) {

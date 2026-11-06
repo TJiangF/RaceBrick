@@ -96,7 +96,7 @@ pio device monitor -b 115200              # 串口日志
 - 首次启动若外置赛道区为空，会自动把内置样例赛道写入 slot 0 并回读校验。
 - 新增 HTTP API：
   - `GET /api/tracks`
-  - `GET /api/track?id=` / `DELETE /api/track?id=`
+  - `GET /api/track?id=` / `POST /api/track?id=&name=` / `DELETE /api/track?id=`
   - `GET /api/sessions`
   - `GET /api/session?id=` / `DELETE /api/session?id=`
   - `DELETE /api/session/lap?id=&lap=`

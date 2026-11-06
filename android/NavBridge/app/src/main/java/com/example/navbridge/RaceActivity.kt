@@ -1,7 +1,10 @@
 package com.example.navbridge
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.text.InputFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,6 +18,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
@@ -36,6 +41,7 @@ class RaceActivity : AppCompatActivity() {
     private var sessions: List<RaceSession> = emptyList()
     private var filterTrack: Int? = null
     private var showingSessions = false
+    private var directPending = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +57,7 @@ class RaceActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRaceSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { toggleDirect() }
+        findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { directWithPermission() }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
@@ -63,6 +69,42 @@ class RaceActivity : AppCompatActivity() {
         }
 
         loadAll()
+    }
+
+    private fun directWithPermission() {
+        val needed = ArrayList<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) needed += Manifest.permission.ACCESS_FINE_LOCATION
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+            != PackageManager.PERMISSION_GRANTED
+        ) needed += Manifest.permission.NEARBY_WIFI_DEVICES
+        if (needed.isEmpty()) {
+            toggleDirect()
+            return
+        }
+        directPending = true
+        status("直连需要定位/附近 WiFi 权限")
+        ActivityCompat.requestPermissions(this, needed.toTypedArray(), 101)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 101) return
+        val granted = grantResults.isNotEmpty() &&
+            grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        if (granted && directPending) {
+            directPending = false
+            toggleDirect()
+        } else {
+            directPending = false
+            fail("缺少定位/附近 WiFi 权限，无法直连")
+        }
     }
 
     private fun toggleDirect() {
@@ -134,6 +176,7 @@ class RaceActivity : AppCompatActivity() {
             )
             card.addView(
                 row(
+                    button("改名") { renameTrack(t) },
                     button("查看场次") {
                         filterTrack = t.id
                         showingSessions = true
@@ -251,6 +294,39 @@ class RaceActivity : AppCompatActivity() {
             .setView(scroll)
             .setPositiveButton("关闭", null)
             .create()
+    }
+
+    private fun renameTrack(t: RaceTrack) {
+        val input = EditText(this).apply {
+            setText(t.name)
+            filters = arrayOf(InputFilter.LengthFilter(7))
+            setSelection(text.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("赛道改名")
+            .setMessage("最多 7 个字符；会写回 ESP 外置 Flash。")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) {
+                    toast("名称不能为空")
+                    return@setPositiveButton
+                }
+                val b = base()
+                status("正在保存赛道名…")
+                worker.execute {
+                    runCatching { RaceApi.renameTrack(b, t.id, name) }
+                        .onSuccess {
+                            main.post {
+                                toast("已改名")
+                                loadAll()
+                            }
+                        }
+                        .onFailure { e -> main.post { fail("改名失败：${e.message}") } }
+                }
+            }
+            .show()
     }
 
     private fun confirmDeleteTrack(t: RaceTrack) {

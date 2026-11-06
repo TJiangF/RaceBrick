@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.nio.charset.StandardCharsets
 
@@ -87,6 +88,11 @@ object RaceApi {
         return parseSession(o)
     }
 
+    fun renameTrack(base: String, id: Int, name: String) {
+        val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
+        post(base, "/api/track?id=$id&name=$encoded")
+    }
+
     fun deleteTrack(base: String, id: Int) {
         delete(base, "/api/track?id=$id")
     }
@@ -120,6 +126,17 @@ object RaceApi {
             deletedLapMask = o.optInt("deleted_laps", 0),
             lapTimes = times,
         )
+    }
+
+    private fun post(base: String, path: String) {
+        val conn = open(base, path, "POST")
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) throw IllegalStateException("HTTP $code")
+            drain(conn)
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun delete(base: String, path: String) {
