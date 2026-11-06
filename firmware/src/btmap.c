@@ -427,7 +427,9 @@ void btmap_start(void) {
         return;
     }
 
+    ESP_LOGI(TAG, "nimble init begin");
     int rc = nimble_port_init();
+    ESP_LOGI(TAG, "nimble init end rc=%d", rc);
     if (rc != 0) {
         ESP_LOGE(TAG, "nimble init %d", rc);
         return;
@@ -454,6 +456,7 @@ void btmap_start(void) {
     find_tx();
     ble_store_config_init();
     ble_att_set_preferred_mtu(517);
+    ESP_LOGI(TAG, "nimble host start");
     nimble_port_freertos_init(host_task);
     s_started = true;
     ESP_LOGI(TAG, "BLE up, waiting for phone");

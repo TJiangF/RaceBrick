@@ -39,7 +39,7 @@ typedef struct {
 typedef struct {
     /* ---- global ---- */
     int homeIndex;
-    track_t tracks[MAX_TRACKS]; int ntracks;
+    track_t *tracks; int ntracks;   /* PSRAM-backed: keep internal RAM for WiFi + BLE */
     histrec_t log[HISTORY_RECORDS]; int nlog;
     engine_t engine; bool engine_valid;
     gnss_t gnss;

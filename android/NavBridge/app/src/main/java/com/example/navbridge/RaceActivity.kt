@@ -29,6 +29,7 @@ class RaceActivity : AppCompatActivity() {
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private lateinit var direct: WifiDirectConnector
     private var generation = 0
 
     private var tracks: List<RaceTrack> = emptyList()
@@ -43,12 +44,14 @@ class RaceActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvRaceStatus)
         etUrl = findViewById(R.id.etRaceUrl)
         llList = findViewById(R.id.llRaceList)
+        direct = WifiDirectConnector(this)
         etUrl.setText(RaceApi.baseUrl(this))
 
         findViewById<Button>(R.id.btnRaceNav).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnRaceSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { toggleDirect() }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
@@ -60,6 +63,28 @@ class RaceActivity : AppCompatActivity() {
         }
 
         loadAll()
+    }
+
+    private fun toggleDirect() {
+        val btn = findViewById<Button>(R.id.btnRaceDirect)
+        if (direct.isConnected) {
+            direct.disconnect()
+            btn.text = "直连 ESP WiFi"
+            status("已断开 ESP 直连")
+            return
+        }
+        status("正在请求直连 RaceBrick-XXXX…")
+        direct.connect { ok, message ->
+            status(message)
+            if (ok) {
+                etUrl.setText(WifiDirectConnector.AP_URL)
+                RaceApi.saveBaseUrl(this, WifiDirectConnector.AP_URL)
+                btn.text = "断开 ESP 直连"
+                loadAll()
+            } else {
+                btn.text = "直连 ESP WiFi"
+            }
+        }
     }
 
     private fun base(): String = RaceApi.saveBaseUrl(this, etUrl.text.toString())
@@ -419,6 +444,7 @@ class RaceActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         generation++
+        direct.disconnect()
         worker.shutdownNow()
         super.onDestroy()
     }

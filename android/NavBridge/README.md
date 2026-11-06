@@ -6,7 +6,7 @@ Android MVP：用高德 SDK 算路/导航，把 320×240 全帧（地图 + 路�
 协议对齐 [MotoNav](https://github.com/zyn950929/MotoNav) 的 UART 服务（`6e400001...`、`M` 大块头、`#p` 定位、`R/L/S` 转向）。
 RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面全屏显示。
 
-> 状态：**0.9.6 / 28**，已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；NAV、RACE 数据列表/导出已接入，RACE 的完整对比/编辑仍在进行。仅供个人非商业使用。
+> 状态：**0.9.7 / 29**，已在 **JDK 21 + Gradle 8.10.2 + AGP 8.7.3 + 高德 10.1.600** 下编译通过并生成 debug APK；NAV、RACE 数据列表/导出已接入，RACE 的完整对比/编辑仍在进行。仅供个人非商业使用。
 >
 > APK 约 54 MB，主要是高德导航/3D 地图/定位/搜索 SDK 的 arm64 原生库；业务代码很小，当前功能下无法显著裁剪。
 >
@@ -54,6 +54,7 @@ RaceBrick 使用同一套服务接收 **type 5 整帧**，在 `PHONE MAP` 页面
 - 没连设备也能先导航；底图/路线/整帧会缓存，连上设备后自动补发
 - **RACE 数据管理（0.9.6 起）**：首页 RACE 进入；可读取 ESP 的 `/api/tracks`、`/api/sessions`；按赛道筛选场次；查看圈速、删除赛道/场次/单圈、导出 RaceChrono CSV v3 并分享
 - **设备地址**：设置页或 RACE 页填写；同网 STA 填 ESP 局域网 IP，ESP AP 模式默认 `http://192.168.4.1`（AP 密码 `racebrick`）
+- **手机 ↔ ESP 直连**：RACE 页“直连 ESP WiFi”按钮，Android 10+ 通过 `WifiNetworkSpecifier` 自动匹配 `RaceBrick-XXXX` 并绑定本地网络；离开 RACE 自动解绑，恢复手机上网。固件现在默认常开 `RaceBrick-XXXX` SoftAP
 
 ## 架构
 

@@ -70,7 +70,11 @@ void app_main(void) {
     input_init();
     buzzer_init();
     app_init();
+#if WIFI_AP_ALWAYS
+    netcfg_start_ap();                           /* direct phone <-> ESP AP */
+#else
     if (netcfg_has_creds()) netcfg_start_ap();   /* auto-connect on later boots */
+#endif
     btmap_set_enabled(g.set_bt != 0);             /* after WiFi reserves its memory */
 
     ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d)", LCD_W, LCD_H);

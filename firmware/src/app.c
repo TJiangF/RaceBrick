@@ -20,6 +20,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -649,6 +650,14 @@ void app_init(void) {
         }
     }
     gnss_init(&g.gnss);
+    if (!g.tracks) {
+        g.tracks = (track_t *)heap_caps_malloc(sizeof(track_t) * MAX_TRACKS,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!g.tracks) {
+            ESP_LOGE("main", "track table alloc failed");
+            return;
+        }
+    }
     seed_tracks();
     seed_history();
     g.tracks[0].store_slot = -1;   /* seed sample until a flash track exists */

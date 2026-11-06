@@ -400,7 +400,10 @@ class MainActivity : AppCompatActivity() {
             ask(Manifest.permission.BLUETOOTH_SCAN)
             ask(Manifest.permission.BLUETOOTH_CONNECT)
         }
-        if (Build.VERSION.SDK_INT >= 33) ask(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT >= 33) {
+            ask(Manifest.permission.POST_NOTIFICATIONS)
+            ask(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
         if (need.isNotEmpty()) ActivityCompat.requestPermissions(this, need.toTypedArray(), 1)
     }
 
