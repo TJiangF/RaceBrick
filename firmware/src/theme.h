@@ -17,3 +17,5 @@ extern palette_t PAL;
 
 void theme_set(int light); /* 0 = dark, 1 = light */
 int  theme_is_light(void);
+void theme_set_style(int f1); /* 0 = pixel, 1 = Formula 1 */
+int  theme_style(void);

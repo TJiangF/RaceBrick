@@ -1,6 +1,7 @@
 #include "gfx.h"
 #include "config.h"
 #include "font5x7.h"
+#include "font_f1.h"
 #include "esp_heap_caps.h"
 #include <math.h>
 #include <string.h>
@@ -13,6 +14,8 @@ static uint16_t *s_fb = NULL;
 static int s_dx = 0, s_dy = 0;
 static int s_cx0 = 0, s_cy0 = 0, s_cx1 = LCD_W, s_cy1 = LCD_H;
 static float s_scale = 1.0f;
+static int s_f1 = 0;
+static char up(char c);
 
 void gfx_init(void) {
     size_t bytes = (size_t)LCD_W * LCD_H * sizeof(uint16_t);
@@ -22,6 +25,50 @@ void gfx_init(void) {
     for (int i = 0; i < LCD_W * LCD_H; i++) s_fb[i] = 0;
 }
 uint16_t *gfx_fb(void) { return s_fb; }
+void gfx_set_font(int f1) { s_f1 = f1 ? 1 : 0; }
+int gfx_font_is_f1(void) { return s_f1; }
+
+static const f1font_t *f1_font_for_scale(int scale) {
+    if (scale <= 0) return &F1_8;
+    if (scale == 1) return &F1_12;
+    if (scale == 2) return &F1_16;
+    if (scale == 3) return &F1_24;
+    if (scale == 4) return &F1_24;
+    return &F1_32;
+}
+
+static void f1_draw_text(int x, int y, const char *s, uint16_t c, int scale) {
+    const f1font_t *f = f1_font_for_scale(scale);
+    int cx = x;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)up(*s);
+        int idx = ch - 32;
+        if (idx < 0 || idx >= 96) { cx += f->h / 2; continue; }
+        const f1glyph_t *g = &f->glyphs[idx];
+        if (g->w == 0) { cx += g->adv; continue; }
+        int rowbytes = (g->w + 7) / 8;
+        const uint8_t *p = f->bits + g->off;
+        for (int ty = 0; ty < f->h; ty++) {
+            for (int tx = 0; tx < g->w; tx++) {
+                uint8_t b = p[ty * rowbytes + tx / 8];
+                if (b & (0x80 >> (tx & 7))) gfx_pixel(cx + tx, y + ty, c);
+            }
+        }
+        cx += g->adv;
+    }
+}
+
+static int f1_text_width(const char *s, int scale) {
+    const f1font_t *f = f1_font_for_scale(scale);
+    int w = 0;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)up(*s);
+        int idx = ch - 32;
+        if (idx < 0 || idx >= 96) { w += f->h / 2; continue; }
+        w += f->glyphs[idx].adv;
+    }
+    return w;
+}
 
 void gfx_reset_view(void) {
     s_dx = 0; s_dy = 0; s_scale = 1.0f;
@@ -189,6 +236,7 @@ static void glyph_metrics(int scale, int *W, int *H, int *adv) {
 }
 
 void gfx_text(int x, int y, const char *s, uint16_t c, int scale) {
+    if (s_f1) { f1_draw_text(x, y, s, c, scale); return; }
     int W, H, adv;
     glyph_metrics(scale, &W, &H, &adv);
     int cx = x;
@@ -228,6 +276,7 @@ void gfx_text(int x, int y, const char *s, uint16_t c, int scale) {
 }
 
 int gfx_text_w(const char *s, int scale) {
+    if (s_f1) return f1_text_width(s, scale);
     int W, H, adv;
     glyph_metrics(scale, &W, &H, &adv);
     (void)W; (void)H;

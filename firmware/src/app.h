@@ -46,6 +46,7 @@ typedef struct {
     mpu_t imu;
     int race_mount;
     int theme_light;
+    int ui_style;                 /* 0 = pixel, 1 = Formula 1 */
     scid_t raceTarget, raceBack;
     track_t sessionTrack; bool sessionTrack_valid;
     float sessionSections[MAX_SECTIONS]; int session_nsec;

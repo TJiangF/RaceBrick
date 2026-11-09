@@ -156,3 +156,12 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - 固件默认常开 `RaceBrick-XXXX` SoftAP，密码 `racebrick`，地址 `http://192.168.4.1`。
 - 没有保存家庭 WiFi 也能直接连接；保存了则同时以 STA 连接家庭 WiFi（APSTA）。
 - App RACE 页点“直连 ESP WiFi”，Android 10+ 自动匹配该 AP；直连期间手机可能没有互联网，离开 RACE 页自动解绑。
+
+## F1 UI theme
+
+- New branch `Formula_one_theme` adds a second UI style alongside the pixel style.
+- `SETTINGS > UI STYLE` toggles `PIXEL` / `FORMULA 1`; persisted in NVS.
+- F1 font is generated from Formula1 Display Bold into `src/font_f1.h`.
+- F1 chrome: carbon texture, timing-tower lap rows, team-colour cards, tyre
+  compound marker, DRS/BOX strips, purple fastest rows, checkered flag.
+- See `../docs/F1-THEME.md` for attribution and generator details.

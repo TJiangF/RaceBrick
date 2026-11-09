@@ -545,6 +545,7 @@ static void settings_load(void) {
     if (nvs_open("rb", NVS_READONLY, &h) != ESP_OK) return;
     int32_t v;
     if (nvs_get_i32(h, "theme", &v) == ESP_OK) g.theme_light = v ? 1 : 0;
+    if (nvs_get_i32(h, "uistyle", &v) == ESP_OK) g.ui_style = v ? 1 : 0;
     if (nvs_get_i32(h, "bl", &v) == ESP_OK) g.set_brightness = v;
     if (nvs_get_i32(h, "ledcol", &v) == ESP_OK) g.set_ledcolor = v;
     if (nvs_get_i32(h, "ledbr", &v) == ESP_OK) g.set_ledbright = v;
@@ -574,6 +575,7 @@ void app_save_settings(void) {
     nvs_handle_t h;
     if (nvs_open("rb", NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_i32(h, "theme", g.theme_light);
+    nvs_set_i32(h, "uistyle", g.ui_style);
     nvs_set_i32(h, "bl", g.set_brightness);
     nvs_set_i32(h, "ledcol", g.set_ledcolor);
     nvs_set_i32(h, "ledbr", g.set_ledbright);
@@ -613,6 +615,7 @@ void app_init(void) {
     g.nav_full = 0;
     g.perf_trig_g100 = START_PERF_TRIG;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
+    g.ui_style = 0;
     /* load persisted settings */
     esp_err_t nv = nvs_flash_init();
     if (nv == ESP_ERR_NVS_NO_FREE_PAGES || nv == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -620,7 +623,9 @@ void app_init(void) {
         nvs_flash_init();
     }
     settings_load();
+    theme_set_style(g.ui_style);
     theme_set(g.theme_light);
+    gfx_set_font(g.ui_style);
     lcd_set_brightness(g.set_brightness);
     ws2812_init();
     ws2812_set_brightness(g.set_ledbright);

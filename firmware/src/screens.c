@@ -38,6 +38,10 @@ static bool   s_map_ready;
 static const char *RACE_PANELS[4] = {"TRACK", "TIMER", "DASH", "SECTOR"};
 
 static const char *VEH_NAMES[4] = {"KART", "4-STROKE", "KART+", "RACE"};
+#define HOMEF1_RED    RGB565(0xe1, 0x06, 0x00)
+#define HOMEF1_TEAL   RGB565(0x27, 0xf4, 0xd2)
+#define HOMEF1_ORANGE RGB565(0xff, 0x80, 0x00)
+#define HOMEF1_SILVER RGB565(0xd5, 0xd7, 0xda)
 static const uint16_t VEH_COLORS[4] = {
     RGB565(0xff, 0x6b, 0x6b), RGB565(0xff, 0xd1, 0x66),
     RGB565(0x66, 0xe0, 0xd2), RGB565(0x8b, 0x5c, 0xf6),
@@ -119,7 +123,78 @@ static void draw_home_logo(int x, int y, int idx) {
 }
 
 
+/* ================= Formula 1 visual language ================= */
+static bool f1_ui(void) { return g.ui_style != 0; }
+
+static void f1_checker(int x, int y, int w, int h, int cell, uint16_t a, uint16_t b) {
+    for (int yy = 0; yy < h; yy += cell) {
+        for (int xx = 0; xx < w; xx += cell) {
+            uint16_t c = (((xx / cell) + (yy / cell)) & 1) ? a : b;
+            gfx_fill(x + xx, y + yy, cell, cell, c);
+        }
+    }
+}
+
+static void f1_panel(int x, int y, int w, int h, bool on, uint16_t accent) {
+    gfx_fill(x, y, w, h, PAL.panel);
+    gfx_rect(x, y, w, h, on ? accent : PAL.line);
+    gfx_fill(x, y, 4, h, accent);
+    gfx_fill(x + 4, y, w - 4, 2, on ? PAL.white : PAL.line2);
+    /* small clipped top-right corner, the F1 broadcast-card cue */
+    for (int i = 0; i < 7; i++) gfx_hline(x + w - 8 + i, y + i, 8 - i, PAL.stage);
+}
+
+static void f1_tire(int cx, int cy, int r, uint16_t ring, char compound) {
+    gfx_disc(cx, cy, r, PAL.surface2);
+    gfx_circle(cx, cy, r, ring);
+    gfx_circle(cx, cy, r - 2, ring);
+    char b[2] = { compound, 0 };
+    gfx_text_center(cx, cy - 4, b, PAL.white, 0);
+}
+
+static void f1_header(const char *title, const char *tag) {
+    gfx_fill(0, 0, CW, 4, PAL.cyan);
+    f1_checker(CW - 34, 7, 28, 12, 4, PAL.white, PAL.stage);
+    gfx_text(8, 8, title, PAL.white, 2);
+    gfx_text_right(CW - 8, 0, tag, PAL.cyan, 1);
+}
+
+static void render_home_f1(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    /* carbon diagonal texture, intentionally very low contrast */
+    for (int i = -CH; i < CW; i += 12) {
+        gfx_line(i, 0, i + CH, CH, PAL.line2);
+    }
+    f1_header("RACEBRICK", "PIT WALL / LIVE");
+    gfx_text(10, 32, "RACE CONTROL", PAL.dim, 1);
+    f1_tire(CW - 22, 29, 9, PAL.cyan, 'S');
+
+    static const char *items[4] = {"RACE", "NAV", "MEDIA", "SET"};
+    static const char *nums[4] = {"01", "02", "03", "04"};
+    static const uint16_t accents[4] = {HOMEF1_RED, HOMEF1_TEAL, HOMEF1_ORANGE, HOMEF1_SILVER};
+    const int gap = 8, margin = 10;
+    const int w = (CW - margin * 2 - gap) / 2;
+    const int h = 78;
+    const int ys[2] = {44, 130};
+    for (int i = 0; i < 4; i++) {
+        int col = i & 1, row = i >> 1;
+        int x = margin + col * (w + gap);
+        int y = ys[row];
+        bool on = i == g.homeIndex;
+        f1_panel(x, y, w, h, on, accents[i]);
+        draw_home_logo(x + 8, y + 8, i);
+        gfx_text(x + 78, y + 16, nums[i], accents[i], 2);
+        gfx_text(x + 78, y + 40, items[i], on ? PAL.white : PAL.text, 2);
+        gfx_text(x + 78, y + 61, on ? "SELECTED" : "STANDBY", on ? accents[i] : PAL.dim, 0);
+        if (on) f1_checker(x + w - 18, y + h - 12, 12, 8, 4, PAL.white, PAL.cyan);
+    }
+    f1_checker(10, CH - 12, 44, 6, 3, PAL.white, PAL.dim);
+    gfx_text(62, CH - 14, "DRS ENABLED", PAL.green, 1);
+    gfx_text_right(CW - 10, CH - 14, "BOX BOX", PAL.yellow, 1);
+}
+
 static void render_home(void) {
+    if (f1_ui()) { render_home_f1(); return; }
     gfx_fill(0, 0, CW, CH, PAL.stage);
     gfx_text(10, 7, "RACEBRICK", PAL.white, 2);
     gfx_fill(10, 27, 102, 3, PAL.cyan);
@@ -490,7 +565,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[12] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP"};
+    static const char *k[13] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -502,6 +577,7 @@ static void settings_val(int i, char *out) {
     case 5: strcpy(out, g.set_bt ? "ON" : "OFF"); break;
     case 7: snprintf(out, 16, "%dHz", g.gps_rate_hz); break;
     case 8: snprintf(out, 16, "0.%02dG", g.perf_trig_g100); break;
+    case 12: strcpy(out, g.ui_style ? "FORMULA 1" : "PIXEL"); break;
     default: strcpy(out, ">"); break;
     }
 }
@@ -510,7 +586,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 6, h = 32;
     int start, end;
-    windowed(12, g.sel, K, &start, &end);
+    windowed(13, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -523,7 +599,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 12) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 13) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
     hint_c("UP/DN SELECT - PUSH EDIT - L/R ADJUST", HINT_Y);
 }
 
@@ -779,6 +855,10 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
     if (g.panel == 0) {
         racing_map(recorded, e, dt);
         int rx = 156;
+        if (f1_ui()) {
+            gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
+            f1_checker(CW - 30, 7, 24, 8, 4, PAL.white, PAL.stage);
+        }
         gfx_text(rx, 6, "LIVE", PAL.dim, 1);
         u_fmt_time(b, sizeof b, e->elapsed);
         gfx_text(rx, 20, b, PAL.white, 2);
@@ -792,7 +872,8 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             int y = 72 + k * 22;
             bool best = e->hasBestLap && lap->index == e->bestIndex;
             if (best) gfx_fill(rx, y, CW - rx - 6, 20, PAL.purple);
-            else gfx_fill(rx, y, CW - rx - 6, 20, PAL.surface);
+            else gfx_fill(rx, y, CW - rx - 6, 20, f1_ui() && (lap->index & 1) ? PAL.surface2 : PAL.surface);
+            if (f1_ui()) gfx_fill(rx, y, 2, 20, best ? PAL.purple : PAL.cyan);
             snprintf(b2, sizeof b2, "L%d", lap->index);
             gfx_text(rx + 6, y + 6, b2, best ? PAL.white : PAL.dim, 1);
             u_fmt_time(b, sizeof b, lap->time);
@@ -807,6 +888,12 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
         }
     } else if (g.panel == 1) {
+        if (f1_ui()) {
+            gfx_fill(0, 0, CW, 3, PAL.cyan);
+            f1_checker(CW - 72, 4, 24, 8, 4, PAL.white, PAL.stage);
+            f1_tire(CW - 24, 23, 9, PAL.yellow, 'M');
+            gfx_text_right(CW - 40, 17, "DRS", PAL.green, 1);
+        }
         gfx_text(12, 8, "LAP", PAL.cyan, 1);
         snprintf(b2, sizeof b2, "%d", e->lap);
         gfx_text(12 + gfx_text_w("LAP ", 1), 8, b2, PAL.cyan, 1);
@@ -2142,7 +2229,7 @@ void screens_handle(const event_t *ev) {
                 }
                 return;
             }
-            if (d) { g.sel = (g.sel + d + 12) % 12; return; }
+            if (d) { g.sel = (g.sel + d + 13) % 13; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0 || g.sel == 2 || g.sel == 8) {
@@ -2166,7 +2253,14 @@ void screens_handle(const event_t *ev) {
                 else if (g.sel == 9) app_go(SC_IMU_DEBUG, 1);
                 else if (g.sel == 10) app_go(SC_GPS_DEBUG, 1);
                 else if (g.sel == 11) app_go(SC_LOCATION, 1);
-                if (g.sel <= 5 || g.sel == 7) app_save_settings();
+                else if (g.sel == 12) {
+                    g.ui_style = g.ui_style ? 0 : 1;
+                    theme_set_style(g.ui_style);
+                    theme_set(g.theme_light);
+                    gfx_set_font(g.ui_style);
+                    app_toast(g.ui_style ? "FORMULA 1 UI" : "PIXEL UI");
+                }
+                if (g.sel <= 5 || g.sel == 7 || g.sel == 12) app_save_settings();
             } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
         break;

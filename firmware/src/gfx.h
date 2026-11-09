@@ -33,6 +33,10 @@ void gfx_poly_fill(const int *xs, const int *ys, int n, uint16_t c);
 /* pixel-corner box (web .pxbox): 2px border, 3px stepped corners */
 void gfx_pxbox(int x, int y, int w, int h, uint16_t border, int filled, uint16_t fill);
 
+/* switch between the built-in 5x7 pixel font and the Formula 1 bitmap font */
+void gfx_set_font(int f1);
+int  gfx_font_is_f1(void);
+
 /* text (uppercased), integer scale */
 void gfx_text(int x, int y, const char *s, uint16_t c, int scale);
 int  gfx_text_w(const char *s, int scale);
