@@ -36,3 +36,15 @@ theme reference.
 - `ui_style = 1` changes palette, font and selected home/race chrome.
 - Switching happens immediately on the next rendered frame.
 - Track/session storage and all APIs are independent of the theme.
+
+## Preview renders
+
+Host-rendered 3x previews with the real Formula1 Display Bold and the F1 palette:
+
+- [Home](theme/f1-home.png)
+- [Race timing tower](theme/f1-race-tower.png)
+- [Race timer](theme/f1-race-timer.png)
+- [Settings / UI STYLE](theme/f1-settings.png)
+
+These are design previews; the on-device version uses the same font, palette and
+home/race layout, with live telemetry substituted for the sample values.

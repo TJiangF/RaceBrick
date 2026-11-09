@@ -152,11 +152,42 @@ static void f1_tire(int cx, int cy, int r, uint16_t ring, char compound) {
     gfx_text_center(cx, cy - 4, b, PAL.white, 0);
 }
 
-static void f1_header(const char *title, const char *tag) {
+static void f1_header(const char *title) {
     gfx_fill(0, 0, CW, 4, PAL.cyan);
     f1_checker(CW - 34, 7, 28, 12, 4, PAL.white, PAL.stage);
     gfx_text(8, 8, title, PAL.white, 2);
-    gfx_text_right(CW - 8, 0, tag, PAL.cyan, 1);
+}
+
+static void f1_icon(int kind, int x, int y, uint16_t accent) {
+    gfx_rect(x, y, 55, 55, PAL.line2);
+    gfx_fill(x + 1, y + 1, 53, 53, PAL.stage);
+    int cx = x + 27, cy = y + 27;
+    if (kind == 0) {                 /* checkered flag */
+        gfx_fill(cx - 14, cy - 17, 3, 34, accent);
+        f1_checker(cx - 7, cy - 16, 20, 20, 4, PAL.white, PAL.line2);
+    } else if (kind == 1) {          /* compass / nav */
+        int ax[4] = {cx, cx + 12, cx, cx - 12};
+        int ay[4] = {cy - 20, cy + 15, cy + 7, cy + 15};
+        gfx_poly_fill(ax, ay, 4, accent);
+        int bx[4] = {cx, cx + 4, cx, cx - 4};
+        int by[4] = {cy - 10, cy + 7, cy + 3, cy + 7};
+        gfx_poly_fill(bx, by, 4, PAL.stage);
+    } else if (kind == 2) {          /* music note */
+        gfx_disc(cx - 7, cy + 9, 10, accent);
+        gfx_fill(cx + 1, cy - 17, 4, 25, accent);
+        int ax[3] = {cx + 1, cx + 20, cx + 1};
+        int ay[3] = {cy - 17, cy - 10, cy - 4};
+        gfx_poly_fill(ax, ay, 3, accent);
+    } else {                         /* setup / gear */
+        gfx_circle(cx, cy, 13, accent);
+        gfx_circle(cx, cy, 9, accent);
+        gfx_disc(cx, cy, 4, accent);
+        for (int i = 0; i < 8; i++) {
+            float a = (float)i * (float)M_PI / 4.0f;
+            gfx_line(cx + (int)(cosf(a) * 11), cy + (int)(sinf(a) * 11),
+                     cx + (int)(cosf(a) * 20), cy + (int)(sinf(a) * 20), accent);
+        }
+    }
 }
 
 static void render_home_f1(void) {
@@ -165,9 +196,9 @@ static void render_home_f1(void) {
     for (int i = -CH; i < CW; i += 12) {
         gfx_line(i, 0, i + CH, CH, PAL.line2);
     }
-    f1_header("RACEBRICK", "PIT WALL / LIVE");
+    f1_header("RACEBRICK");
     gfx_text(10, 32, "RACE CONTROL", PAL.dim, 1);
-    f1_tire(CW - 22, 29, 9, PAL.cyan, 'S');
+    gfx_text_right(CW - 10, 32, "PIT WALL / LIVE", PAL.cyan, 1);
 
     static const char *items[4] = {"RACE", "NAV", "MEDIA", "SET"};
     static const char *nums[4] = {"01", "02", "03", "04"};
@@ -182,10 +213,10 @@ static void render_home_f1(void) {
         int y = ys[row];
         bool on = i == g.homeIndex;
         f1_panel(x, y, w, h, on, accents[i]);
-        draw_home_logo(x + 8, y + 8, i);
-        gfx_text(x + 78, y + 16, nums[i], accents[i], 2);
-        gfx_text(x + 78, y + 40, items[i], on ? PAL.white : PAL.text, 2);
-        gfx_text(x + 78, y + 61, on ? "SELECTED" : "STANDBY", on ? accents[i] : PAL.dim, 0);
+        f1_icon(i, x + 7, y + 12, accents[i]);
+        gfx_text(x + 72, y + 10, nums[i], accents[i], 2);
+        gfx_text(x + 72, y + 33, items[i], on ? PAL.white : PAL.text, 2);
+        gfx_text(x + 72, y + 55, on ? "SELECTED" : "STANDBY", on ? accents[i] : PAL.dim, 0);
         if (on) f1_checker(x + w - 18, y + h - 12, 12, 8, 4, PAL.white, PAL.cyan);
     }
     f1_checker(10, CH - 12, 44, 6, 3, PAL.white, PAL.dim);
