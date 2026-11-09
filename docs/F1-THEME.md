@@ -42,8 +42,10 @@ theme reference.
 Host-rendered 3x previews with the real Formula1 Display Bold and the F1 palette:
 
 - [Home](theme/f1-home.png)
-- [Race timing tower](theme/f1-race-tower.png)
+- [Race map / live](theme/f1-race-map.png)
 - [Race timer](theme/f1-race-timer.png)
+- [Race speed / G](theme/f1-race-speed.png)
+- [Sector splits](theme/f1-race-sectors.png)
 - [Settings / UI STYLE](theme/f1-settings.png)
 
 These are design previews; the on-device version uses the same font, palette and

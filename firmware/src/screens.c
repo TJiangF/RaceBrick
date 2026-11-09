@@ -144,14 +144,6 @@ static void f1_panel(int x, int y, int w, int h, bool on, uint16_t accent) {
     for (int i = 0; i < 7; i++) gfx_hline(x + w - 8 + i, y + i, 8 - i, PAL.stage);
 }
 
-static void f1_tire(int cx, int cy, int r, uint16_t ring, char compound) {
-    gfx_disc(cx, cy, r, PAL.surface2);
-    gfx_circle(cx, cy, r, ring);
-    gfx_circle(cx, cy, r - 2, ring);
-    char b[2] = { compound, 0 };
-    gfx_text_center(cx, cy - 4, b, PAL.white, 0);
-}
-
 static void f1_header(const char *title) {
     gfx_fill(0, 0, CW, 4, PAL.cyan);
     f1_checker(CW - 34, 7, 28, 12, 4, PAL.white, PAL.stage);
@@ -197,8 +189,7 @@ static void render_home_f1(void) {
         gfx_line(i, 0, i + CH, CH, PAL.line2);
     }
     f1_header("RACEBRICK");
-    gfx_text(10, 32, "RACE CONTROL", PAL.dim, 1);
-    gfx_text_right(CW - 10, 32, "PIT WALL / LIVE", PAL.cyan, 1);
+    gfx_text(10, 32, "MAIN MENU", PAL.dim, 1);
 
     static const char *items[4] = {"RACE", "NAV", "MEDIA", "SET"};
     static const char *nums[4] = {"01", "02", "03", "04"};
@@ -217,11 +208,8 @@ static void render_home_f1(void) {
         gfx_text(x + 72, y + 10, nums[i], accents[i], 2);
         gfx_text(x + 72, y + 33, items[i], on ? PAL.white : PAL.text, 2);
         gfx_text(x + 72, y + 55, on ? "SELECTED" : "STANDBY", on ? accents[i] : PAL.dim, 0);
-        if (on) f1_checker(x + w - 18, y + h - 12, 12, 8, 4, PAL.white, PAL.cyan);
     }
-    f1_checker(10, CH - 12, 44, 6, 3, PAL.white, PAL.dim);
-    gfx_text(62, CH - 14, "DRS ENABLED", PAL.green, 1);
-    gfx_text_right(CW - 10, CH - 14, "BOX BOX", PAL.yellow, 1);
+    gfx_text_center(CW / 2, CH - 14, "UP/DN/L/R SELECT   PUSH OPEN", PAL.dim, 0);
 }
 
 static void render_home(void) {
@@ -886,10 +874,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
     if (g.panel == 0) {
         racing_map(recorded, e, dt);
         int rx = 156;
-        if (f1_ui()) {
-            gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
-            f1_checker(CW - 30, 7, 24, 8, 4, PAL.white, PAL.stage);
-        }
+        if (f1_ui()) gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
         gfx_text(rx, 6, "LIVE", PAL.dim, 1);
         u_fmt_time(b, sizeof b, e->elapsed);
         gfx_text(rx, 20, b, PAL.white, 2);
@@ -918,13 +903,9 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             u_fmt_time(b, sizeof b, e->track->best);
             gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
         }
+        if (f1_ui()) hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else if (g.panel == 1) {
-        if (f1_ui()) {
-            gfx_fill(0, 0, CW, 3, PAL.cyan);
-            f1_checker(CW - 72, 4, 24, 8, 4, PAL.white, PAL.stage);
-            f1_tire(CW - 24, 23, 9, PAL.yellow, 'M');
-            gfx_text_right(CW - 40, 17, "DRS", PAL.green, 1);
-        }
+        if (f1_ui()) gfx_fill(0, 0, CW, 3, PAL.cyan);
         gfx_text(12, 8, "LAP", PAL.cyan, 1);
         snprintf(b2, sizeof b2, "%d", e->lap);
         gfx_text(12 + gfx_text_w("LAP ", 1), 8, b2, PAL.cyan, 1);
@@ -975,6 +956,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             gfx_text_right(CW - 12, y + 10, vals[i], c, 0);
             gfx_hline(rx, y + 22, CW - 12 - rx, PAL.line2);
         }
+        if (f1_ui()) hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else {
         gfx_fill(0, 0, CW, CH, PAL.stage);
         title_c("SECTOR SPLITS", 6);
