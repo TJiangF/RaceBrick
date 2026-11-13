@@ -1515,32 +1515,68 @@ static const char *btn_dir_name(const btn_debug_t *b) {
     return "RELEASED";
 }
 
+static void btn_arrow_box(int cx, int cy, int w, int h, int dir, bool active) {
+    uint16_t edge = active ? PAL.cyan : PAL.line;
+    uint16_t fill = active ? PAL.seltint : PAL.surface;
+    gfx_fill(cx - w / 2, cy - h / 2, w, h, fill);
+    gfx_rect(cx - w / 2, cy - h / 2, w, h, edge);
+    if (active) gfx_rect(cx - w / 2 + 2, cy - h / 2 + 2, w - 4, h - 4, PAL.cyan);
+    int ax[3], ay[3];
+    int tip = 8, wide = 10, base = 7;
+    if (dir == 0) {          /* up */
+        ax[0] = cx; ay[0] = cy - tip;
+        ax[1] = cx - wide; ay[1] = cy + base;
+        ax[2] = cx + wide; ay[2] = cy + base;
+    } else if (dir == 1) {   /* down */
+        ax[0] = cx; ay[0] = cy + tip;
+        ax[1] = cx - wide; ay[1] = cy - base;
+        ax[2] = cx + wide; ay[2] = cy - base;
+    } else if (dir == 2) {   /* left */
+        ax[0] = cx - tip - 2; ay[0] = cy;
+        ax[1] = cx + base; ay[1] = cy - wide;
+        ax[2] = cx + base; ay[2] = cy + wide;
+    } else {                 /* right */
+        ax[0] = cx + tip + 2; ay[0] = cy;
+        ax[1] = cx - base; ay[1] = cy - wide;
+        ax[2] = cx - base; ay[2] = cy + wide;
+    }
+    gfx_poly_fill(ax, ay, 3, active ? PAL.cyan : PAL.glyphoff);
+    if (active) {
+        gfx_line(ax[0], ay[0], ax[1], ay[1], PAL.white);
+        gfx_line(ax[0], ay[0], ax[2], ay[2], PAL.white);
+    }
+}
+
 static void render_btn_debug(void) {
     btn_debug_t b;
     input_debug(&b);
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("BUTTON DEBUG", 6);
-    gfx_text(6, 25, "RKJXM1015004 / V4.0", PAL.dim, 1);
-    const char *dir = btn_dir_name(&b);
-    uint16_t dc = !strcmp(dir, "RELEASED") ? PAL.dim : PAL.cyan;
-    gfx_pxbox(8, 42, CW - 16, 42, PAL.line, 1, PAL.panel);
-    gfx_text(18, 50, "DIR", PAL.dim, 1);
-    gfx_text(18, 64, dir, dc, 2);
-    gfx_text_right(CW - 20, 52, b.push ? "COMMON LOW" : "COMMON HIGH",
-                   b.push ? PAL.yellow : PAL.dim, 0);
+    title_c("BUTTON DEBUG", 5);
+    gfx_text(6, 22, "RKJXM1015004 / V4.0", PAL.dim, 1);
 
-    static const char *names[6] = {"PUSH", "UP", "DOWN", "LEFT", "RIGHT", "BACK"};
-    bool vals[6] = {b.push, b.up, b.down, b.left, b.right, b.back};
-    for (int i = 0; i < 6; i++) {
-        int y = 96 + i * 21;
-        bool on = vals[i];
-        gfx_pxbox(10, y, CW - 20, 19, on ? PAL.cyan : PAL.line, 1,
-                  on ? PAL.seltint : PAL.surface);
-        gfx_text(20, y + 6, names[i], on ? PAL.white : PAL.dim, 1);
-        gfx_text_right(CW - 20, y + 6, on ? "LOW / ACTIVE" : "HIGH",
-                       on ? (i == 0 ? PAL.yellow : PAL.cyan) : PAL.glyphoff, 0);
-    }
-    gfx_text_center(CW / 2, 224, "BACK EXIT", PAL.dim, 0);
+    bool dir = b.up || b.down || b.left || b.right;
+    int cx = CW / 2, cy = 114;
+    btn_arrow_box(cx, 56, 46, 30, 0, b.up);
+    btn_arrow_box(cx, 172, 46, 30, 1, b.down);
+    btn_arrow_box(84, cy, 46, 30, 2, b.left);
+    btn_arrow_box(CW - 84, cy, 46, 30, 3, b.right);
+
+    bool center = b.push && !dir;
+    uint16_t cfill = center ? PAL.cyan : PAL.surface;
+    uint16_t cedge = center ? PAL.white : (b.push ? PAL.yellow : PAL.line);
+    gfx_disc(cx, cy, 28, cfill);
+    gfx_circle(cx, cy, 28, cedge);
+    gfx_circle(cx, cy, 22, cedge);
+    gfx_text_center(cx, cy - 5, "PUSH", center ? PAL.white : PAL.dim, 1);
+
+    const char *ds = btn_dir_name(&b);
+    uint16_t dc = !strcmp(ds, "RELEASED") ? PAL.dim : PAL.cyan;
+    gfx_text_center(cx, 198, ds, dc, 2);
+    gfx_text(6, 216, b.push ? "COMMON LOW" : "COMMON HIGH",
+             b.push ? PAL.yellow : PAL.dim, 0);
+    gfx_text_right(CW - 6, 216, b.back ? "BACK LOW" : "BACK HIGH",
+                   b.back ? PAL.cyan : PAL.dim, 0);
+    gfx_text_center(cx, 229, "BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= CHINA MAP (flat map + GPS) ================= */

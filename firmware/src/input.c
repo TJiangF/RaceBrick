@@ -20,11 +20,11 @@ static float    s_clock = 0;
 static event_t s_q[QN];
 static int s_head = 0, s_tail = 0;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
-
-#if BTN_ENABLE
 static bool s_raw[BTN_COUNT];
 static bool s_logical[BTN_COUNT];
 static bool s_center_blocked;
+
+#if BTN_ENABLE
 static void input_scan_once(void);
 static void button_task(void *arg);
 #endif
