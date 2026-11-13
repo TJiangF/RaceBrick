@@ -1710,6 +1710,20 @@ static bool imu_win_is_stable(void) {
     return true;
 }
 
+static float imu_frac(void) {
+    float f = g.imu_progress / IMU_CALIB_MS;
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    return f;
+}
+
+static int imu_pct(void) {
+    int p = (int)(imu_frac() * 100.0f + 0.5f);
+    if (p > 100) p = 100;
+    if (p < 0) p = 0;
+    return p;
+}
+
 static void imu_bubble(void) {
     gfx_fill(0, 0, 176, CH, PAL.stage);
     float cx = 88, cy = 112, R = 74;
@@ -1730,7 +1744,7 @@ static void imu_bubble(void) {
         gfx_fill((int)bx - 1, (int)by - 1, 2, 2, PAL.mapbg);
     }
     int seg = 64;
-    float frac = g.imu_progress / IMU_CALIB_MS;
+    float frac = imu_frac();
     uint16_t arc = (g.imu_phase == 1) ? PAL.green : PAL.cyan;
     int px = 0, py = 0;
     for (int i = 0; i <= seg; i++) {
@@ -1757,8 +1771,8 @@ static void render_imu_calib(void) {
         u_fmt_f(v, sizeof v, s.gz, 1); snprintf(b, sizeof b, "GZ %s", v); gfx_text(rx, 74, b, PAL.text, 0);
     }
     gfx_rect(rx, 92, 120, 8, PAL.line);
-    gfx_fill(rx + 1, 93, (int)(118 * g.imu_progress / IMU_CALIB_MS), 6, PAL.cyan);
-    snprintf(b, sizeof b, "%d%%", (int)(g.imu_progress / IMU_CALIB_MS * 100));
+    gfx_fill(rx + 1, 93, (int)(118 * imu_frac()), 6, PAL.cyan);
+    snprintf(b, sizeof b, "%d%%", imu_pct());
     gfx_text_center(rx + 60, 104, b, PAL.cyan, 1);
     gfx_text(rx, 150, "PUSH FORCE  2xPUSH REDO", PAL.dim, 0);
     gfx_text(rx, 166, "BACK SKIP", PAL.dim, 0);
@@ -1931,6 +1945,7 @@ void screens_update(float dt) {
                 ESP_LOGI("imu", "calibrated: a(%.3f,%.3f,%.3f) g(%.1f,%.1f,%.1f)",
                          m.ax, m.ay, m.az, m.gx, m.gy, m.gz);
                 g.i_gmax = 0;
+                g.imu_progress = IMU_CALIB_MS;
                 g.imu_phase = 1;
                 g.imu_doneTimer = 0.8f;
                 app_toast("IMU CALIBRATED");
@@ -2759,7 +2774,7 @@ void screens_chrome(void) {
     case SC_TRACK_LIST: snprintf(g.status, sizeof g.status, "TRACK LIST - %d", g.ntracks); break;
     case SC_HISTORY: snprintf(g.status, sizeof g.status, g.entered ? "HISTORY - BROWSE" : "HISTORY - PUSH TO ENTER"); break;
     case SC_HISTORY_DETAIL: snprintf(g.status, sizeof g.status, "RACE DETAIL"); break;
-    case SC_IMU_CALIB: snprintf(g.status, sizeof g.status, "IMU CALIB - %s - %d%%", g.imu_phase ? "DONE" : (g.imu_stable ? "STABLE" : "MOVING"), (int)(g.imu_progress / IMU_CALIB_MS * 100));
+    case SC_IMU_CALIB: snprintf(g.status, sizeof g.status, "IMU CALIB - %s - %d%%", g.imu_phase ? "DONE" : (g.imu_stable ? "STABLE" : "MOVING"), imu_pct());
         g.statusColor = g.imu_stable ? PAL.green : PAL.yellow; break;
     case SC_LOCATION: {
         gps_state_t *gp = gps_get();
