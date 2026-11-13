@@ -584,7 +584,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[13] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE"};
+    static const char *k[14] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE", "BTN DEBUG"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -597,6 +597,7 @@ static void settings_val(int i, char *out) {
     case 7: snprintf(out, 16, "%dHz", g.gps_rate_hz); break;
     case 8: snprintf(out, 16, "0.%02dG", g.perf_trig_g100); break;
     case 12: strcpy(out, g.ui_style ? "FORMULA 1" : "PIXEL"); break;
+    case 13: strcpy(out, ">"); break;
     default: strcpy(out, ">"); break;
     }
 }
@@ -605,7 +606,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 6, h = 32;
     int start, end;
-    windowed(13, g.sel, K, &start, &end);
+    windowed(14, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -618,7 +619,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 13) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 14) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
     hint_c("UP/DN SELECT - PUSH EDIT - L/R ADJUST", HINT_Y);
 }
 
@@ -1502,6 +1503,46 @@ static void render_media(void) {
     gfx_text_center(CW / 2, 212, "LEFT PREV   RIGHT NEXT   PUSH PLAY/PAUSE", PAL.dim, 0);
 }
 
+/* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */
+static const char *btn_dir_name(const btn_debug_t *b) {
+    int n = (b->up ? 1 : 0) + (b->down ? 1 : 0) + (b->left ? 1 : 0) + (b->right ? 1 : 0);
+    if (n > 1) return "MULTI";
+    if (b->up) return "UP";
+    if (b->down) return "DOWN";
+    if (b->left) return "LEFT";
+    if (b->right) return "RIGHT";
+    if (b->push) return "CENTER";
+    return "RELEASED";
+}
+
+static void render_btn_debug(void) {
+    btn_debug_t b;
+    input_debug(&b);
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("BUTTON DEBUG", 6);
+    gfx_text(6, 25, "RKJXM1015004 / V4.0", PAL.dim, 1);
+    const char *dir = btn_dir_name(&b);
+    uint16_t dc = !strcmp(dir, "RELEASED") ? PAL.dim : PAL.cyan;
+    gfx_pxbox(8, 42, CW - 16, 42, PAL.line, 1, PAL.panel);
+    gfx_text(18, 50, "DIR", PAL.dim, 1);
+    gfx_text(18, 64, dir, dc, 2);
+    gfx_text_right(CW - 20, 52, b.push ? "COMMON LOW" : "COMMON HIGH",
+                   b.push ? PAL.yellow : PAL.dim, 0);
+
+    static const char *names[6] = {"PUSH", "UP", "DOWN", "LEFT", "RIGHT", "BACK"};
+    bool vals[6] = {b.push, b.up, b.down, b.left, b.right, b.back};
+    for (int i = 0; i < 6; i++) {
+        int y = 96 + i * 21;
+        bool on = vals[i];
+        gfx_pxbox(10, y, CW - 20, 19, on ? PAL.cyan : PAL.line, 1,
+                  on ? PAL.seltint : PAL.surface);
+        gfx_text(20, y + 6, names[i], on ? PAL.white : PAL.dim, 1);
+        gfx_text_right(CW - 20, y + 6, on ? "LOW / ACTIVE" : "HIGH",
+                       on ? (i == 0 ? PAL.yellow : PAL.cyan) : PAL.glyphoff, 0);
+    }
+    gfx_text_center(CW / 2, 224, "BACK EXIT", PAL.dim, 0);
+}
+
 /* ================= CHINA MAP (flat map + GPS) ================= */
 #define LMAP_X 4
 #define LMAP_Y 16
@@ -1714,6 +1755,7 @@ void screens_render(void) {
     case SC_HISTORY: render_history(); break;
     case SC_HISTORY_DETAIL: render_history_detail(); break;
     case SC_GPS_DEBUG: render_gps_debug(); break;
+    case SC_BTN_DEBUG: render_btn_debug(); break;
     case SC_LOCATION: render_location(); break;
     case SC_SOUND: render_sound(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
@@ -1800,6 +1842,7 @@ void screens_enter(scid_t id) {
     case SC_SOUND: g.sel = 0; break;
     case SC_IMU_DEBUG: g.i_gmax = 0; break;   /* keep the boot-pose zero offsets */
     case SC_GPS_DEBUG: gps_begin(); g.dbg_page = 0; break;
+    case SC_BTN_DEBUG: break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -2242,7 +2285,7 @@ void screens_handle(const event_t *ev) {
                 }
                 return;
             }
-            if (d) { g.sel = (g.sel + d + 13) % 13; return; }
+            if (d) { g.sel = (g.sel + d + 14) % 14; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 if (g.sel == 0 || g.sel == 2 || g.sel == 8) {
@@ -2273,6 +2316,7 @@ void screens_handle(const event_t *ev) {
                     gfx_set_font(g.ui_style);
                     app_toast(g.ui_style ? "FORMULA 1 UI" : "PIXEL UI");
                 }
+                else if (g.sel == 13) app_go(SC_BTN_DEBUG, 1);
                 if (g.sel <= 5 || g.sel == 7 || g.sel == 12) app_save_settings();
             } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
         }
@@ -2523,6 +2567,10 @@ void screens_handle(const event_t *ev) {
         }
         break;
 
+    case SC_BTN_DEBUG:
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        break;
+
     case SC_GPS_DEBUG:
         if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
             g.dbg_page = (g.dbg_page + 1) % 2;   /* switch debug sub-page */
@@ -2689,6 +2737,9 @@ void screens_chrome(void) {
                  g.set_sound_vol ? "ON" : "MUTED");
         g.statusColor = g.set_sound_vol ? PAL.green : PAL.dim;
         break;
+    case SC_BTN_DEBUG:
+        snprintf(g.status, sizeof g.status, "BUTTON DEBUG");
+        g.statusColor = PAL.cyan; break;
     case SC_IMU_DEBUG:
         snprintf(g.status, sizeof g.status, "IMU DEBUG  MPU6050 %s", g.imu_ok ? "OK" : "NOT FOUND");
         g.statusColor = g.imu_ok ? PAL.green : PAL.red;

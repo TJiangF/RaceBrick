@@ -3,7 +3,6 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_timer.h"
 
 typedef struct {
     bool  down;
@@ -23,10 +22,9 @@ static int s_head = 0, s_tail = 0;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #if BTN_ENABLE
-static bool s_deb[BTN_COUNT];           /* accepted/stable level */
-static bool s_candidate[BTN_COUNT];
-static int64_t s_candidate_us[BTN_COUNT];
-static int64_t s_lockout_us[BTN_COUNT];
+static bool s_raw[BTN_COUNT];
+static bool s_logical[BTN_COUNT];
+static bool s_center_blocked;
 static void input_scan_once(void);
 static void button_task(void *arg);
 #endif
@@ -69,11 +67,8 @@ void input_init(void) {
         };
         gpio_config(&cfg);
         int raw = gpio_get_level((gpio_num_t)pins[i]);
-        bool active = BTN_ACTIVE_LOW ? !raw : !!raw;
-        s_deb[i] = active;
-        s_candidate[i] = active;
-        s_candidate_us[i] = esp_timer_get_time();
-        s_lockout_us[i] = 0;
+        s_raw[i] = BTN_ACTIVE_LOW ? !raw : !!raw;
+        s_logical[i] = s_raw[i];
     }
     xTaskCreate(button_task, "buttons", 3072, NULL, 5, NULL);
 #endif
@@ -162,33 +157,51 @@ bool input_is_down(btn_id_t b) {
     return down;
 }
 
+void input_debug(btn_debug_t *out) {
+    if (!out) return;
+    portENTER_CRITICAL(&s_lock);
+    out->push = s_raw[BTN_PUSH];
+    out->up = s_raw[BTN_UP];
+    out->down = s_raw[BTN_DOWN];
+    out->left = s_raw[BTN_LEFT];
+    out->right = s_raw[BTN_RIGHT];
+    out->back = s_raw[BTN_BACK];
+    portEXIT_CRITICAL(&s_lock);
+}
+
 #if BTN_ENABLE
 static void input_scan_once(void) {
     const int pins[BTN_COUNT] = {PIN_BTN_UP, PIN_BTN_DOWN, PIN_BTN_LEFT,
                                  PIN_BTN_RIGHT, PIN_BTN_PUSH, PIN_BTN_BACK};
-    int64_t now = esp_timer_get_time();
+    bool raw[BTN_COUNT];
     for (int i = 0; i < BTN_COUNT; i++) {
-        int raw = gpio_get_level((gpio_num_t)pins[i]);
-        bool active = BTN_ACTIVE_LOW ? !raw : !!raw;
+        int level = gpio_get_level((gpio_num_t)pins[i]);
+        raw[i] = BTN_ACTIVE_LOW ? !level : !!level;
+    }
+    /* RKJXM1015004: PUSH is the common line and is low for center + every
+     * direction. Only a PUSH with no direction is a real center press. */
+    bool dir = raw[BTN_UP] || raw[BTN_DOWN] || raw[BTN_LEFT] || raw[BTN_RIGHT];
+    /* A direction pulls the common PUSH line low too. Do not let the release
+     * sequence generate a phantom center press: center must be re-armed by
+     * fully releasing PUSH after a direction. */
+    if (dir) s_center_blocked = true;
+    if (!raw[BTN_PUSH]) s_center_blocked = false;
+    bool logical[BTN_COUNT];
+    logical[BTN_UP] = raw[BTN_UP];
+    logical[BTN_DOWN] = raw[BTN_DOWN];
+    logical[BTN_LEFT] = raw[BTN_LEFT];
+    logical[BTN_RIGHT] = raw[BTN_RIGHT];
+    logical[BTN_PUSH] = raw[BTN_PUSH] && !dir && !s_center_blocked;
+    logical[BTN_BACK] = raw[BTN_BACK];
 
-        if (active == s_deb[i]) {
-            s_candidate[i] = active;
-            s_candidate_us[i] = now;
-            continue;
-        }
-        if (active != s_candidate[i]) {
-            s_candidate[i] = active;
-            s_candidate_us[i] = now;
-            continue;
-        }
-        int need_ms = active ? DEBOUNCE_PRESS_MS : DEBOUNCE_RELEASE_MS;
-        if (now - s_candidate_us[i] < (int64_t)need_ms * 1000 ||
-            now < s_lockout_us[i]) {
-            continue;
-        }
-        s_deb[i] = active;
-        s_lockout_us[i] = now + (int64_t)DEBOUNCE_LOCKOUT_MS * 1000;
-        if (active) input_press((btn_id_t)i);
+    portENTER_CRITICAL(&s_lock);
+    for (int i = 0; i < BTN_COUNT; i++) s_raw[i] = raw[i];
+    portEXIT_CRITICAL(&s_lock);
+
+    for (int i = 0; i < BTN_COUNT; i++) {
+        if (logical[i] == s_logical[i]) continue;
+        s_logical[i] = logical[i];
+        if (logical[i]) input_press((btn_id_t)i);
         else input_release((btn_id_t)i);
     }
 }
@@ -197,7 +210,7 @@ static void button_task(void *arg) {
     (void)arg;
     for (;;) {
         input_scan_once();
-        vTaskDelay(pdMS_TO_TICKS(1));   /* 1 kHz scan: enough for 12/28 ms debounce */
+        vTaskDelay(pdMS_TO_TICKS(1));   /* hardware RC debounce; no software filter */
     }
 }
 

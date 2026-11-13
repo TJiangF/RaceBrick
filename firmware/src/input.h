@@ -21,6 +21,12 @@ typedef struct {
     float     t;
 } event_t;
 
+/* Raw V4.0 joystick state for the settings debug page. PUSH is the common
+ * contact and is low for center + every direction. */
+typedef struct {
+    bool push, up, down, left, right, back;
+} btn_debug_t;
+
 void input_init(void);
 void input_tick(float dt_ms);
 void input_poll_hw(void);              /* kept for compatibility; BTN_ENABLE uses a 1 kHz task */
@@ -28,3 +34,4 @@ void input_press(btn_id_t b);
 void input_release(btn_id_t b);
 bool input_pop(event_t *out);
 bool input_is_down(btn_id_t b);
+void input_debug(btn_debug_t *out);

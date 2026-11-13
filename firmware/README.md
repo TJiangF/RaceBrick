@@ -12,12 +12,12 @@ pio run -t upload --upload-port /dev/cu.wchusbserial1140   # 端口以实际为�
 pio device monitor -b 115200              # 串口日志
 ```
 
-## 硬件（生产板 Rev.C）
+## 硬件（生产板 V4.0）
 
 | 功能 | 引脚 |
 |---|---|
-| LCD ST7789 CS / SCK / MISO / MOSI / DC / BL | 12 / 13 / 14 / 21 / 10 / 11 |
-| 五向开关 UP / DOWN / LEFT / RIGHT / PUSH / BACK | 8 / 17 / 15 / 18 / 16 / 5（低电平有效） |
+| LCD ST7789 CS / SCK / MOSI / DC / BL | 11 / 12 / 13 / 14 / 21（MISO 未接） |
+| 五向开关 UP / DOWN / LEFT / RIGHT / PUSH / BACK | 15 / 18 / 17 / 8 / 16 / 5（低电平有效） |
 | I2C SCL / SDA（MPU6050 @0x68） | 7 / 6 |
 | MPU6050 INT | 4 |
 | GNSS NEO-M9N：ESP TX / ESP RX / TP | 19 / 20 / 9（`NEO-RX`=ESP TX，`NEO-TX`=ESP RX） |
@@ -84,7 +84,15 @@ pio device monitor -b 115200              # 串口日志
 - 完成判定：受 **GPS 速度更新率**限制（10/25 Hz → 40–100 ms）与速度精度（~0.1 m/s）。
 - 结论：计时器本身很准，实际误差主要来自 GPS 速度采样率；**25 Hz 下 0-100 典型误差约 ±40–60 ms**。
 
-## 外置 Flash 赛道/比赛存储（Rev.C）
+## 按钮调试（V4.0）
+
+- V4.0 使用 RKJXM1015004 五向开关：方向被按下时，PUSH 公共端和对应方向脚同时拉低；只有 PUSH 单独为低才是中心按下。
+- 固件只在 `PUSH 低 + 方向全高` 时产生 PUSH 事件，方向事件由方向脚产生，避免方向操作误触发中心键。
+- V4.0 已有硬件电容防抖，固件移除了软件防抖延时，只保留 1 kHz 边沿扫描。
+- `SETTINGS > BTN DEBUG` 可查看 PUSH/UP/DOWN/LEFT/RIGHT/BACK 的实时电平和当前方向，便于核对焊接/方向映射。
+- BACK 仍沿用 GPIO5；如果 V4.0 主板取消了独立 BACK，需要再确认映射。
+
+## 外置 Flash 赛道/比赛存储（V4.0）
 
 - 外置 W25Q128 16 MiB 已启用，JEDEC `EF 40 18`。
 - 赛道区：`0x000000–0x100000`，256 × 4 KiB 槽；每槽保存 360 点赛道几何、GPS 原点/变换、起终线、sections、名称和 hash。

@@ -4,14 +4,14 @@
  */
 #pragma once
 
-/* ---------------- ST7789 wiring (production board Rev.C) ----------------
- * CS-io12  SCK-io13  MISO-io14(unused)  MOSI-io21  DC-io10  BL-io11 */
-#define LCD_MOSI   21
-#define LCD_SCLK   13
-#define LCD_CS     12
-#define LCD_DC     10
+/* ---------------- ST7789 wiring (production board V4.0) ----------------
+ * CS-io11  SCK-io12  MOSI-io13  DC-io14  BL-io21 (MISO is not wired) */
+#define LCD_MOSI   13
+#define LCD_SCLK   12
+#define LCD_CS     11
+#define LCD_DC     14
 #define LCD_RST    (-1)   /* not wired; software reset only */
-#define LCD_BL     11
+#define LCD_BL     21
 
 #define LCD_HOST    SPI2_HOST
 #define LCD_PCLK_HZ (40 * 1000 * 1000)
@@ -52,24 +52,20 @@
 #define LCD_GAP_X    0
 #define LCD_GAP_Y    0
 
-/* ---------------- input: 5-way + separate back, Rev.C ----------------
- * Up-io8  Down-io17  Left-io15  Right-io18  Push-io16  Back-io5
- * Set BTN_ENABLE to 1 to use the real buttons.
- * With BTN_ENABLE 0 the firmware runs a scripted autoplay demo. */
+/* ---------------- input: RKJXM1015004 5-way + back, V4.0 ----------------
+ * Up-io15  Down-io18  Left-io17  Right-io8  Push-io16  Back-io5
+ * The stick common pulls PUSH low for every direction. Direction events are
+ * decoded from the direction pins; PUSH is emitted only when no direction is
+ * active (true center press). Hardware RC debounce is fitted on V4.0, so the
+ * firmware performs edge detection only, with no software debounce delay. */
 #define BTN_ENABLE   1
-#define PIN_BTN_UP    8
-#define PIN_BTN_DOWN 17
-#define PIN_BTN_LEFT 18   /* swapped to match physical labels */
-#define PIN_BTN_RIGHT 15
+#define PIN_BTN_UP    15
+#define PIN_BTN_DOWN 18
+#define PIN_BTN_LEFT 17
+#define PIN_BTN_RIGHT 8
 #define PIN_BTN_PUSH 16
 #define PIN_BTN_BACK  5
 #define BTN_ACTIVE_LOW 1
-/* No RC capacitor on the button lines: scan at 1 kHz and require a stable
- * level before accepting an edge. Press is deliberately faster than release
- * so taps feel immediate while release chatter cannot create extra presses. */
-#define DEBOUNCE_PRESS_MS   12
-#define DEBOUNCE_RELEASE_MS 28
-#define DEBOUNCE_LOCKOUT_MS 10
 
 /* Keep the RaceBrick-XXXX SoftAP available even without saved home WiFi, so
  * the phone can connect directly for track/session sync. */
