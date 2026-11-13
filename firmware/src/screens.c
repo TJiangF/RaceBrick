@@ -135,11 +135,24 @@ static void f1_checker(int x, int y, int w, int h, int cell, uint16_t a, uint16_
     }
 }
 
+static uint16_t f1_dark(uint16_t c, int pct) {
+    int r = (c >> 11) & 0x1f, g = (c >> 5) & 0x3f, b = c & 0x1f;
+    r = r * pct / 100; g = g * pct / 100; b = b * pct / 100;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
 static void f1_panel(int x, int y, int w, int h, bool on, uint16_t accent) {
-    gfx_fill(x, y, w, h, PAL.panel);
+    if (on) {
+        /* Drop shadow + a deeper accent wash make the selected card read as
+         * a physical foreground tile instead of just another outline. */
+        gfx_fill(x + 5, y + 6, w, h, f1_dark(accent, 10));
+        gfx_fill(x + 2, y + 3, w, h, f1_dark(accent, 5));
+    }
+    gfx_fill(x, y, w, h, on ? f1_dark(accent, 24) : PAL.panel);
     gfx_rect(x, y, w, h, on ? accent : PAL.line);
+    if (on) gfx_rect(x + 1, y + 1, w - 2, h - 2, f1_dark(accent, 55));
     gfx_fill(x, y, 4, h, accent);
-    gfx_fill(x + 4, y, w - 4, 2, on ? PAL.white : PAL.line2);
+    gfx_fill(x + 4, y, w - 4, on ? 3 : 2, on ? PAL.white : PAL.line2);
     /* small clipped top-right corner, the F1 broadcast-card cue */
     for (int i = 0; i < 7; i++) gfx_hline(x + w - 8 + i, y + i, 8 - i, PAL.stage);
 }
