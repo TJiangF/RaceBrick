@@ -568,6 +568,9 @@ static void settings_load(void) {
     }
     if (nvs_get_i32(h, "navfull", &v) == ESP_OK) g.nav_full = v ? 1 : 0;
     if (nvs_get_i32(h, "ptrig", &v) == ESP_OK) g.perf_trig_g100 = v;
+    if (nvs_get_i32(h, "pmode", &v) == ESP_OK) g.perf_mode = v < 0 ? 0 : (v > 2 ? 2 : v);
+    if (nvs_get_i32(h, "pa", &v) == ESP_OK) g.perf_speed_a = v;
+    if (nvs_get_i32(h, "pb", &v) == ESP_OK) g.perf_speed_b = v;
     nvs_close(h);
 }
 
@@ -592,6 +595,9 @@ void app_save_settings(void) {
     nvs_set_i32(h, "navzidx", g.nav_zoom);
     nvs_set_i32(h, "navfull", g.nav_full);
     nvs_set_i32(h, "ptrig", g.perf_trig_g100);
+    nvs_set_i32(h, "pmode", g.perf_mode);
+    nvs_set_i32(h, "pa", g.perf_speed_a);
+    nvs_set_i32(h, "pb", g.perf_speed_b);
     nvs_commit(h);
     nvs_close(h);
 }
@@ -614,6 +620,8 @@ void app_init(void) {
     g.nav_zoom = NAV_ZOOM_DEFAULT;
     g.nav_full = 0;
     g.perf_trig_g100 = START_PERF_TRIG;
+    g.perf_speed_a = 60;
+    g.perf_speed_b = 160;
     g.theme_light = START_THEME_LIGHT ? 1 : 0;
     g.ui_style = 0;
     /* load persisted settings */

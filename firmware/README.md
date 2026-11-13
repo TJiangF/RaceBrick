@@ -180,3 +180,12 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - 启动不再执行 WiFi AP 扫描；WiFi 扫描只在 `WIFI SETUP` 的 `/api/scan` 按需触发，节省约 3 秒。
 - GPS 启动轮询从 40×20ms 降为 5×20ms，后续在主循环继续喂数据。
 - 当前实测首次 UI 约 4.6 秒（旧版约 8.0 秒）；剩余主要耗时是外置 Flash 256 槽扫描和 IMU 稳定校准。
+
+## Performance 自定义速度区间
+
+- PERFORMANCE 有 `0-100`、`100-0`、`CUSTOM` 三种模式。
+- 已进入页面后 `2x PUSH` 循环模式。
+- CUSTOM 下 `UP/DOWN` 选择 START/END，`LEFT/RIGHT` 每次调整 10 km/h，`PUSH` 开始/取消。
+- START < END 时按加速逻辑：速度从下方穿过 START 且前向加速度为正时抓取起点，达到 END 停止。
+- START > END 时按减速逻辑：速度从上方穿过 START 且前向减速度足够时抓取起点，降到 END 停止。
+- 区间和模式写入 NVS，重启后保留。

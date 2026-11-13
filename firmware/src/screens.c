@@ -300,17 +300,23 @@ static void render_nav_menu(void) {
 
 /* ================= PERFORMANCE (0-100 / 100-0) ================= */
 static float s_perf_g = 0;
+static float s_perf_prev_spd = 0;
 
-/* Read horizontal acceleration magnitude. Using magnitude (instead of one
- * signed axis) makes the launch/brake trigger independent of mounting sign and
- * of which horizontal axis carries the forward acceleration. */
-static bool perf_read_g(float *gmag) {
+/* Signed forward acceleration is needed for custom ranges: accelerating
+ * custom ranges trigger on positive G, decelerating ranges on negative G. */
+static bool perf_read_g2(float *gmag, float *gfwd) {
     float ax, ay, az, gx, gy, gz, tp;
     if (!g.imu_ok || !mpu6050_read(&ax, &ay, &az, &gx, &gy, &gz, &tp)) return false;
     float hr, hf, hu;
     if (!app_imu_axes(ax, ay, az, &hr, &hf, &hu)) return false;
+    *gfwd = hf;
     *gmag = sqrtf(hr * hr + hf * hf);
     return true;
+}
+
+static bool perf_read_g(float *gmag) {
+    float gfwd;
+    return perf_read_g2(gmag, &gfwd);
 }
 
 static void perf_update(float dt) {
@@ -318,9 +324,11 @@ static void perf_update(float dt) {
     gps_state_t *gp = gps_get();
     float spd = gp->speed_kmh;
 
-    float live_g = 0;
-    perf_read_g(&live_g);
+    float live_g = 0, live_fwd = 0;
+    perf_read_g2(&live_g, &live_fwd);
     s_perf_g = live_g;
+    float prev_spd = s_perf_prev_spd;
+    s_perf_prev_spd = spd;
 
     if (g.perf_state == 1) {
         /* Fast-poll the IMU for a precise launch/brake timestamp (~2 ms).
@@ -331,8 +339,25 @@ static void perf_update(float dt) {
             if (perf_read_g(&gm)) {
                 s_perf_g = gm;
                 float th = (float)g.perf_trig_g100 / 100.0f;
-                bool trig = (g.perf_mode == 0) ? (gm > th)
-                                               : (spd > 30.0f && gm > PERF_BRAKE_G);
+                bool trig = false;
+                if (g.perf_mode == 0) {
+                    trig = gm > th;
+                } else if (g.perf_mode == 1) {
+                    trig = (spd > 30.0f && gm > PERF_BRAKE_G);
+                } else {
+                    int a = g.perf_speed_a, b = g.perf_speed_b;
+                    bool accel = a < b;
+                    if (accel) {
+                        trig = ((prev_spd <= (float)a && spd > (float)a) ||
+                                (spd >= (float)a && spd <= (float)a + 5.0f)) &&
+                               (live_fwd > th);
+                    } else {
+                        trig = ((prev_spd >= (float)a && spd < (float)a) ||
+                                (spd <= (float)a && spd >= (float)a - 5.0f)) &&
+                               (live_fwd < -PERF_BRAKE_G);
+                    }
+                    if (a == b) trig = false;
+                }
                 if (trig) {
                     g.perf_t0_us = esp_timer_get_time();
                     g.perf_speed0 = spd;
@@ -346,7 +371,13 @@ static void perf_update(float dt) {
         }
     } else if (g.perf_state == 2) {
         g.perf_time = (float)(esp_timer_get_time() - g.perf_t0_us) / 1e6f;
-        bool done = (g.perf_mode == 0) ? (spd >= 100.0f) : (spd <= 1.0f);
+        bool done;
+        if (g.perf_mode == 0) done = spd >= 100.0f;
+        else if (g.perf_mode == 1) done = spd <= 1.0f;
+        else {
+            int a = g.perf_speed_a, b = g.perf_speed_b;
+            done = (a < b) ? (spd >= (float)b) : (spd <= (float)b);
+        }
         if (done) g.perf_state = 3;
         else if (g.perf_time > 30.0f) { g.perf_state = 0; g.perf_time = 0; }
     }
@@ -358,20 +389,40 @@ static void render_perf(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     gfx_text(6, 2, "PERFORMANCE", PAL.cyan, 1);
 
-    panel_box(10, 24, 145, 30, g.perf_mode == 0, false);
-    panel_box(165, 24, 145, 30, g.perf_mode == 1, false);
-    gfx_text_center(82, 34, "0-100", g.perf_mode == 0 ? PAL.cyan : PAL.dim, 1);
-    gfx_text_center(237, 34, "100-0", g.perf_mode == 1 ? PAL.cyan : PAL.dim, 1);
+    const int mw = 94, mg = 6, mx[3] = {10, 110, 210};
+    static const char *modes[3] = {"0-100", "100-0", "CUSTOM"};
+    for (int i = 0; i < 3; i++) {
+        panel_box(mx[i], 24, mw, 27, g.perf_mode == i, false);
+        gfx_text_center(mx[i] + mw / 2, 34, modes[i],
+                        g.perf_mode == i ? PAL.cyan : PAL.dim, 1);
+    }
 
-    gfx_text(18, 68, "SPEED", PAL.dim, 0);
+    if (g.perf_mode == 2) {
+        bool sel_a = g.sel == 0;
+        panel_box(10, 57, 144, 26, sel_a, false);
+        panel_box(166, 57, 144, 26, !sel_a, false);
+        gfx_text(20, 65, "START", sel_a ? PAL.white : PAL.dim, 0);
+        gfx_text(166 + 10, 65, "END", !sel_a ? PAL.white : PAL.dim, 0);
+        snprintf(b, sizeof b, "%d", g.perf_speed_a);
+        gfx_text_right(148, 64, b, sel_a ? PAL.cyan : PAL.text, 1);
+        snprintf(b, sizeof b, "%d", g.perf_speed_b);
+        gfx_text_right(304, 64, b, !sel_a ? PAL.cyan : PAL.text, 1);
+        gfx_text(10, 84, g.perf_speed_a < g.perf_speed_b ? "ACCELERATE" : "DECELERATE",
+                 PAL.green, 0);
+    }
+
+    int sy = g.perf_mode == 2 ? 96 : 80;
+    if (g.perf_mode != 2) gfx_text(18, 68, "SPEED", PAL.dim, 0);
+    else gfx_text(18, 96, "SPEED", PAL.dim, 0);
     snprintf(b, sizeof b, "%d", (int)lroundf(gp->speed_kmh));
-    gfx_text(14, 80, b, PAL.white, 5);
-    gfx_text(72, 126, "KM/H", PAL.dim, 1);
+    gfx_text(14, sy + 12, b, PAL.white, 5);
+    gfx_text(72, sy + 58, "KM/H", PAL.dim, 1);
 
-    gfx_text(186, 68, "TIME", PAL.dim, 0);
+    if (g.perf_mode != 2) gfx_text(186, 68, "TIME", PAL.dim, 0);
+    else gfx_text(186, 96, "TIME", PAL.dim, 0);
     float t = (g.perf_state == 2) ? (float)(esp_timer_get_time() - g.perf_t0_us) / 1e6f : g.perf_time;
     snprintf(b, sizeof b, "%.3f", t);
-    gfx_text(182, 80, b, g.perf_state == 3 ? PAL.gold : PAL.white, 4);
+    gfx_text(182, sy + 12, b, g.perf_state == 3 ? PAL.gold : PAL.white, 4);
 
     bool has_fix = (gp->fix_type >= 1 && gp->has_pos);
     const char *st;
@@ -379,7 +430,11 @@ static void render_perf(void) {
     if (!g.entered) { st = "PUSH TO ENTER"; sc = PAL.yellow; }
     else if (!has_fix) { st = "NEED GPS FIX"; sc = PAL.red; }
     else switch (g.perf_state) {
-    case 1: st = (g.perf_mode == 0) ? "ARMED - LAUNCH!" : "ARMED - BRAKE!"; sc = PAL.yellow; break;
+    case 1:
+        if (g.perf_mode == 0) { st = "ARMED - LAUNCH!"; sc = PAL.yellow; }
+        else if (g.perf_mode == 1) { st = "ARMED - BRAKE!"; sc = PAL.yellow; }
+        else { st = (g.perf_speed_a < g.perf_speed_b) ? "ARMED - ACCEL!" : "ARMED - BRAKE!"; sc = PAL.yellow; }
+        break;
     case 2: st = "RUNNING"; sc = PAL.cyan; break;
     case 3: st = "DONE"; sc = PAL.gold; break;
     default: st = "PUSH TO ARM"; sc = PAL.dim; break;
@@ -389,7 +444,8 @@ static void render_perf(void) {
     gfx_text_center(CW / 2, 170, st, sc, 1);
     if (!g.entered) gfx_text(6, HINT_Y, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
     else if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
-    else gfx_text(6, HINT_Y, "LEFT/RIGHT MODE - PUSH ARM - BACK", PAL.dim, 0);
+    else if (g.perf_mode == 2) gfx_text(6, HINT_Y, "UP/DN SELECT  L/R ADJUST  2xPUSH MODE", PAL.dim, 0);
+    else gfx_text(6, HINT_Y, "LEFT/RIGHT MODE - 2xPUSH CUSTOM - PUSH ARM", PAL.dim, 0);
 }
 
 /* ================= LOCATION (real-time pixel road map) ================= */
@@ -1855,7 +1911,7 @@ void screens_enter(scid_t id) {
     case SC_SETTINGS: g.sel = 0; g.entered = false; g.set_edit = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
-    case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; break;
+    case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; g.sel = 0; break;
     case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
     case SC_PHONE: g.entered = false; break;
     case SC_MEDIA: g.entered = false; s_media_hit = -1; break;
@@ -2282,15 +2338,53 @@ void screens_handle(const event_t *ev) {
             else if (ev->button == BTN_BACK) app_go_home_to(0);
             break;
         }
+        if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH && g.perf_state != 2) {
+            g.perf_mode = (g.perf_mode + 1) % 3;
+            g.perf_state = 0; g.perf_time = 0;
+            app_save_settings();
+            app_toast(g.perf_mode == 0 ? "MODE 0-100" : g.perf_mode == 1 ? "MODE 100-0" : "MODE CUSTOM");
+            break;
+        }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
-            if (g.perf_state != 2) { g.perf_mode ^= 1; g.perf_state = 0; g.perf_time = 0; }
+        if (g.perf_mode == 2 && g.perf_state != 2 &&
+            (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
+            g.sel ^= 1;
+            app_toast(g.sel == 0 ? "EDIT START" : "EDIT END");
+        } else if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
+            if (g.perf_state != 2) {
+                int dir = ev->button == BTN_RIGHT ? 10 : -10;
+                if (g.perf_mode == 2) {
+                    if (g.sel == 0) g.perf_speed_a += dir;
+                    else g.perf_speed_b += dir;
+                    if (g.perf_speed_a < 0) g.perf_speed_a = 0;
+                    if (g.perf_speed_a > 300) g.perf_speed_a = 300;
+                    if (g.perf_speed_b < 0) g.perf_speed_b = 0;
+                    if (g.perf_speed_b > 300) g.perf_speed_b = 300;
+                    g.perf_state = 0; g.perf_time = 0;
+                    app_save_settings();
+                    app_toast(g.sel == 0 ? "START SPEED" : "END SPEED");
+                } else {
+                    g.perf_mode = g.perf_mode ? 0 : 1;
+                    g.perf_state = 0; g.perf_time = 0;
+                    app_save_settings();
+                }
+            }
         } else if (ev->button == BTN_PUSH) {
             bool fix = (gps_get()->fix_type >= 1 && gps_get()->has_pos);
             if (g.perf_state == 0 || g.perf_state == 3) {
                 if (!fix) { app_toast("NEED GPS FIX"); app_go(SC_GPS_DEBUG, 1); break; }
+                if (g.perf_mode == 2 && g.perf_speed_a == g.perf_speed_b) {
+                    app_toast("START = END"); break;
+                }
                 g.perf_state = 1; g.perf_time = 0; g.perf_trig_cnt = 0;
-                app_toast(g.perf_mode == 0 ? "ARMED - LAUNCH" : "ARMED - BRAKE");
+                g.perf_speed0 = gps_get()->speed_kmh;
+                s_perf_prev_spd = g.perf_speed0;
+                bool accel = g.perf_mode == 0 ||
+                    (g.perf_mode == 2 && g.perf_speed_a < g.perf_speed_b);
+                if (g.perf_mode == 1 || (g.perf_mode == 2 && !accel))
+                    app_toast("ARMED - BRAKE");
+                else
+                    app_toast("ARMED - ACCEL");
             } else {
                 g.perf_state = 0; g.perf_time = 0; app_toast("CANCELLED");
             }
@@ -2748,10 +2842,15 @@ void screens_chrome(void) {
     case SC_HOME: snprintf(g.status, sizeof g.status, "MAIN MENU"); break;
     case SC_RACE_MENU: snprintf(g.status, sizeof g.status, "RACE MENU"); break;
     case SC_NAV_MENU: snprintf(g.status, sizeof g.status, "NAVIGATION MENU"); break;
-    case SC_PERF:
-        snprintf(g.status, sizeof g.status, "PERF %s  %s", g.perf_mode == 0 ? "0-100" : "100-0",
+    case SC_PERF: {
+        char mode[24];
+        if (g.perf_mode == 0) strcpy(mode, "0-100");
+        else if (g.perf_mode == 1) strcpy(mode, "100-0");
+        else snprintf(mode, sizeof mode, "%d-%d", g.perf_speed_a, g.perf_speed_b);
+        snprintf(g.status, sizeof g.status, "PERF %s  %s", mode,
                  g.perf_state == 0 ? "READY" : g.perf_state == 1 ? "ARMED" : g.perf_state == 2 ? "RUNNING" : "DONE");
         break;
+    }
     case SC_NAV:
         snprintf(g.status, sizeof g.status, "LOCATION  %.0f KM/H  %s  %s",
                  gps_get()->speed_kmh, netcfg_connected() ? "WIFI" : "NO WIFI",

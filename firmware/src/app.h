@@ -107,7 +107,9 @@ typedef struct {
     int    rec_laps;           /* completed laps */
 
     /* performance tests (0-100 / 100-0) */
-    int     perf_mode;         /* 0 = 0-100, 1 = 100-0 */
+    int     perf_mode;         /* 0 = 0-100, 1 = 100-0, 2 = custom range */
+    int     perf_speed_a;      /* custom start speed km/h */
+    int     perf_speed_b;      /* custom end speed km/h */
     int     perf_state;        /* 0 idle, 1 armed, 2 running, 3 done */
     int64_t perf_t0_us;
     float   perf_time;
