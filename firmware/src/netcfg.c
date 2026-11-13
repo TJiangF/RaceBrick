@@ -711,8 +711,8 @@ void netcfg_start_ap(void) {
     esp_err_t tx = esp_wifi_set_max_tx_power(WIFI_AP_TX_POWER_QDBM);
     ESP_LOGI(TAG, "AP TX power set %d qdBm: %s", WIFI_AP_TX_POWER_QDBM, esp_err_to_name(tx));
 
-    /* scan while the STA is idle (scanning while connecting returns nothing) */
-    do_scan();
+    /* No boot-time AP scan: /api/scan performs it on demand for WiFi Setup.
+     * Scanning here blocked the first UI frame for ~3 s. */
     start_httpd();
     ESP_LOGI(TAG, "SoftAP '%s' up, open http://192.168.4.1 (scan: %d APs)", s_ap_ssid, s_naps);
 

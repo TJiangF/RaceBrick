@@ -48,9 +48,19 @@ static void selftest(void) {
 }
 #endif
 
+static void boot_splash(void) {
+    gfx_clear(0);
+    gfx_text_center(LCD_W / 2, 84, "RACEBRICK", RGB565(0xf2, 0xf2, 0xf5), 3);
+    gfx_text_center(LCD_W / 2, 128, "BOOTING", RGB565(0x76, 0x7b, 0x84), 1);
+    gfx_text_center(LCD_W / 2, 164, "PLEASE WAIT", RGB565(0x66, 0xe0, 0xd2), 1);
+    lcd_flush(gfx_fb());
+    lcd_set_brightness(START_BRIGHTNESS);
+}
+
 void app_main(void) {
     lcd_init();
     gfx_init();
+    boot_splash();
 #if LCD_SELFTEST
     gfx_reset_view();
     selftest();
@@ -65,7 +75,7 @@ void app_main(void) {
 #endif
     /* GPS bring-up over UART (ESP RX=20, TX=19 @ 38400) */
     gps_begin();
-    for (int i = 0; i < 40; i++) { gps_poll(); vTaskDelay(pdMS_TO_TICKS(20)); }
+    for (int i = 0; i < 5; i++) { gps_poll(); vTaskDelay(pdMS_TO_TICKS(20)); }
 
     battery_init();
     input_init();

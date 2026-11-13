@@ -173,3 +173,10 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - F1 chrome: carbon texture, timing-tower lap rows, team-colour cards, tyre
   compound marker, DRS/BOX strips, purple fastest rows, checkered flag.
 - See `../docs/F1-THEME.md` for attribution and generator details.
+
+## 启动时间
+
+- LCD 初始化后先关闭背光，立即绘制 `BOOTING` 启动画面并 flush，再打开背光，避免随机 GRAM 花屏。
+- 启动不再执行 WiFi AP 扫描；WiFi 扫描只在 `WIFI SETUP` 的 `/api/scan` 按需触发，节省约 3 秒。
+- GPS 启动轮询从 40×20ms 降为 5×20ms，后续在主循环继续喂数据。
+- 当前实测首次 UI 约 4.6 秒（旧版约 8.0 秒）；剩余主要耗时是外置 Flash 256 槽扫描和 IMU 稳定校准。
