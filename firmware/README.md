@@ -184,8 +184,8 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 ## Performance 自定义速度区间
 
 - PERFORMANCE 有 `0-100`、`100-0`、`CUSTOM` 三种模式。
-- 已进入页面后 `2x PUSH` 循环模式。
-- CUSTOM 下 `UP/DOWN` 选择 START/END，`LEFT/RIGHT` 每次调整 10 km/h，`PUSH` 开始/取消。
+- `LEFT/RIGHT` 循环 `0-100 → 100-0 → CUSTOM`。
+- CUSTOM 下 `UP/DOWN` 调整当前速度值（每次 10 km/h），长按 `PUSH` 切换 START/END，短按 `PUSH` 开始/取消。
 - START < END 时按加速逻辑：速度从下方穿过 START 且前向加速度为正时抓取起点，达到 END 停止。
 - START > END 时按减速逻辑：速度从上方穿过 START 且前向减速度足够时抓取起点，降到 END 停止。
 - 区间和模式写入 NVS，重启后保留。

@@ -444,8 +444,8 @@ static void render_perf(void) {
     gfx_text_center(CW / 2, 170, st, sc, 1);
     if (!g.entered) gfx_text(6, HINT_Y, "PUSH ENTER - UP/DN PAGE - BACK", PAL.dim, 0);
     else if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
-    else if (g.perf_mode == 2) gfx_text(6, HINT_Y, "UP/DN SELECT  L/R ADJUST  2xPUSH MODE", PAL.dim, 0);
-    else gfx_text(6, HINT_Y, "LEFT/RIGHT MODE - 2xPUSH CUSTOM - PUSH ARM", PAL.dim, 0);
+    else if (g.perf_mode == 2) gfx_text(6, HINT_Y, "L/R MODE  UP/DN VALUE  HOLD PUSH START/END", PAL.dim, 0);
+    else gfx_text(6, HINT_Y, "L/R MODE - PUSH ARM - BACK", PAL.dim, 0);
 }
 
 /* ================= LOCATION (real-time pixel road map) ================= */
@@ -2338,37 +2338,35 @@ void screens_handle(const event_t *ev) {
             else if (ev->button == BTN_BACK) app_go_home_to(0);
             break;
         }
-        if (ev->type == EV_DOUBLE && ev->button == BTN_PUSH && g.perf_state != 2) {
-            g.perf_mode = (g.perf_mode + 1) % 3;
-            g.perf_state = 0; g.perf_time = 0;
-            app_save_settings();
-            app_toast(g.perf_mode == 0 ? "MODE 0-100" : g.perf_mode == 1 ? "MODE 100-0" : "MODE CUSTOM");
+        /* Long PUSH chooses the START/END field in CUSTOM. L/R always cycles
+         * modes; UP/DOWN adjusts the selected custom value. */
+        if (g.perf_mode == 2 && g.perf_state != 2 &&
+            ev->type == EV_LONG && ev->button == BTN_PUSH) {
+            g.sel ^= 1;
+            app_toast(g.sel == 0 ? "EDIT START" : "EDIT END");
             break;
         }
         if (ev->type != EV_PRESS) return;
-        if (g.perf_mode == 2 && g.perf_state != 2 &&
-            (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
-            g.sel ^= 1;
-            app_toast(g.sel == 0 ? "EDIT START" : "EDIT END");
-        } else if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
+        if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
             if (g.perf_state != 2) {
-                int dir = ev->button == BTN_RIGHT ? 10 : -10;
-                if (g.perf_mode == 2) {
-                    if (g.sel == 0) g.perf_speed_a += dir;
-                    else g.perf_speed_b += dir;
-                    if (g.perf_speed_a < 0) g.perf_speed_a = 0;
-                    if (g.perf_speed_a > 300) g.perf_speed_a = 300;
-                    if (g.perf_speed_b < 0) g.perf_speed_b = 0;
-                    if (g.perf_speed_b > 300) g.perf_speed_b = 300;
-                    g.perf_state = 0; g.perf_time = 0;
-                    app_save_settings();
-                    app_toast(g.sel == 0 ? "START SPEED" : "END SPEED");
-                } else {
-                    g.perf_mode = g.perf_mode ? 0 : 1;
-                    g.perf_state = 0; g.perf_time = 0;
-                    app_save_settings();
-                }
+                int dir = ev->button == BTN_RIGHT ? 1 : -1;
+                g.perf_mode = (g.perf_mode + dir + 3) % 3;
+                g.perf_state = 0; g.perf_time = 0;
+                app_save_settings();
+                app_toast(g.perf_mode == 0 ? "MODE 0-100" : g.perf_mode == 1 ? "MODE 100-0" : "MODE CUSTOM");
             }
+        } else if (g.perf_mode == 2 && g.perf_state != 2 &&
+                   (ev->button == BTN_UP || ev->button == BTN_DOWN)) {
+            int dir = ev->button == BTN_UP ? 10 : -10;
+            if (g.sel == 0) g.perf_speed_a += dir;
+            else g.perf_speed_b += dir;
+            if (g.perf_speed_a < 0) g.perf_speed_a = 0;
+            if (g.perf_speed_a > 300) g.perf_speed_a = 300;
+            if (g.perf_speed_b < 0) g.perf_speed_b = 0;
+            if (g.perf_speed_b > 300) g.perf_speed_b = 300;
+            g.perf_state = 0; g.perf_time = 0;
+            app_save_settings();
+            app_toast(g.sel == 0 ? "START SPEED" : "END SPEED");
         } else if (ev->button == BTN_PUSH) {
             bool fix = (gps_get()->fix_type >= 1 && gps_get()->has_pos);
             if (g.perf_state == 0 || g.perf_state == 3) {
