@@ -1722,14 +1722,12 @@ static void render_location(void) {
 }
 
 /* ================= IMU CALIB ================= */
-static imu6_t read_real_imu(void) {
-    imu6_t s = {0, 0, 0, 0, 0, 0};
-    if (!g.imu_ok) return s;
+static bool read_real_imu(imu6_t *out) {
+    memset(out, 0, sizeof(*out));
+    if (!g.imu_ok) return false;
     float tp;
-    if (!mpu6050_read(&s.ax, &s.ay, &s.az, &s.gx, &s.gy, &s.gz, &tp)) {
-        s.ax = s.ay = s.az = s.gx = s.gy = s.gz = 0;
-    }
-    return s;
+    return mpu6050_read(&out->ax, &out->ay, &out->az,
+                        &out->gx, &out->gy, &out->gz, &tp);
 }
 
 static imu6_t s_imu_win[IMU_STABLE_WIN];
@@ -1777,10 +1775,10 @@ static bool imu_win_is_stable(void) {
             if (fabsf(dg) > pg) pg = fabsf(dg);
         }
     }
-    float na = sqrtf(ma[0] * ma[0] + ma[1] * ma[1] + ma[2] * ma[2]);
-    /* MPU6050 modules often read ~1.1-1.2 g at rest; only reject free-fall or
-     * strong linear acceleration, not normal sensor scale error. */
-    if (na < 0.75f || na > 1.35f) return false;
+    /* Do not gate calibration on |a| == 1 g. This board's accelerometer
+     * reports a consistently lower magnitude (~0.4 g), and rejecting it made
+     * a still board look like free-fall forever. Variance/peak checks plus the
+     * gravity direction are sufficient; app_apply_imu_reference normalizes it. */
     if (pa > IMU_STABLE_PEAK_A || pg > IMU_STABLE_PEAK_G) return false;
     for (int k = 0; k < 3; k++) {
         if (sqrtf(va[k] / (float)s_imu_win_n) > IMU_STABLE_TILT) return false;
@@ -1992,7 +1990,18 @@ void screens_update(float dt) {
     switch (g.cur) {
     case SC_IMU_CALIB: {
         if (g.imu_phase == 0) {
-            imu6_t s = read_real_imu();
+            imu6_t s;
+            if (!read_real_imu(&s)) {
+                /* A failed I2C read used to become a zero sample, which looked
+                 * like violent motion and reset the entire stable window. */
+                static int64_t last_warn;
+                int64_t now = esp_timer_get_time();
+                if (now - last_warn > 5000000) {
+                    last_warn = now;
+                    ESP_LOGW("imu", "calibration read failed; holding state");
+                }
+                break;
+            }
             imu_win_push(&s);
             bool stable = imu_win_is_stable();
             if (!stable) {
