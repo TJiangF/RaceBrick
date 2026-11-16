@@ -13,5 +13,5 @@ void buzzer_set_volume(int volume_percent);              /* global volume, 0 = m
 void buzzer_play(const note_t *seq, int n);              /* start a melody */
 void buzzer_update(void);                                /* advance the melody */
 
-enum { SND_CONFIRM, SND_CALIB, SND_FIX };
+enum { SND_CONFIRM, SND_CALIB, SND_FIX, SND_MAX_DUDUDU };
 void buzzer_play_id(int id);                             /* play a built-in effect */

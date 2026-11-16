@@ -706,15 +706,16 @@ static void render_settings(void) {
 static void render_sound(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("SOUND", 2);
-    static const char *keys[4] = {"VOLUME", "CONFIRM", "CALIB", "3D FIX"};
-    const int h = 40;
-    int y = 30;
-    for (int i = 0; i < 4; i++) {
+    static const char *keys[5] = {"VOLUME", "CONFIRM", "CALIB", "3D FIX", "MAX DUDUDU"};
+    const int h = 34;
+    int y = 26;
+    for (int i = 0; i < 5; i++) {
         bool on = i == g.sel;
         panel_box(10, y, CW - 20, h - 4, on, false);
         gfx_text(20, y + 7, keys[i], PAL.text, 2);
         char v[16];
         if (i == 0) snprintf(v, sizeof v, "%d%%", g.set_sound_vol);
+        else if (i == 4) strcpy(v, "PLAY");
         else {
             bool b = i == 1 ? g.set_snd_confirm : (i == 2 ? g.set_snd_calib : g.set_snd_fix);
             strcpy(v, b ? "ON" : "OFF");
@@ -2772,9 +2773,14 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_SOUND:
-        if (d) { g.sel = (g.sel + d + 4) % 4; return; }
+        if (d) { g.sel = (g.sel + d + 5) % 5; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
+            if (g.sel == 4) {
+                buzzer_play_id(SND_MAX_DUDUDU);
+                app_toast("MAX DUDUDU");
+                return;
+            }
             if (g.sel == 0) {
                 g.set_sound_vol = g.set_sound_vol >= 100 ? 0 : g.set_sound_vol + 10;
                 buzzer_set_volume(g.set_sound_vol);

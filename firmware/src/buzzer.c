@@ -83,9 +83,15 @@ void buzzer_play_id(int id) {
     static const note_t confirm[] = {{880, 70}, {1175, 130}};                    /* rising prompt */
     static const note_t calib[]   = {{523, 90}, {659, 90}, {784, 90}, {1047, 170}}; /* C-E-G-C */
     static const note_t fix[]     = {{784, 80}, {988, 80}, {1319, 180}};         /* G-B-E */
+    /* Short "du-du-du-du-du" fan chant; playful, not a real F1 recording. */
+    static const note_t maxd[] = {
+        {392, 95}, {392, 95}, {392, 95}, {392, 95}, {523, 150},
+        {392, 95}, {523, 95}, {659, 240},
+    };
     switch (id) {
     case SND_CONFIRM: buzzer_play(confirm, 2); break;
     case SND_CALIB:   buzzer_play(calib, 4); break;
     case SND_FIX:     buzzer_play(fix, 3); break;
+    case SND_MAX_DUDUDU: buzzer_play(maxd, (int)(sizeof(maxd) / sizeof(maxd[0]))); break;
     }
 }

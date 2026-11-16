@@ -189,3 +189,9 @@ lat/lon ──geo_meters()──▶ 局部米制 (x=东, y=北)
 - START < END 时按加速逻辑：速度从下方穿过 START 且前向加速度为正时抓取起点，达到 END 停止。
 - START > END 时按减速逻辑：速度从上方穿过 START 且前向减速度足够时抓取起点，降到 END 停止。
 - 区间和模式写入 NVS，重启后保留。
+
+## SOUND / MAX DUDUDU
+
+- SOUND 页面新增 `MAX DUDUDU` 测试项。
+- 选中后按 PUSH 播放一段短促的 du-du-du 旋律，用于 Max Verstappen 主题音效。
+- 当前是独立预览音效，不自动绑定到完赛或最快圈。
