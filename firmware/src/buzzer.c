@@ -83,13 +83,28 @@ void buzzer_play_id(int id) {
     static const note_t confirm[] = {{880, 70}, {1175, 130}};                    /* rising prompt */
     static const note_t calib[]   = {{523, 90}, {659, 90}, {784, 90}, {1047, 170}}; /* C-E-G-C */
     static const note_t fix[]     = {{784, 80}, {988, 80}, {1319, 180}};         /* G-B-E */
-    /* "Tu-tu-tu-du, Max Verstappen" chant.
-     * Tab reference: A4 A4 A4 E5, then C5 B4 A4.
-     * Not a recording; a short buzzer interpretation. */
+    /* Full "Tu-tu-tu-du, Max Verstappen" chant.
+     * Tab reference: A4 A4 A4 E5, then C5 B4 A4; the chant repeats.
+     * Not a recording; a longer buzzer interpretation of the complete hook. */
     static const note_t maxd[] = {
-        {440, 95}, {440, 95}, {440, 95}, {0, 25},
-        {659, 180}, {0, 35},
-        {523, 130}, {494, 130}, {440, 260},
+        /* phrase 1 */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260}, {0, 100},
+        /* phrase 2 */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260}, {0, 100},
+        /* phrase 3 */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260}, {0, 100},
+        /* phrase 4 */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260}, {0, 100},
+        /* phrase 5 */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260}, {0, 100},
+        /* phrase 6, final held note */
+        {440, 95}, {440, 95}, {440, 95}, {0, 25}, {659, 200}, {0, 40},
+        {523, 150}, {494, 150}, {440, 520},
     };
     switch (id) {
     case SND_CONFIRM: buzzer_play(confirm, 2); break;
