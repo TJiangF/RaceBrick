@@ -1906,7 +1906,7 @@ void screens_enter(scid_t id) {
     case SC_RACE_MENU: g.sel = 0; break;
     case SC_NAV_MENU: g.sel = 0; break;
     case SC_TRACK_EDIT: g.sel = 0; g.entered = false; break;
-    case SC_SETTINGS: g.sel = 0; g.entered = false; g.set_edit = false; break;
+    case SC_SETTINGS: g.sel = g.settings_sel; g.entered = true; g.set_edit = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
     case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF: g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0; g.sel = 0; break;
@@ -2167,7 +2167,7 @@ void screens_update(float dt) {
 
 /* ---------- callbacks used by confirm modals ---------- */
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
-static void cb_racing_no(void) { app_go_home_to(0); }
+static void cb_racing_no(void) { app_back(); }
 static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
 static void cb_lapseg_no(void) {
     g.session_nsec = 0;
@@ -2237,7 +2237,7 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
             g.sel = (g.sel + (ev->button == BTN_DOWN ? 1 : -1) + 4) % 4;
         } else if (ev->button == BTN_PUSH) open_race_item(g.sel);
-        else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_NAV_MENU:
@@ -2245,7 +2245,7 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
             g.sel = (g.sel + (ev->button == BTN_DOWN ? 1 : -1) + 2) % 2;
         } else if (ev->button == BTN_PUSH) open_nav_item(g.sel);
-        else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_NAV:
@@ -2288,12 +2288,12 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; nav_set_active(true); nav_refresh(); }
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
             break;
         }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { g.nav_menu = 1; g.nav_sel = 0; }
-        else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); app_go(SC_HOME, -1); }
+        else if (ev->button == BTN_BACK) { g.entered = false; g.nav_menu = 0; nav_set_active(false); app_back(); }
         break;
 
     case SC_PHONE:
@@ -2301,10 +2301,10 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
         } else {
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+            if (ev->button == BTN_BACK) app_back();
         }
         break;
 
@@ -2313,10 +2313,10 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
         } else {
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_BACK) { app_go(SC_HOME, -1); return; }
+            if (ev->button == BTN_BACK) { app_back(); return; }
             int hit = -1;
             const char *cmd = NULL, *msg = NULL;
             if (ev->button == BTN_LEFT) { hit = 0; cmd = "PREV"; msg = "PREV"; }
@@ -2336,7 +2336,7 @@ void screens_handle(const event_t *ev) {
     case SC_WIFI_SETUP:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { netcfg_start_ap(); app_toast("AP RUNNING"); }
-        else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_PERF:
@@ -2344,7 +2344,7 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; g.perf_state = 0; g.perf_time = 0; }
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
             break;
         }
         /* Long PUSH chooses the START/END field in CUSTOM. L/R always cycles
@@ -2395,7 +2395,7 @@ void screens_handle(const event_t *ev) {
             } else {
                 g.perf_state = 0; g.perf_time = 0; app_toast("CANCELLED");
             }
-        } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_EDIT:
@@ -2403,12 +2403,12 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) { g.entered = true; }
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
         } else {
             if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) app_toast("EDIT ON PHONE APP");
-            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+            else if (ev->button == BTN_BACK) app_back();
         }
         break;
 
@@ -2417,7 +2417,7 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
-            else if (ev->button == BTN_BACK) app_go_home_to(0);
+            else if (ev->button == BTN_BACK) app_back();
         } else {
             if (g.set_edit) {
                 if (ev->type == EV_PRESS || ev->type == EV_LONG || ev->type == EV_REPEAT) {
@@ -2460,9 +2460,10 @@ void screens_handle(const event_t *ev) {
                 }
                 return;
             }
-            if (d) { g.sel = (g.sel + d + 14) % 14; return; }
+            if (d) { g.sel = (g.sel + d + 14) % 14; g.settings_sel = g.sel; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
+                g.settings_sel = g.sel;
                 if (g.sel == 0 || g.sel == 2 || g.sel == 8) {
                     g.set_edit = true;
                     g.set_edit_old = g.sel == 0 ? g.set_brightness :
@@ -2493,7 +2494,7 @@ void screens_handle(const event_t *ev) {
                 }
                 else if (g.sel == 13) app_go(SC_BTN_DEBUG, 1);
                 if (g.sel <= 5 || g.sel == 7 || g.sel == 12) app_save_settings();
-            } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+            } else if (ev->button == BTN_BACK) app_back();
         }
         break;
 
@@ -2501,7 +2502,7 @@ void screens_handle(const event_t *ev) {
         if (d) { g.sel = (g.sel + d + 2) % 2; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) app_go(g.sel == 0 ? SC_NEW_TRACK_MARK_START : SC_TRACK_LIST, 1);
-        else if (ev->button == BTN_BACK) app_go(SC_RACE_MENU, -1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_MOUNT_SELECT:
@@ -2544,7 +2545,7 @@ void screens_handle(const event_t *ev) {
             app_go(SC_GPS_DEBUG, 1);     /* jump to GPS debug when there is no 3D fix */
         } else if (ev->button == BTN_BACK) {
             if (g.rec_state == 1) { g.rec_state = 0; app_toast("CANCELLED"); }
-            else app_go(SC_MODE_SELECT, -1);
+            else app_back();
         }
         break;
 
@@ -2566,7 +2567,7 @@ void screens_handle(const event_t *ev) {
             e->paused = true;
             race_store_end(e);
             app_record_race(1);
-            app_go(SC_TRACK_LIST, -1);
+            app_back();
             return;
         }
         screens_handle_racing_common(ev);
@@ -2603,7 +2604,7 @@ void screens_handle(const event_t *ev) {
             }
             g.sessionTrack_valid = true;
             app_push_confirm("MARK SECTOR\nSPLITS?", "YES", "NO", cb_lapseg_yes, cb_lapseg_no);
-        } else if (ev->button == BTN_BACK) app_go_home_to(0);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
     }
 
@@ -2642,7 +2643,7 @@ void screens_handle(const event_t *ev) {
             }
         } else if (ev->button == BTN_BACK) {
             if (!isnan(g.sec_cand)) { g.sec_cand = NAN; app_toast("CANDIDATE CLEARED"); return; }
-            app_go(SC_LAP_SELECT, -1);
+            app_back();
         }
         break;
 
@@ -2650,7 +2651,7 @@ void screens_handle(const event_t *ev) {
         if (d) { g.sel = (g.sel + d + 4) % 4; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) { g.sessionVehicle = g.sel; app_go(SC_TRACK_NAMING, 1); }
-        else if (ev->button == BTN_BACK) app_go(SC_LAP_SELECT, -1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_NAMING:
@@ -2673,7 +2674,7 @@ void screens_handle(const event_t *ev) {
             g.sessionTrack_valid = false;
             g.session_nsec = 0;
             app_go_home_to(0);
-        } else if (ev->button == BTN_BACK) app_go(SC_VEHICLE_SELECT, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_LIST:
@@ -2687,7 +2688,7 @@ void screens_handle(const event_t *ev) {
             g.raceTarget = SC_RACING_RECORDED;
             g.raceBack = t->geo ? SC_TRACK_START : SC_TRACK_LIST;
             app_go(t->geo ? SC_TRACK_START : SC_MOUNT_SELECT, 1);
-        } else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_START: {
@@ -2715,7 +2716,7 @@ void screens_handle(const event_t *ev) {
                 app_toast("START LINE SAVED");
             }
             app_go(SC_MOUNT_SELECT, 1);
-        } else if (ev->button == BTN_BACK) app_go(SC_TRACK_LIST, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
     }
 
@@ -2724,17 +2725,17 @@ void screens_handle(const event_t *ev) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) g.entered = true;
-            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+            else if (ev->button == BTN_BACK) app_back();
         } else {
             if (d && g.nlog) { g.sel = (g.sel + d + g.nlog) % g.nlog; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH && g.nlog) { g.hist_rec = g.nlog - 1 - g.sel; app_go(SC_HISTORY_DETAIL, 1); }
-            else if (ev->button == BTN_BACK) app_go(SC_HOME, -1);
+            else if (ev->button == BTN_BACK) app_back();
         }
         break;
 
     case SC_HISTORY_DETAIL:
-        if (ev->type == EV_PRESS && ev->button == BTN_BACK) { app_go(SC_HOME, -1); return; }
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) { app_back(); return; }
         if (d && g.hist_rec >= 0 && g.hist_rec < g.nlog) {
             int n = g.log[g.hist_rec].lapCount;
             if (n) g.sel = (g.sel + d + n) % n;
@@ -2743,7 +2744,7 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_BTN_DEBUG:
-        if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
         break;
 
     case SC_GPS_DEBUG:
@@ -2752,13 +2753,12 @@ void screens_handle(const event_t *ev) {
             return;
         }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { gps_next_baud(); app_toast("GPS NEXT BAUD"); }
-        else if (ev->button == BTN_BACK) app_go(g.prev_cur, -1);   /* return to where we came from */
+        if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_LOCATION:
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_IMU_DEBUG:
@@ -2768,7 +2768,7 @@ void screens_handle(const event_t *ev) {
             g.i_ogx += g.i_gx; g.i_ogy += g.i_gy; g.i_ogz += g.i_gz;
             g.i_gmax = 0;
             app_toast("IMU TARE");
-        } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_SOUND:
@@ -2790,7 +2790,7 @@ void screens_handle(const event_t *ev) {
                 if (g.set_snd_fix) buzzer_play_id(SND_FIX);
             }
             app_save_settings();
-        } else if (ev->button == BTN_BACK) app_go(SC_SETTINGS, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_IMU_CALIB:
@@ -2836,7 +2836,7 @@ void screens_handle_racing_common(const event_t *ev) {
     if (ev->button == BTN_BACK && ev->type == EV_LONG) {
         g.engine.paused = true;
         app_record_race(1);
-        app_go_home_to(0);
+        app_back();
     }
 }
 

@@ -39,6 +39,8 @@ typedef struct {
 typedef struct {
     /* ---- global ---- */
     int homeIndex;
+    scid_t back[8]; int back_n;
+    int settings_sel;
     track_t *tracks; int ntracks;   /* PSRAM-backed: keep internal RAM for WiFi + BLE */
     histrec_t log[HISTORY_RECORDS]; int nlog;
     engine_t engine; bool engine_valid;
@@ -150,6 +152,7 @@ extern app_t g;
 extern volatile bool g_ui_freeze;   /* debug: stop rendering for a stable framebuffer dump */
 
 void app_go(scid_t id, int dir);
+void app_back(void);
 void app_go_home(int delta);
 void app_go_home_to(int idx);
 void app_toast(const char *msg);

@@ -125,11 +125,31 @@ static void seed_history(void) {
 
 /* ================= navigation ================= */
 void app_go(scid_t id, int dir) {
+    if (id != g.cur && g.cur != SC_CONFIRM) {
+        if (g.back_n >= (int)(sizeof(g.back) / sizeof(g.back[0]))) {
+            memmove(&g.back[0], &g.back[1], sizeof(g.back[0]) * (sizeof(g.back) / sizeof(g.back[0]) - 1));
+            g.back_n = (int)(sizeof(g.back) / sizeof(g.back[0])) - 1;
+        }
+        g.back[g.back_n++] = g.cur;
+    }
     g.prev_cur = g.cur;
     g.cur = id;
     g.dir = dir;
     g.screenT = 0;
     screens_enter(id);
+}
+
+void app_back(void) {
+    if (g.back_n > 0) {
+        scid_t dest = g.back[--g.back_n];
+        g.prev_cur = g.cur;
+        g.cur = dest;
+        g.dir = -1;
+        g.screenT = 0;
+        screens_enter(dest);
+        return;
+    }
+    app_go_home_to(0);
 }
 
 void app_go_home(int delta) {
