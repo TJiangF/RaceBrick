@@ -83,10 +83,13 @@ void buzzer_play_id(int id) {
     static const note_t confirm[] = {{880, 70}, {1175, 130}};                    /* rising prompt */
     static const note_t calib[]   = {{523, 90}, {659, 90}, {784, 90}, {1047, 170}}; /* C-E-G-C */
     static const note_t fix[]     = {{784, 80}, {988, 80}, {1319, 180}};         /* G-B-E */
-    /* Short "du-du-du-du-du" fan chant; playful, not a real F1 recording. */
+    /* "Tu-tu-tu-du, Max Verstappen" chant.
+     * Tab reference: A4 A4 A4 E5, then C5 B4 A4.
+     * Not a recording; a short buzzer interpretation. */
     static const note_t maxd[] = {
-        {392, 95}, {392, 95}, {392, 95}, {392, 95}, {523, 150},
-        {392, 95}, {523, 95}, {659, 240},
+        {440, 95}, {440, 95}, {440, 95}, {0, 25},
+        {659, 180}, {0, 35},
+        {523, 130}, {494, 130}, {440, 260},
     };
     switch (id) {
     case SND_CONFIRM: buzzer_play(confirm, 2); break;
