@@ -952,7 +952,7 @@ static void render_panel_dots(void) {
 
 static void racing_map(bool recorded, engine_t *e, float dt) {
     if (!s_map_ready) {
-        if (recorded) map_init(&s_map, 4, 132, 104, 102);
+        if (recorded) map_init(&s_map, 4, 126, 120, 110);
         else map_init(&s_map, 0, 0, 150, 226);
         if (recorded && e->track) map_set_track(&s_map, e->track);
         s_map_ready = true;
@@ -993,12 +993,12 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             snprintf(b2, sizeof b2, "LAP %d", e->lap);
             gfx_text_right(CW - 10, 4, b2, PAL.dim, 1);
             u_fmt_time(b, sizeof b, e->elapsed);
-            gfx_text_center(CW / 2, 14, b, PAL.white, 6);
+            gfx_text_center(CW / 2, 20, b, PAL.white, 5);
             u_fmt_delta(b2, sizeof b2, e->diff, 3);
             uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
-            gfx_text_center(CW / 2, 76, b2, dc, 4);
+            gfx_text_center(CW / 2, 66, b2, dc, 4);
 
-            int lx = 116, ly = 132, lw = CW - lx - 8;
+            int lx = 128, ly = 126, lw = CW - lx - 8;
             int shown = e->nLaps < 3 ? e->nLaps : 3;
             for (int k = 0; k < shown; k++) {
                 int idx = e->nLaps - 1 - k;
@@ -1102,33 +1102,33 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
         int sx = (int)lroundf(engine_speed_kmh(e));
         snprintf(b, sizeof b, "%d", sx);
         gfx_text(188, 20, "SPEED", PAL.dim, 0);
-        gfx_text(186, 30, b, PAL.white, 5);
-        gfx_text(190, 72, "KM/H", PAL.dim, 0);
+        gfx_text(184, 28, b, PAL.white, 6);
+        gfx_text(190, 84, "KM/H", PAL.dim, 0);
         snprintf(b, sizeof b, "%.0f M", engine_dist_m(e));
-        gfx_text(190, 90, "DIST", PAL.dim, 0);
-        gfx_text(190, 102, b, PAL.cyan, 1);
+        gfx_text(190, 102, "DIST", PAL.dim, 0);
+        gfx_text(190, 114, b, PAL.cyan, 1);
 
         /* real GNSS status in the lower-right */
-        gfx_hline(186, 128, 124, PAL.line2);
-        gfx_text(188, 136, "GNSS", PAL.cyan, 0);
+        gfx_hline(186, 136, 124, PAL.line2);
+        gfx_text(188, 142, "GNSS", PAL.cyan, 0);
         snprintf(b, sizeof b, "%d/%d", sats_used, sats_vis);
-        gfx_text(188, 150, "SATS", PAL.dim, 0);
-        gfx_text_right(310, 150, b, sats_used ? PAL.green : PAL.red, 0);
+        gfx_text(188, 156, "SATS", PAL.dim, 0);
+        gfx_text_right(310, 156, b, sats_used ? PAL.green : PAL.red, 0);
         u_fmt_f(b, sizeof b, hdop, 1);
-        gfx_text(188, 164, "HDOP", PAL.dim, 0);
-        gfx_text_right(310, 164, b, PAL.text, 0);
-        gfx_text(188, 178, "FIX", PAL.dim, 0);
-        gfx_text_right(310, 178, fix_str(fix), fix ? PAL.green : PAL.red, 0);
+        gfx_text(188, 170, "HDOP", PAL.dim, 0);
+        gfx_text_right(310, 170, b, PAL.text, 0);
+        gfx_text(188, 184, "FIX", PAL.dim, 0);
+        gfx_text_right(310, 184, fix_str(fix), fix ? PAL.green : PAL.red, 0);
         u_fmt_f(b, sizeof b, alt, 1);
-        gfx_text(188, 192, "ALT", PAL.dim, 0);
-        gfx_text_right(310, 192, b, PAL.text, 0);
+        gfx_text(188, 198, "ALT", PAL.dim, 0);
+        gfx_text_right(310, 198, b, PAL.text, 0);
         snprintf(b, sizeof b, "%d", hdg);
-        gfx_text(188, 206, "HDG", PAL.dim, 0);
-        gfx_text_right(310, 206, b, PAL.text, 0);
+        gfx_text(188, 212, "HDG", PAL.dim, 0);
+        gfx_text_right(310, 212, b, PAL.text, 0);
         if (real) {
             snprintf(b, sizeof b, "%s", gps_pps_ok() ? "PPS" : "--");
-            gfx_text(188, 220, "SYNC", PAL.dim, 0);
-            gfx_text_right(310, 220, b, gps_pps_ok() ? PAL.green : PAL.dim, 0);
+            gfx_text(188, 226, "SYNC", PAL.dim, 0);
+            gfx_text_right(310, 226, b, gps_pps_ok() ? PAL.green : PAL.dim, 0);
         }
     } else {
         gfx_fill(0, 0, CW, CH, PAL.stage);
