@@ -998,15 +998,15 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
             gfx_text_center(CW / 2, 66, b2, dc, 4);
 
-            int lx = 158, ly = 100, lw = CW - lx - 8, rh = 24;
+            int lx = 190, ly = 100, lw = CW - lx - 8, rh = 32;
             int row = 0;
             if (e->hasBestLap) {
                 int y = ly;
                 gfx_fill(lx, y, lw, rh - 2, PAL.purple);
                 snprintf(b2, sizeof b2, "BEST L%d", e->bestIndex);
-                gfx_text(lx + 6, y + 4, b2, PAL.white, 1);
+                gfx_text(lx + 6, y + 3, b2, PAL.white, 1);
                 u_fmt_time(b, sizeof b, e->bestTime);
-                gfx_text_right(CW - 12, y + 3, b, PAL.white, 2);
+                gfx_text_right(CW - 12, y + 14, b, PAL.white, 2);
                 row = 1;
             }
             int shown = e->nLaps < 3 ? e->nLaps : 3;
@@ -1017,9 +1017,9 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                 bool best = e->hasBestLap && lap->index == e->bestIndex;
                 gfx_fill(lx, y, lw, rh - 2, best ? PAL.purple : PAL.surface);
                 snprintf(b2, sizeof b2, "L%d", lap->index);
-                gfx_text(lx + 6, y + 4, b2, best ? PAL.white : PAL.dim, 1);
+                gfx_text(lx + 6, y + 3, b2, best ? PAL.white : PAL.dim, 1);
                 u_fmt_time(b, sizeof b, lap->time);
-                gfx_text_right(CW - 12, y + 3, b, best ? PAL.white : PAL.text2, 2);
+                gfx_text_right(CW - 12, y + 14, b, best ? PAL.white : PAL.text2, 2);
             }
             if (!e->hasBestLap && shown == 0) gfx_text(lx + 6, ly + 6, "NO LAPS", PAL.dim, 1);
         } else {
