@@ -316,8 +316,6 @@ void map_draw_gmeter(int x, int y, int w, int h, float lat, float lng,
         gfx_pixel((int)lroundf(qx), (int)lroundf(qy), PAL.mapbg);
     }
     gfx_fill((int)cx - 1, (int)cy - 1, 2, 2, PAL.gmcenter);
-    gfx_text((int)(cx - R), (int)(cy - R + 8), "LAT", PAL.dim, 0);
-    gfx_text((int)(cx + R - 18), (int)(cy + R), "LONG", PAL.dim, 0);
 }
 
 void map_draw_vehicle(int x, int y, int w, int h, uint16_t body, uint16_t yellow) {

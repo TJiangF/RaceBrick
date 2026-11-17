@@ -1015,7 +1015,6 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             u_fmt_time(b, sizeof b, e->track->best);
             gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
         }
-        if (f1_ui()) hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else if (g.panel == 1) {
         if (f1_ui()) gfx_fill(0, 0, CW, 3, PAL.cyan);
         gfx_text(12, 8, "LAP", PAL.cyan, 1);
@@ -1034,41 +1033,66 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             snprintf(bb, sizeof bb, "LAST %s", b);
         } else snprintf(bb, sizeof bb, "LAST --:--.---");
         gfx_text_center(CW / 2, 198, bb, PAL.dim, 1);
-        hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else if (g.panel == 2) {
+        gps_state_t *gp = gps_get();
+        bool real = recorded && (gp->source == 0 || gp->source == 1);
+        int sats_used = real ? gp->sats_used : g.gnss.used;
+        int sats_vis = real ? gp->sats_visible : g.gnss.visible;
+        float hdop = real ? gp->hdop : g.gnss.hdop;
+        int fix = real ? gp->fix_type : g.gnss.fix;
+        float alt = real ? gp->alt : engine_alt_m(e);
+        int hdg = real && gp->has_pos ? (int)lroundf(gp->course) : (int)lroundf(engine_heading_deg(e));
+
+        /* large G-G plot on the left, with absolute FWD/RIGHT/LEFT/REV
+         * component values in its four corners */
+        map_draw_gmeter(10, 46, 156, 148, e->gLat, e->gLong,
+                        e->gTrail, e->nGTrail, 2);
+        char gv[16];
+        u_fmt_f(gv, sizeof gv, e->gLong > 0 ? e->gLong : 0, 2);
+        gfx_text(10, 24, "FWD", PAL.dim, 0);
+        gfx_text(42, 24, gv, PAL.white, 1);
+        u_fmt_f(gv, sizeof gv, e->gLat > 0 ? e->gLat : 0, 2);
+        gfx_text_right(166, 24, "RIGHT", PAL.dim, 0);
+        gfx_text_right(166, 35, gv, PAL.white, 1);
+        u_fmt_f(gv, sizeof gv, e->gLat < 0 ? -e->gLat : 0, 2);
+        gfx_text(10, 202, "LEFT", PAL.dim, 0);
+        gfx_text(38, 202, gv, PAL.white, 1);
+        u_fmt_f(gv, sizeof gv, e->gLong < 0 ? -e->gLong : 0, 2);
+        gfx_text_right(166, 202, "REV", PAL.dim, 0);
+        gfx_text_right(166, 213, gv, PAL.white, 1);
+
+        /* speed + distance, same information as before */
         int sx = (int)lroundf(engine_speed_kmh(e));
         snprintf(b, sizeof b, "%d", sx);
-        gfx_text(14, 44, b, PAL.white, 5);
-        gfx_text(16, 92, "KM/H", PAL.dim, 1);
-        float sp = engine_speed_kmh(e) / e->track->maxSpeed * 100.0f;
-        if (sp > 100) sp = 100;
-        gfx_rect(14, 108, 100, 8, PAL.line);
-        gfx_fill(15, 109, (int)(98 * sp / 100.0f), 6, PAL.cyan);
-        char dd[24]; snprintf(dd, sizeof dd, "%d M", (int)lroundf(engine_dist_m(e)));
-        gfx_text(14, 122, dd, PAL.cyan, 1);
-        map_draw_gmeter(120, 30, 108, 108, e->gLat, e->gLong, e->gTrail, e->nGTrail, 2);
-        char gv[32]; gv[0] = 'G'; gv[1] = ' ';
-        u_fmt_f(gv + 2, (int)sizeof(gv) - 2, hypotf(e->gLat, e->gLong), 2);
-        gfx_text_center(174, 142, gv, PAL.text, 1);
-        int rx = 238;
-        const char *keys[6] = {"SATS", "HDOP", "FIX", "KF-S", "HDG", "ALT"};
-        char vals[6][16];
-        snprintf(vals[0], 16, "%d/%d", g.gnss.used, g.gnss.visible);
-        u_fmt_f(vals[1], 16, g.gnss.hdop, 1);
-        snprintf(vals[2], 16, "%s", fix_str(g.gnss.fix));
-        u_fmt_f(vals[3], 16, e->fusion.sigma, 4);
-        snprintf(vals[4], 16, "%d", (int)lroundf(engine_heading_deg(e)));
-        u_fmt_f(vals[5], 16, engine_alt_m(e), 1);
-        for (int i = 0; i < 6; i++) {
-            int y = 24 + i * 26;
-            gfx_text(rx, y, keys[i], PAL.dim, 0);
-            uint16_t c = PAL.white;
-            if (i == 2) c = g.gnss.fix ? PAL.green : PAL.red;
-            if (i == 3) c = e->gpsFix ? PAL.green : PAL.red;
-            gfx_text_right(CW - 12, y + 10, vals[i], c, 0);
-            gfx_hline(rx, y + 22, CW - 12 - rx, PAL.line2);
+        gfx_text(188, 20, "SPEED", PAL.dim, 0);
+        gfx_text(186, 30, b, PAL.white, 4);
+        gfx_text(190, 68, "KM/H", PAL.dim, 0);
+        snprintf(b, sizeof b, "%.0f M", engine_dist_m(e));
+        gfx_text(190, 86, "DIST", PAL.dim, 0);
+        gfx_text(190, 98, b, PAL.cyan, 1);
+
+        /* real GNSS status in the lower-right */
+        gfx_hline(186, 128, 124, PAL.line2);
+        gfx_text(188, 136, "GNSS", PAL.cyan, 0);
+        snprintf(b, sizeof b, "%d/%d", sats_used, sats_vis);
+        gfx_text(188, 150, "SATS", PAL.dim, 0);
+        gfx_text_right(310, 150, b, sats_used ? PAL.green : PAL.red, 0);
+        u_fmt_f(b, sizeof b, hdop, 1);
+        gfx_text(188, 164, "HDOP", PAL.dim, 0);
+        gfx_text_right(310, 164, b, PAL.text, 0);
+        gfx_text(188, 178, "FIX", PAL.dim, 0);
+        gfx_text_right(310, 178, fix_str(fix), fix ? PAL.green : PAL.red, 0);
+        u_fmt_f(b, sizeof b, alt, 1);
+        gfx_text(188, 192, "ALT", PAL.dim, 0);
+        gfx_text_right(310, 192, b, PAL.text, 0);
+        snprintf(b, sizeof b, "%d", hdg);
+        gfx_text(188, 206, "HDG", PAL.dim, 0);
+        gfx_text_right(310, 206, b, PAL.text, 0);
+        if (real) {
+            snprintf(b, sizeof b, "%s", gps_pps_ok() ? "PPS" : "--");
+            gfx_text(188, 220, "SYNC", PAL.dim, 0);
+            gfx_text_right(310, 220, b, gps_pps_ok() ? PAL.green : PAL.dim, 0);
         }
-        if (f1_ui()) hint_c("LEFT/RIGHT SWITCH PANEL", HINT_Y);
     } else {
         gfx_fill(0, 0, CW, CH, PAL.stage);
         title_c("SECTOR SPLITS", 6);
@@ -1102,7 +1126,7 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                 start = sections[i];
             }
         }
-        hint_c("PUSH END RACE - LEFT/RIGHT PANEL", HINT_Y);
+        hint_c("PUSH END RACE", HINT_Y);
     }
 }
 
