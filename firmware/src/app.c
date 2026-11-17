@@ -243,6 +243,10 @@ void app_update(float dt) {
         g.rec_flash -= dt;
         if (g.rec_flash < 0) g.rec_flash = 0;
     }
+    if (g.perf_edit_anim > 0) {
+        g.perf_edit_anim -= dt * 8.0f;
+        if (g.perf_edit_anim < 0) g.perf_edit_anim = 0;
+    }
     g.now += dt * 1000.0f;
     g.screenT += dt;
     if (g.toastT > 0) g.toastT -= dt;
