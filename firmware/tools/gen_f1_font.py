@@ -1,7 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 FONT='assets/fonts/Formula1-Bold_web_0.ttf'
-sizes=[8,12,16,24,32]
+sizes=[8,12,16,24,32,48]
 out=[]
 out.append('/* Auto-generated from Formula1 Display Bold, size-specific ASCII bitmaps.\n'
            ' * Source: F1_Lap_Timing/assets/fonts/Formula1-Bold_web_0.ttf\n'
@@ -54,6 +54,6 @@ for size in sizes:
         if i%32==31: out.append('\n')
     out.append('\n};\n')
     out.append(f'static const f1font_t F1_{size} = {{ F1_{size}_H, {gname}, {bname} }};\n\n')
-out.append('static const f1font_t *const F1_FONTS[5] = { &F1_8, &F1_12, &F1_16, &F1_24, &F1_32 };\n')
+out.append('static const f1font_t *const F1_FONTS[6] = { &F1_8, &F1_12, &F1_16, &F1_24, &F1_32, &F1_48 };\n')
 Path(__file__).resolve().parents[1].joinpath('src/font_f1.h').write_text(''.join(out))
 print('written', Path(__file__).resolve().parents[1].joinpath('src/font_f1.h').stat().st_size)

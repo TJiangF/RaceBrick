@@ -952,7 +952,8 @@ static void render_panel_dots(void) {
 
 static void racing_map(bool recorded, engine_t *e, float dt) {
     if (!s_map_ready) {
-        map_init(&s_map, 0, 0, 150, 226);
+        if (recorded) map_init(&s_map, 4, 132, 104, 102);
+        else map_init(&s_map, 0, 0, 150, 226);
         if (recorded && e->track) map_set_track(&s_map, e->track);
         s_map_ready = true;
     }
@@ -985,35 +986,71 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
     char b[24], b2[24];
     if (g.panel == 0) {
         racing_map(recorded, e, dt);
-        int rx = 156;
-        if (f1_ui()) gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
-        gfx_text(rx, 6, "LIVE", PAL.dim, 1);
-        u_fmt_time(b, sizeof b, e->elapsed);
-        gfx_text(rx, 20, b, PAL.white, 2);
-        u_fmt_delta(b2, sizeof b2, e->diff, 3);
-        uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
-        gfx_text(rx, 44, b2, dc, 2);
-        int shown = e->nLaps < 4 ? e->nLaps : 4;
-        for (int k = 0; k < shown; k++) {
-            int idx = e->nLaps - 1 - k;
-            lap_t *lap = &e->laps[idx];
-            int y = 72 + k * 22;
-            bool best = e->hasBestLap && lap->index == e->bestIndex;
-            if (best) gfx_fill(rx, y, CW - rx - 6, 20, PAL.purple);
-            else gfx_fill(rx, y, CW - rx - 6, 20, f1_ui() && (lap->index & 1) ? PAL.surface2 : PAL.surface);
-            if (f1_ui()) gfx_fill(rx, y, 2, 20, best ? PAL.purple : PAL.cyan);
-            snprintf(b2, sizeof b2, "L%d", lap->index);
-            gfx_text(rx + 6, y + 6, b2, best ? PAL.white : PAL.dim, 1);
-            u_fmt_time(b, sizeof b, lap->time);
-            gfx_text_right(CW - 12, y + 6, b, best ? PAL.white : PAL.text2, 1);
-        }
-        if (shown == 0) gfx_text(rx + 6, 78, "--", PAL.dim, 1);
-        if (recorded && e->track->hasBest) {
-            int y = 72 + shown * 22 + 4;
-            gfx_fill(rx, y, CW - rx - 6, 20, PAL.goldtint);
-            gfx_text(rx + 6, y + 6, "H-BEST", PAL.gold, 1);
-            u_fmt_time(b, sizeof b, e->track->best);
-            gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
+        if (recorded) {
+            /* Top half: large live time + delta. Bottom-left: compact track.
+             * Bottom-right: recent laps and best lap. */
+            gfx_text(10, 4, "LIVE", PAL.dim, 1);
+            snprintf(b2, sizeof b2, "LAP %d", e->lap);
+            gfx_text_right(CW - 10, 4, b2, PAL.dim, 1);
+            u_fmt_time(b, sizeof b, e->elapsed);
+            gfx_text_center(CW / 2, 14, b, PAL.white, 6);
+            u_fmt_delta(b2, sizeof b2, e->diff, 3);
+            uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
+            gfx_text_center(CW / 2, 76, b2, dc, 4);
+
+            int lx = 116, ly = 132, lw = CW - lx - 8;
+            int shown = e->nLaps < 3 ? e->nLaps : 3;
+            for (int k = 0; k < shown; k++) {
+                int idx = e->nLaps - 1 - k;
+                lap_t *lap = &e->laps[idx];
+                int y = ly + k * 22;
+                bool best = e->hasBestLap && lap->index == e->bestIndex;
+                if (best) gfx_fill(lx, y, lw, 20, PAL.purple);
+                else gfx_fill(lx, y, lw, 20, PAL.surface);
+                snprintf(b2, sizeof b2, "L%d", lap->index);
+                gfx_text(lx + 6, y + 6, b2, best ? PAL.white : PAL.dim, 1);
+                u_fmt_time(b, sizeof b, lap->time);
+                gfx_text_right(CW - 12, y + 6, b, best ? PAL.white : PAL.text2, 1);
+            }
+            if (shown == 0) gfx_text(lx + 6, ly + 6, "NO LAPS", PAL.dim, 1);
+            if (e->track->hasBest) {
+                int y = ly + shown * 22 + 3;
+                gfx_fill(lx, y, lw, 20, PAL.goldtint);
+                gfx_text(lx + 6, y + 6, "BEST", PAL.gold, 1);
+                u_fmt_time(b, sizeof b, e->track->best);
+                gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
+            }
+        } else {
+            int rx = 156;
+            if (f1_ui()) gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
+            gfx_text(rx, 6, "LIVE", PAL.dim, 1);
+            u_fmt_time(b, sizeof b, e->elapsed);
+            gfx_text(rx, 20, b, PAL.white, 2);
+            u_fmt_delta(b2, sizeof b2, e->diff, 3);
+            uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
+            gfx_text(rx, 44, b2, dc, 2);
+            int shown = e->nLaps < 4 ? e->nLaps : 4;
+            for (int k = 0; k < shown; k++) {
+                int idx = e->nLaps - 1 - k;
+                lap_t *lap = &e->laps[idx];
+                int y = 72 + k * 22;
+                bool best = e->hasBestLap && lap->index == e->bestIndex;
+                if (best) gfx_fill(rx, y, CW - rx - 6, 20, PAL.purple);
+                else gfx_fill(rx, y, CW - rx - 6, 20, f1_ui() && (lap->index & 1) ? PAL.surface2 : PAL.surface);
+                if (f1_ui()) gfx_fill(rx, y, 2, 20, best ? PAL.purple : PAL.cyan);
+                snprintf(b2, sizeof b2, "L%d", lap->index);
+                gfx_text(rx + 6, y + 6, b2, best ? PAL.white : PAL.dim, 1);
+                u_fmt_time(b, sizeof b, lap->time);
+                gfx_text_right(CW - 12, y + 6, b, best ? PAL.white : PAL.text2, 1);
+            }
+            if (shown == 0) gfx_text(rx + 6, 78, "--", PAL.dim, 1);
+            if (recorded && e->track->hasBest) {
+                int y = 72 + shown * 22 + 4;
+                gfx_fill(rx, y, CW - rx - 6, 20, PAL.goldtint);
+                gfx_text(rx + 6, y + 6, "H-BEST", PAL.gold, 1);
+                u_fmt_time(b, sizeof b, e->track->best);
+                gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
+            }
         }
     } else if (g.panel == 1) {
         if (f1_ui()) gfx_fill(0, 0, CW, 3, PAL.cyan);
@@ -1049,27 +1086,27 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
                         e->gTrail, e->nGTrail, 2);
         char gv[16];
         u_fmt_f(gv, sizeof gv, e->gLong > 0 ? e->gLong : 0, 2);
-        gfx_text(10, 24, "FWD", PAL.dim, 0);
-        gfx_text(42, 24, gv, PAL.white, 1);
+        gfx_text_center(88, 22, "FWD", PAL.dim, 0);
+        gfx_text_center(88, 32, gv, PAL.white, 1);
         u_fmt_f(gv, sizeof gv, e->gLat > 0 ? e->gLat : 0, 2);
-        gfx_text_right(166, 24, "RIGHT", PAL.dim, 0);
-        gfx_text_right(166, 35, gv, PAL.white, 1);
+        gfx_text_right(170, 108, "RIGHT", PAL.dim, 0);
+        gfx_text_right(170, 119, gv, PAL.white, 1);
         u_fmt_f(gv, sizeof gv, e->gLat < 0 ? -e->gLat : 0, 2);
-        gfx_text(10, 202, "LEFT", PAL.dim, 0);
-        gfx_text(38, 202, gv, PAL.white, 1);
+        gfx_text(4, 108, "LEFT", PAL.dim, 0);
+        gfx_text(4, 119, gv, PAL.white, 1);
         u_fmt_f(gv, sizeof gv, e->gLong < 0 ? -e->gLong : 0, 2);
-        gfx_text_right(166, 202, "REV", PAL.dim, 0);
-        gfx_text_right(166, 213, gv, PAL.white, 1);
+        gfx_text_center(88, 202, "REV", PAL.dim, 0);
+        gfx_text_center(88, 212, gv, PAL.white, 1);
 
         /* speed + distance, same information as before */
         int sx = (int)lroundf(engine_speed_kmh(e));
         snprintf(b, sizeof b, "%d", sx);
         gfx_text(188, 20, "SPEED", PAL.dim, 0);
-        gfx_text(186, 30, b, PAL.white, 4);
-        gfx_text(190, 68, "KM/H", PAL.dim, 0);
+        gfx_text(186, 30, b, PAL.white, 5);
+        gfx_text(190, 72, "KM/H", PAL.dim, 0);
         snprintf(b, sizeof b, "%.0f M", engine_dist_m(e));
-        gfx_text(190, 86, "DIST", PAL.dim, 0);
-        gfx_text(190, 98, b, PAL.cyan, 1);
+        gfx_text(190, 90, "DIST", PAL.dim, 0);
+        gfx_text(190, 102, b, PAL.cyan, 1);
 
         /* real GNSS status in the lower-right */
         gfx_hline(186, 128, 124, PAL.line2);

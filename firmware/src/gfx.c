@@ -34,7 +34,8 @@ static const f1font_t *f1_font_for_scale(int scale) {
     if (scale == 2) return &F1_16;
     if (scale == 3) return &F1_24;
     if (scale == 4) return &F1_24;
-    return &F1_32;
+    if (scale <= 5) return &F1_32;
+    return &F1_48;
 }
 
 static void f1_draw_text(int x, int y, const char *s, uint16_t c, int scale) {

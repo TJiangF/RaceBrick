@@ -294,7 +294,7 @@ void map_draw_thumb(int x, int y, int w, int h, const track_t *t, uint16_t color
 
 void map_draw_gmeter(int x, int y, int w, int h, float lat, float lng,
                      const gpt_t *trail, int n, float maxG) {
-    gfx_fill(x, y, w, h, PAL.mapbg);
+    /* Transparent: the page background is the instrument backdrop. */
     float cx = x + w / 2.0f, cy = y + h / 2.0f;
     float R = (w < h ? w : h) / 2.0f - 6;
     float mx = maxG > 0 ? maxG : 2.0f;
@@ -312,10 +312,11 @@ void map_draw_gmeter(int x, int y, int w, int h, float lat, float lng,
         float qy = cy - (lng / mx) * R;
         float mag = hypotf(lat, lng);
         uint16_t col = mag >= 1.0f ? PAL.red : (mag >= 0.5f ? PAL.yellow : PAL.green);
-        gfx_fill((int)lroundf(qx) - 2, (int)lroundf(qy) - 2, 4, 4, col);
+        gfx_fill((int)lroundf(qx) - 3, (int)lroundf(qy) - 3, 7, 7, col);
         gfx_pixel((int)lroundf(qx), (int)lroundf(qy), PAL.mapbg);
     }
-    gfx_fill((int)cx - 1, (int)cy - 1, 2, 2, PAL.gmcenter);
+    gfx_disc((int)cx, (int)cy, 5, PAL.red);
+    gfx_disc((int)cx, (int)cy, 2, PAL.white);
 }
 
 void map_draw_vehicle(int x, int y, int w, int h, uint16_t body, uint16_t yellow) {
