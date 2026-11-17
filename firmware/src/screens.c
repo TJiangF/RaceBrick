@@ -952,7 +952,7 @@ static void render_panel_dots(void) {
 
 static void racing_map(bool recorded, engine_t *e, float dt) {
     if (!s_map_ready) {
-        if (recorded) map_init(&s_map, 4, 126, 120, 110);
+        if (recorded) map_init(&s_map, 4, 100, 180, 134);
         else map_init(&s_map, 0, 0, 150, 226);
         if (recorded && e->track) map_set_track(&s_map, e->track);
         s_map_ready = true;
@@ -970,9 +970,15 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
     map_trace(&s_map, e->gpsLapTrace, e->nGps, PAL.gpstrace, 2);
     map_trail(&s_map, e);
     if (recorded) {
-        map_start_line(&s_map, 0, PAL.white);
+        pt_t sp = track_point_at(e->track, 0);
+        pt_t st = track_tangent_at(e->track, 0);
+        map_start_checker_at(&s_map, sp, st, RGB565(0, 0, 0));
         for (int i = 0; i < e->track->nsec; i++) map_tick(&s_map, e->track->sections[i], PAL.orange, 4);
-        map_car(&s_map, engine_progress(e), PAL.green);
+        float f = engine_progress(e);
+        pt_t cp = track_point_at(e->track, f);
+        pt_t ct = track_tangent_at(e->track, f);
+        if (e->track->reverse) { ct.x = -ct.x; ct.y = -ct.y; }
+        map_start_arrow_at(&s_map, cp, ct, PAL.red);
     } else {
         pt_t sp = track_point_at(e->track, 0);
         pt_t st = track_tangent_at(e->track, 0);

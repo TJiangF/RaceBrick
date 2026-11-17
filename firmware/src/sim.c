@@ -693,17 +693,16 @@ static void engine_compute_diff(engine_t *e) {
         float bt = best->times[idx];
         e->diff = isnan(bt) ? 0 : (e->elapsed - bt);
 
-        /* Assetto-style live delta: compare only the last ~30 s of travel.
-         * Walk backwards through this lap's sample times, find the sample at
-         * elapsed-30 s, then subtract the best lap's time over that same
-         * distance window. The total lap delta above remains unchanged. */
-        float tpast = e->elapsed - LED_DELTA_WINDOW_S;
-        if (tpast < 0) tpast = 0;
-        int past = idx;
-        for (int k = 0; k < TRK_N; k++) {
-            int i = ((idx - k) % TRK_N + TRK_N) % TRK_N;
-            float ct = e->currentTimes[i];
-            if (!isnan(ct) && ct <= tpast) { past = i; break; }
+        /* Assetto-style live delta over the last 30 metres of travel, not
+         * the last 30 seconds. Convert distance to track samples, then compare
+         * this lap's segment time against the best lap over the same segment. */
+        float samplesPerM = (float)TRK_N / (e->track->lengthM > 1.0f ? e->track->lengthM : 1.0f);
+        float travelledM = e->s / samplesPerM;
+        float windowM = LED_DELTA_WINDOW_M;
+        int past = 0;
+        if (travelledM >= windowM) {
+            int back = (int)lroundf(windowM * samplesPerM);
+            past = (idx - back + TRK_N) % TRK_N;
         }
         float curPast = e->currentTimes[past];
         float bestPast = best->times[past];

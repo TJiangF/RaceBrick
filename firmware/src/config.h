@@ -138,7 +138,7 @@
 #define LED_COUNT       10
 #define DIFF_PER_LED    0.5f
 #define MAX_LED         5
-#define LED_DELTA_WINDOW_S 30.0f
+#define LED_DELTA_WINDOW_M 30.0f
 #define LED_SEG_PER_LED    0.10f
 #define MAX_LAPS        8
 #define TRACE_MAX       160       /* fused points kept per lap */

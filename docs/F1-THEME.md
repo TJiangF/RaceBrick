@@ -50,3 +50,5 @@ Host-rendered 3x previews with the real Formula1 Display Bold and the F1 palette
 
 These are design previews; the on-device version uses the same font, palette and
 home/race layout, with live telemetry substituted for the sample values.
+
+- [Live recorded track panel preview](theme/live-track.png)
