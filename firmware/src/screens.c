@@ -2559,7 +2559,7 @@ void screens_handle(const event_t *ev) {
             g.race_mount = g.sel;
             if (g.engine_valid) engine_set_profile(e, g.race_mount);
             app_go(g.raceTarget, 1);
-        } else if (ev->button == BTN_BACK) app_go(g.raceBack, -1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_NEW_TRACK_MARK_START:
