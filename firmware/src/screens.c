@@ -998,28 +998,30 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
             gfx_text_center(CW / 2, 66, b2, dc, 4);
 
-            int lx = 128, ly = 126, lw = CW - lx - 8;
+            int lx = 158, ly = 100, lw = CW - lx - 8, rh = 24;
+            int row = 0;
+            if (e->hasBestLap) {
+                int y = ly;
+                gfx_fill(lx, y, lw, rh - 2, PAL.purple);
+                snprintf(b2, sizeof b2, "BEST L%d", e->bestIndex);
+                gfx_text(lx + 6, y + 4, b2, PAL.white, 1);
+                u_fmt_time(b, sizeof b, e->bestTime);
+                gfx_text_right(CW - 12, y + 3, b, PAL.white, 2);
+                row = 1;
+            }
             int shown = e->nLaps < 3 ? e->nLaps : 3;
             for (int k = 0; k < shown; k++) {
                 int idx = e->nLaps - 1 - k;
                 lap_t *lap = &e->laps[idx];
-                int y = ly + k * 22;
+                int y = ly + (row + k) * rh;
                 bool best = e->hasBestLap && lap->index == e->bestIndex;
-                if (best) gfx_fill(lx, y, lw, 20, PAL.purple);
-                else gfx_fill(lx, y, lw, 20, PAL.surface);
+                gfx_fill(lx, y, lw, rh - 2, best ? PAL.purple : PAL.surface);
                 snprintf(b2, sizeof b2, "L%d", lap->index);
-                gfx_text(lx + 6, y + 6, b2, best ? PAL.white : PAL.dim, 1);
+                gfx_text(lx + 6, y + 4, b2, best ? PAL.white : PAL.dim, 1);
                 u_fmt_time(b, sizeof b, lap->time);
-                gfx_text_right(CW - 12, y + 6, b, best ? PAL.white : PAL.text2, 1);
+                gfx_text_right(CW - 12, y + 3, b, best ? PAL.white : PAL.text2, 2);
             }
-            if (shown == 0) gfx_text(lx + 6, ly + 6, "NO LAPS", PAL.dim, 1);
-            if (e->track->hasBest) {
-                int y = ly + shown * 22 + 3;
-                gfx_fill(lx, y, lw, 20, PAL.goldtint);
-                gfx_text(lx + 6, y + 6, "BEST", PAL.gold, 1);
-                u_fmt_time(b, sizeof b, e->track->best);
-                gfx_text_right(CW - 12, y + 6, b, PAL.gold, 1);
-            }
+            if (!e->hasBestLap && shown == 0) gfx_text(lx + 6, ly + 6, "NO LAPS", PAL.dim, 1);
         } else {
             int rx = 156;
             if (f1_ui()) gfx_fill(rx, 0, CW - rx, 3, PAL.cyan);
