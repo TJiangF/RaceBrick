@@ -463,7 +463,7 @@ static void render_perf(void) {
         panel_box(60, 146, 200, 34, fc, false);
         if (fc) gfx_rect(59, 145, 202, 36, PAL.cyan);
         gfx_text_center(CW / 2, 158, "CONFIRM", fc ? PAL.cyan : PAL.text, 2);
-        gfx_text_center(CW / 2, HINT_Y, "L/R SELECT  PUSH EDIT  UP/DN FOCUS  BACK", PAL.dim, 0);
+        gfx_text_center(CW / 2, HINT_Y, "L/R SELECT  PUSH EDIT  UP/DN FOCUS  UP@START MODE", PAL.dim, 0);
         if (g.perf_edit) render_perf_edit();
         return;
     }
@@ -492,7 +492,7 @@ static void render_perf(void) {
     gfx_text(186, 140, b, PAL.dim, 0);
     gfx_text_center(CW / 2, 170, st, sc, 1);
     if (!has_fix) gfx_text(6, HINT_Y, "PUSH: GPS DEBUG (ACQUIRE) - BACK", PAL.orange, 0);
-    else gfx_text(6, HINT_Y, "PUSH ARM/CANCEL - BACK", PAL.dim, 0);
+    else gfx_text(6, HINT_Y, "PUSH ARM/CANCEL - UP MODE - BACK", PAL.dim, 0);
     if (g.perf_edit) render_perf_edit();
 }
 
@@ -2577,9 +2577,19 @@ void screens_handle(const event_t *ev) {
         if (g.perf_mode == 2 && g.perf_state == 0) {
             if (ev->button == BTN_LEFT) { g.perf_custom_focus = 0; return; }
             if (ev->button == BTN_RIGHT) { g.perf_custom_focus = 1; return; }
-            if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
-                int dir = ev->button == BTN_DOWN ? 1 : 2;
-                g.perf_custom_focus = (g.perf_custom_focus + dir) % 3;
+            if (ev->button == BTN_UP) {
+                if (g.perf_custom_focus == 0) {
+                    g.entered = false;
+                    g.perf_state = 0;
+                    g.perf_mode_sel = g.perf_mode;
+                    app_toast("SELECT MODE");
+                } else {
+                    g.perf_custom_focus--;
+                }
+                return;
+            }
+            if (ev->button == BTN_DOWN) {
+                g.perf_custom_focus = (g.perf_custom_focus + 1) % 3;
                 return;
             }
             if (ev->button == BTN_PUSH) {
@@ -2602,6 +2612,14 @@ void screens_handle(const event_t *ev) {
             }
             if (ev->button == BTN_BACK) app_back();
             break;
+        }
+        if (ev->button == BTN_UP && g.perf_state != 2) {
+            g.entered = false;
+            g.perf_state = 0;
+            g.perf_time = 0;
+            g.perf_mode_sel = g.perf_mode;
+            app_toast("SELECT MODE");
+            return;
         }
         if (ev->button == BTN_PUSH) {
             bool fix = (gps_get()->fix_type >= 1 && gps_get()->has_pos);
