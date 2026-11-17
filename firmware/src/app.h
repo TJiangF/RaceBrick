@@ -93,13 +93,15 @@ typedef struct {
     int    rec_state;          /* 0 ready, 1 recording */
     bool   rec_has_ref;
     double rec_lat0, rec_lon0;
-    pt_t   rec_pts[REC_MAX];
+    pt_t  *rec_pts;            /* PSRAM-backed, expands while recording */
+    int    rec_cap;
     int    rec_n;
     float  rec_dist;
     pt_t   rec_last;
     float  start_f;            /* start-line edit position (0..1) */
     /* auto-lap state while recording */
     float  rec_hdg;            /* start-line heading (rad) */
+    float  rec_flash;          /* green LED flash after an auto lap */
     bool   rec_line_ok;
     float  rec_along_prev;
     bool   rec_armed;
@@ -160,6 +162,8 @@ void app_push_confirm(const char *text, const char *yes, const char *no,
                       action_fn on_yes, action_fn on_no);
 void app_pop_overlay(void);
 void app_record_race(int mode);
+bool app_rec_reserve(int need);
+void app_rec_reset(void);
 void app_save_settings(void);
 
 /* Apply a real MPU6050 boot sample: zero bias + gravity-referenced axes. */

@@ -86,6 +86,31 @@ static void record_from_engine(const char *date, float duration, int mode) {
     memcpy(r->trace, best->trace, sizeof(pt_t) * best->nTrace);
 }
 
+bool app_rec_reserve(int need) {
+    if (need <= g.rec_cap) return true;
+    int cap = g.rec_cap > 0 ? g.rec_cap : REC_INITIAL;
+    while (cap < need) {
+        if (cap > 1000000) { cap = 1000000; break; }
+        cap *= 2;
+    }
+    if (need > cap) return false;   /* practical PSRAM ceiling */
+    pt_t *p = (pt_t *)heap_caps_malloc(sizeof(pt_t) * (size_t)cap,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) return false;
+    if (g.rec_pts && g.rec_n > 0) memcpy(p, g.rec_pts, sizeof(pt_t) * (size_t)g.rec_n);
+    free(g.rec_pts);
+    g.rec_pts = p;
+    g.rec_cap = cap;
+    return true;
+}
+
+void app_rec_reset(void) {
+    g.rec_n = 0;
+    g.rec_dist = 0;
+    g.rec_flash = 0;
+    if (g.rec_cap <= 0) app_rec_reserve(REC_INITIAL);
+}
+
 void app_record_race(int mode) {
     if (!g.engine_valid || g.engine.logged) return;
     g.engine.logged = true;
@@ -214,6 +239,10 @@ void app_dispatch(const event_t *ev) {
 }
 
 void app_update(float dt) {
+    if (g.rec_flash > 0) {
+        g.rec_flash -= dt;
+        if (g.rec_flash < 0) g.rec_flash = 0;
+    }
     g.now += dt * 1000.0f;
     g.screenT += dt;
     if (g.toastT > 0) g.toastT -= dt;
@@ -468,6 +497,11 @@ static void ledfx_update(void) {
         ledfx_nav_progress();
         break;
     case SC_RACING:
+    case SC_NEW_TRACK_MARK_START:
+        if (g.rec_flash > 0) {
+            for (int i = 0; i < LED_COUNT; i++) ws2812_set(i, 0, 255, 0);
+        }
+        break;
     case SC_RACING_RECORDED:
         for (int i = 0; i < LED_COUNT; i++) {
             if (g.leds[i] == 1) ws2812_set(i, 255, 0, 0);       /* slower -> red */

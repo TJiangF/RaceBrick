@@ -145,7 +145,7 @@
 #define MAX_TRACKS      16
 #define HISTORY_RECORDS 5
 #define HISTORY_LAPS    16
-#define REC_MAX         400   /* max points while recording a real track (~800 m) */
+#define REC_INITIAL     4096  /* PSRAM-backed recording buffer, grows as needed */
 
 /* performance test: default launch threshold in 0.01 g (Settings > LAUNCH G) */
 #define START_PERF_TRIG 15

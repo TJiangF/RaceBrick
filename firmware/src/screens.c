@@ -821,6 +821,23 @@ static void render_mount_select(void) {
 }
 
 /* ================= NEW TRACK - MARK START ================= */
+static void rec_draw_arrow(int cx, int cy, float hdg, uint16_t color) {
+    /* hdg: 0 = north/up, positive clockwise; screen y grows down. */
+    float fx = sinf(hdg), fy = -cosf(hdg);
+    float rx = cosf(hdg), ry = sinf(hdg);
+    int tipx = cx + (int)(fx * 11), tipy = cy + (int)(fy * 11);
+    int lx = cx - (int)(fx * 7) + (int)(rx * 7);
+    int ly = cy - (int)(fy * 7) + (int)(ry * 7);
+    int rx2 = cx - (int)(fx * 7) - (int)(rx * 7);
+    int ry2 = cy - (int)(fy * 7) - (int)(ry * 7);
+    int nx = cx - (int)(fx * 3), ny = cy - (int)(fy * 3);
+    int ax[4] = {tipx, lx, nx, rx2};
+    int ay[4] = {tipy, ly, ny, ry2};
+    gfx_poly_fill(ax, ay, 4, color);
+    gfx_line(tipx, tipy, lx, ly, PAL.white);
+    gfx_line(tipx, tipy, rx2, ry2, PAL.white);
+}
+
 static void render_record_track(void) {
     gps_state_t *gp = gps_get();
     char b[32];
@@ -839,31 +856,44 @@ static void render_record_track(void) {
     int mx = 4, my = 36, mw = 184, mh = 160;
     gfx_fill(mx, my, mw, mh, PAL.mapbg);
     gfx_rect(mx, my, mw, mh, PAL.mapborder);
-    if (g.rec_n > 1) {
-        float minx = 1e30f, maxx = -1e30f, miny = 1e30f, maxy = -1e30f;
+    if (g.rec_n > 1 && g.rec_pts) {
+        /* Keep the current position at the centre, and fit the complete
+         * recorded trail around it. The view zooms out as the trail grows. */
+        pt_t cur = g.rec_last;
+        float maxdx = 8.0f, maxdy = 8.0f;
         for (int i = 0; i < g.rec_n; i++) {
-            pt_t q = g.rec_pts[i];
-            if (q.x < minx) minx = q.x;
-            if (q.x > maxx) maxx = q.x;
-            if (q.y < miny) miny = q.y;
-            if (q.y > maxy) maxy = q.y;
+            float dx = fabsf(g.rec_pts[i].x - cur.x);
+            float dy = fabsf(g.rec_pts[i].y - cur.y);
+            if (dx > maxdx) maxdx = dx;
+            if (dy > maxdy) maxdy = dy;
         }
-        float spx = maxx - minx, spy = maxy - miny;
-        if (spx < 4) spx = 4;
-        if (spy < 4) spy = 4;
-        float s = (mw - 10) / spx, sy = (mh - 10) / spy;
+        float s = (mw - 18) / (2.0f * maxdx);
+        float sy = (mh - 18) / (2.0f * maxdy);
         if (sy < s) s = sy;
-        float ox = mx + mw / 2.0f - (minx + maxx) / 2 * s;
-        float oy = my + mh / 2.0f - (miny + maxy) / 2 * s;
-        for (int i = 0; i < g.rec_n; i++) {
-            int px = (int)lroundf(g.rec_pts[i].x * s + ox);
-            int py = 2 * my + mh - (int)lroundf(g.rec_pts[i].y * s + oy);   /* north up */
-            gfx_fill(px - 1, py - 1, 2, 2, PAL.gpstrace);
+        float cx = mx + mw / 2.0f, cy = my + mh / 2.0f;
+        int stride = g.rec_n / 900;
+        if (stride < 1) stride = 1;
+        int px = (int)lroundf(cx + (g.rec_pts[0].x - cur.x) * s);
+        int py = (int)lroundf(cy - (g.rec_pts[0].y - cur.y) * s);
+        for (int i = 1; i < g.rec_n; i += stride) {
+            int x = (int)lroundf(cx + (g.rec_pts[i].x - cur.x) * s);
+            int y = (int)lroundf(cy - (g.rec_pts[i].y - cur.y) * s);
+            gfx_line(px, py, x, y, PAL.gpstrace);
+            px = x; py = y;
         }
-        int px = (int)lroundf(g.rec_last.x * s + ox);
-        int py = 2 * my + mh - (int)lroundf(g.rec_last.y * s + oy);
-        gfx_fill(px - 2, py - 2, 5, 5, PAL.red);
-        gfx_fill(px - 1, py - 1, 3, 3, PAL.white);
+        /* start/finish marker relative to the current position */
+        int sx0 = (int)lroundf(cx - cur.x * s);
+        int sy0 = (int)lroundf(cy + cur.y * s);
+        gfx_fill(sx0 - 2, sy0 - 2, 5, 5, PAL.white);
+        gfx_fill(sx0 - 1, sy0 - 1, 3, 3, PAL.red);
+
+        float hdg = 0.0f;
+        if (g.rec_n >= 2) {
+            float dx = g.rec_pts[g.rec_n - 1].x - g.rec_pts[g.rec_n - 2].x;
+            float dy = g.rec_pts[g.rec_n - 1].y - g.rec_pts[g.rec_n - 2].y;
+            if (hypotf(dx, dy) > 0.2f) hdg = atan2f(dx, dy);
+        }
+        rec_draw_arrow((int)cx, (int)cy, hdg, PAL.cyan);
     } else {
         gfx_text(mx + 8, my + 8, g.rec_state == 1 ? "recording..." : "at the start line", PAL.dim, 0);
     }
@@ -1916,7 +1946,7 @@ void screens_enter(scid_t id) {
     case SC_MEDIA: g.entered = false; s_media_hit = -1; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_NEW_TRACK_MARK_START:
-        g.rec_state = 0; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
+        g.rec_state = 0; app_rec_reset(); g.rec_has_ref = false;
         g.rec_line_ok = false; g.rec_armed = false; g.rec_along_prev = 0;
         g.rec_laps = 0; g.rec_last_lap = g.rec_best_lap = g.rec_delta = 0;
         g.rec_lap_time = 0;
@@ -2056,6 +2086,7 @@ void screens_update(float dt) {
             g.rec_has_ref = true;
             g.rec_lat0 = gp->lat; g.rec_lon0 = gp->lon;
             g.rec_n = 0; g.rec_dist = 0;
+            if (!app_rec_reserve(1)) break;
             g.rec_pts[g.rec_n++] = (pt_t){0, 0};
             g.rec_last = (pt_t){0, 0};
             g.rec_lap_start = g.now;
@@ -2069,7 +2100,7 @@ void screens_update(float dt) {
         float d = hypotf(mx - g.rec_last.x, my - g.rec_last.y);
         if (d >= 2.0f) {
             g.rec_dist += d;
-            if (g.rec_n < REC_MAX) g.rec_pts[g.rec_n++] = (pt_t){mx, my};
+            if (app_rec_reserve(g.rec_n + 1)) g.rec_pts[g.rec_n++] = (pt_t){mx, my};
             g.rec_last = (pt_t){mx, my};
         }
         /* learn the start-line heading from the first few points */
@@ -2094,8 +2125,9 @@ void screens_update(float dt) {
             g.rec_last_lap = g.rec_lap_time;
             if (g.rec_laps == 1 || g.rec_lap_time < g.rec_best_lap) g.rec_best_lap = g.rec_lap_time;
             g.rec_delta = g.rec_last_lap - g.rec_best_lap;
+            g.rec_flash = 0.8f;
             g.rec_n = 0; g.rec_dist = 0;
-            g.rec_pts[g.rec_n++] = (pt_t){mx, my};
+            if (app_rec_reserve(1)) g.rec_pts[g.rec_n++] = (pt_t){mx, my};
             g.rec_last = (pt_t){mx, my};
             g.rec_lap_start = g.now;
             g.rec_armed = false;
@@ -2167,6 +2199,20 @@ void screens_update(float dt) {
 }
 
 /* ---------- callbacks used by confirm modals ---------- */
+static void cb_new_track_finish(void) {
+    if (g.rec_laps == 0) {
+        track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
+                        g.rec_lat0, g.rec_lon0, "NEW", 0);
+        g.sessionTrack_valid = true;
+    }
+    g.sessionVehicle = 0;
+    g.session_nsec = 0;
+    g.rec_state = 0;
+    g.rec_flash = 0;
+    app_toast("TRACK RECORDED");
+    app_go(SC_VEHICLE_SELECT, 1);
+}
+
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
 static void cb_racing_no(void) { app_back(); }
 static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
@@ -2521,26 +2567,19 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_PUSH) {
             if (g.rec_state == 0) {
                 if (gps_get()->fix_type < 2) { app_toast("NO GPS 3D FIX"); return; }
-                g.rec_state = 1; g.rec_n = 0; g.rec_dist = 0; g.rec_has_ref = false;
+                app_rec_reset();
+                if (!app_rec_reserve(REC_INITIAL)) { app_toast("REC BUFFER OOM"); return; }
+                g.rec_state = 1; g.rec_has_ref = false;
                 g.rec_line_ok = false; g.rec_armed = false; g.rec_along_prev = 0;
                 g.rec_laps = 0; g.rec_last_lap = g.rec_best_lap = g.rec_delta = 0;
                 g.rec_lap_time = 0;
                 app_toast("RECORDING");
             } else {
-                if (g.rec_laps > 0) {
-                    /* sessionTrack already holds the last completed lap */
-                } else if (g.rec_n >= 20 && g.rec_dist >= 20.0f) {
-                    track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
-                                    g.rec_lat0, g.rec_lon0, "NEW", 0);
-                    g.sessionTrack_valid = true;
-                } else {
+                if (g.rec_laps == 0 && (g.rec_n < 20 || g.rec_dist < 20.0f)) {
                     app_toast("DRIVE A LAP FIRST"); return;
                 }
-                g.sessionVehicle = 0;
-                g.session_nsec = 0;
-                g.rec_state = 0;
-                app_toast("TRACK RECORDED");
-                app_go(SC_TRACK_NAMING, 1);
+                app_push_confirm("FINISH NEW TRACK?", "FINISH", "CANCEL",
+                                 cb_new_track_finish, NULL);
             }
         } else if (ev->button == BTN_DOWN && g.rec_state == 0 && gps_get()->fix_type < 2) {
             app_go(SC_GPS_DEBUG, 1);     /* jump to GPS debug when there is no 3D fix */
