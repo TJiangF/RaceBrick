@@ -139,7 +139,8 @@ typedef struct {
     int   nTrace;
     pt_t  gpsLapTrace[GPS_MAX];
     int   nGps;
-    float diff;
+    float diff;          /* total lap delta at the current distance */
+    float deltaSeg;      /* recent-window delta drives the LED bar */
     int   leds[LED_COUNT];   /* 0 off, 1 red (slow), 2 green (fast) */
     bool  paused, running;
     bool  logged;

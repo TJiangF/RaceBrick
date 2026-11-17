@@ -670,9 +670,9 @@ void engine_complete_lap(engine_t *e) {
 static void engine_led_state(engine_t *e) {
     int *out = e->leds;
     for (int i = 0; i < LED_COUNT; i++) out[i] = 0;
-    float diff = e->diff;
+    float diff = e->deltaSeg;
     if (isnan(diff) || fabsf(diff) < 0.02f) return;
-    int n = (int)ceilf(fabsf(diff) / DIFF_PER_LED);
+    int n = (int)ceilf(fabsf(diff) / LED_SEG_PER_LED);
     if (n < 1) n = 1;
     if (n > MAX_LED) n = MAX_LED;
     if (diff > 0) {
@@ -685,11 +685,33 @@ static void engine_led_state(engine_t *e) {
 static void engine_compute_diff(engine_t *e) {
     if (!e->hasBestLap) {
         e->diff = 0;
+        e->deltaSeg = 0;
     } else {
         int idx = ((int)floorf(e->s)) % TRK_N;
         if (idx < 0) idx += TRK_N;
-        float bt = e->laps[e->bestIndex - 1].times[idx];
+        const lap_t *best = &e->laps[e->bestIndex - 1];
+        float bt = best->times[idx];
         e->diff = isnan(bt) ? 0 : (e->elapsed - bt);
+
+        /* Assetto-style live delta: compare only the last ~30 s of travel.
+         * Walk backwards through this lap's sample times, find the sample at
+         * elapsed-30 s, then subtract the best lap's time over that same
+         * distance window. The total lap delta above remains unchanged. */
+        float tpast = e->elapsed - LED_DELTA_WINDOW_S;
+        if (tpast < 0) tpast = 0;
+        int past = idx;
+        for (int k = 0; k < TRK_N; k++) {
+            int i = ((idx - k) % TRK_N + TRK_N) % TRK_N;
+            float ct = e->currentTimes[i];
+            if (!isnan(ct) && ct <= tpast) { past = i; break; }
+        }
+        float curPast = e->currentTimes[past];
+        float bestPast = best->times[past];
+        if (!isnan(bt) && !isnan(curPast) && !isnan(bestPast)) {
+            e->deltaSeg = (e->elapsed - curPast) - (bt - bestPast);
+        } else {
+            e->deltaSeg = e->diff;
+        }
     }
     engine_led_state(e);
 }
@@ -789,6 +811,7 @@ static void engine_gnss_lap(engine_t *e) {
     e->nTrace = 0;
     e->nGps = 0;
     e->diff = 0;
+    e->deltaSeg = 0;
     for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
 }
 
