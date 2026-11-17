@@ -958,7 +958,8 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
     }
     map_begin(&s_map);
     if (recorded) {
-        map_centerline(&s_map, PAL.centerline, 2);
+        map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+        map_centerline(&s_map, PAL.dim, 3);
     } else {
         map_fit_engine(&s_map, e, 0.28f);
         map_smooth(&s_map, dt, 4);
@@ -1142,7 +1143,8 @@ static void render_section(void) {
     if (g.sessionTrack.N <= 0) { title_c("SECTION", 6); hint_c("NO ACTIVE TRACK", 100); return; }
     if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 226); map_set_track(&s_map, &g.sessionTrack); s_map_ready = true; }
     map_begin(&s_map);
-    map_centerline(&s_map, PAL.centerline, 2);
+    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_centerline(&s_map, PAL.dim, 3);
     map_start_line(&s_map, 0, PAL.white);
     for (int i = 0; i < g.sec_n; i++) map_tick(&s_map, g.sec_sections[i], PAL.orange, 6);
     if (!isnan(g.sec_cand)) map_tick(&s_map, g.sec_cand, PAL.yellow, 7);
@@ -1229,12 +1231,13 @@ static void render_track_start(void) {
     if (!t) return;
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
-    map_centerline(&s_map, PAL.centerline, 3);
+    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_centerline(&s_map, PAL.dim, 4);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
     if (t->reverse) { st.x = -st.x; st.y = -st.y; }
-    map_start_mark_at(&s_map, sp, st, PAL.yellow);
-    map_car_at(&s_map, sp, st, PAL.white);
+    map_start_checker_at(&s_map, sp, st, PAL.red);
+    map_start_arrow_at(&s_map, sp, st, PAL.red);
 
     int rx = 190;
     char b[24];

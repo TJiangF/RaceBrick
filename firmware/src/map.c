@@ -117,6 +117,70 @@ void map_begin(tmap_t *m) {
     gfx_vline(m->vx + m->vw - 1, m->vy, m->vh, b);
 }
 
+void map_track_ribbon(tmap_t *m, float width_m, uint16_t color) {
+    if (!m->track) return;
+    const track_t *t = m->track;
+    float total = t->total;
+    if (total <= 1e-6f) total = t->lengthM;
+    if (total <= 1e-6f) return;
+    float wnorm = width_m * total / t->lengthM;
+    float half = wnorm * m->scale * 0.5f;
+    if (half < 1.0f) half = 1.0f;
+    int N = t->N;
+    for (int i = 0; i < N; i++) {
+        pt_t a = map_px(m, t->points[i]);
+        pt_t b = map_px(m, t->points[(i + 1) % N]);
+        float dx = b.x - a.x, dy = b.y - a.y;
+        float len = hypotf(dx, dy);
+        if (len < 1e-4f) continue;
+        float nx = -dy / len, ny = dx / len;
+        int xs[4] = {(int)(a.x + nx * half), (int)(a.x - nx * half),
+                     (int)(b.x - nx * half), (int)(b.x + nx * half)};
+        int ys[4] = {(int)(a.y + ny * half), (int)(a.y - ny * half),
+                     (int)(b.y - ny * half), (int)(b.y + ny * half)};
+        gfx_poly_fill(xs, ys, 4, color);
+    }
+    for (int i = 0; i < N; i += 2) {
+        pt_t p = map_px(m, t->points[i]);
+        gfx_disc((int)p.x, (int)p.y, (int)half, color);
+    }
+}
+
+void map_start_checker_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
+    pt_t p = map_px(m, pworld);
+    /* world tangent -> screen tangent (y flipped), then screen normal. */
+    float tx = tangent.x, ty = -tangent.y;
+    float nx = -ty, ny = tx;
+    const int half = 24;
+    const int cell = 4;
+    for (int d = -half; d < half; d += cell) {
+        for (int r = 0; r < 2; r++) {
+            int px = (int)(p.x + nx * d + tx * r * cell);
+            int py = (int)(p.y + ny * d + ty * r * cell);
+            uint16_t c = (((d / cell) + r) & 1) ? color : PAL.white;
+            gfx_fill(px, py, cell, cell, c);
+        }
+    }
+}
+
+void map_start_arrow_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
+    pt_t p = map_px(m, pworld);
+    float tx = tangent.x, ty = -tangent.y;
+    float len = hypotf(tx, ty);
+    if (len < 1e-5f) return;
+    tx /= len; ty /= len;
+    float nx = -ty, ny = tx;
+    int tipx = (int)(p.x + tx * 17), tipy = (int)(p.y + ty * 17);
+    int bx = (int)(p.x - tx * 8), by = (int)(p.y - ty * 8);
+    int lx = (int)(bx + nx * 9), ly = (int)(by + ny * 9);
+    int rx = (int)(bx - nx * 9), ry = (int)(by - ny * 9);
+    int xs[3] = {tipx, lx, rx};
+    int ys[3] = {tipy, ly, ry};
+    gfx_poly_fill(xs, ys, 3, color);
+    gfx_line(tipx, tipy, lx, ly, PAL.white);
+    gfx_line(tipx, tipy, rx, ry, PAL.white);
+}
+
 void map_centerline(tmap_t *m, uint16_t color, int step) {
     if (!m->track) return;
     if (step < 1) step = 2;

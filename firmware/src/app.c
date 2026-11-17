@@ -223,8 +223,8 @@ static void confirm_choose(bool yes) {
 /* ================= event dispatch ================= */
 static void confirm_handle(const event_t *ev) {
     if ((ev->type == EV_PRESS || ev->type == EV_LONG || ev->type == EV_REPEAT)) {
-        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
-            g.confirm_sel = (g.confirm_sel + (ev->button == BTN_DOWN ? 1 : -1) + 2) % 2;
+        if (ev->button == BTN_LEFT || ev->button == BTN_RIGHT) {
+            g.confirm_sel = (g.confirm_sel + (ev->button == BTN_RIGHT ? 1 : -1) + 2) % 2;
             return;
         }
     }
