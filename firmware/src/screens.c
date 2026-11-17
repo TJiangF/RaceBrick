@@ -699,7 +699,7 @@ static void render_settings(void) {
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
     if (end < 14) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
-    hint_c("UP/DN SELECT - PUSH EDIT - L/R ADJUST", HINT_Y);
+    hint_c("UP/DN SELECT - L/R ADJUST - PUSH ACTION", HINT_Y);
 }
 
 /* ================= SOUND ================= */
@@ -723,7 +723,7 @@ static void render_sound(void) {
         gfx_text_right(CW - 18, y + 7, v, PAL.cyan, 2);
         y += h;
     }
-    hint_c("UP/DOWN SELECT - PUSH ADJUST - BACK", HINT_Y);
+    hint_c("UP/DN SELECT - L/R VOLUME - PUSH ACTION - BACK", HINT_Y);
 }
 
 /* ================= IMU DEBUG (real MPU6050) ================= */
@@ -2507,6 +2507,28 @@ void screens_handle(const event_t *ev) {
                 }
                 return;
             }
+            if (lr && (g.sel == 0 || g.sel == 2 || g.sel == 8)) {
+                int step = g.sel == 8 ? 5 : 10;
+                int delta = lr * step;
+                if (g.sel == 0) {
+                    g.set_brightness += delta;
+                    if (g.set_brightness < 10) g.set_brightness = 10;
+                    if (g.set_brightness > 100) g.set_brightness = 100;
+                    lcd_set_brightness(g.set_brightness);
+                } else if (g.sel == 2) {
+                    g.set_ledbright += delta;
+                    if (g.set_ledbright < 0) g.set_ledbright = 0;
+                    if (g.set_ledbright > 100) g.set_ledbright = 100;
+                    ws2812_set_brightness(g.set_ledbright);
+                } else {
+                    g.perf_trig_g100 += delta;
+                    if (g.perf_trig_g100 < 5) g.perf_trig_g100 = 5;
+                    if (g.perf_trig_g100 > 50) g.perf_trig_g100 = 50;
+                }
+                app_save_settings();
+                g.settings_sel = g.sel;
+                return;
+            }
             if (d) { g.sel = (g.sel + d + 14) % 14; g.settings_sel = g.sel; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
@@ -2812,6 +2834,17 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_SOUND:
+        if (lr) {
+            if (g.sel == 0) {
+                g.set_sound_vol += lr * 10;
+                if (g.set_sound_vol < 0) g.set_sound_vol = 0;
+                if (g.set_sound_vol > 100) g.set_sound_vol = 100;
+                buzzer_set_volume(g.set_sound_vol);
+                if (g.set_sound_vol > 0) buzzer_play_id(SND_CONFIRM);
+                app_save_settings();
+            }
+            return;
+        }
         if (d) { g.sel = (g.sel + d + 5) % 5; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
