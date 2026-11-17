@@ -135,7 +135,7 @@ bool tstore_save(int slot, const track_t *t) {
     s_rec.N = TRK_N;
     s_rec.vehicle = (uint8_t)t->vehicle;
     s_rec.nsec = (uint8_t)t->nsec;
-    s_rec.flags = t->geo ? 1 : 0;
+    s_rec.flags = (t->geo ? 1 : 0) | (t->reverse ? 2 : 0);
     s_rec.hasBest = t->hasBest ? 1 : 0;
     memcpy(s_rec.name, t->name, sizeof(s_rec.name));
     s_rec.lengthM = t->lengthM;
@@ -177,6 +177,7 @@ bool tstore_load(int slot, track_t *t) {
     t->vehicle = s_rec.vehicle;
     t->nsec = s_rec.nsec;
     t->geo = (s_rec.flags & 1) != 0;
+    t->reverse = (s_rec.flags & 2) != 0;
     t->hasBest = s_rec.hasBest != 0;
     memcpy(t->name, s_rec.name, sizeof(t->name));
     t->name[sizeof(t->name) - 1] = 0;

@@ -35,6 +35,7 @@ typedef struct {
     double line_lat, line_lon;
     float  line_hdg;
     int    store_slot;          /* external-flash slot (-1 = not stored); runtime only */
+    int    reverse;             /* 0 = CW/forward, 1 = CCW/reverse start direction */
 } track_t;
 
 void track_build_def(track_t *t, int defIndex);

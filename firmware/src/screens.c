@@ -1232,13 +1232,14 @@ static void render_track_start(void) {
     map_centerline(&s_map, PAL.centerline, 3);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
+    if (t->reverse) { st.x = -st.x; st.y = -st.y; }
     map_start_mark_at(&s_map, sp, st, PAL.yellow);
     map_car_at(&s_map, sp, st, PAL.white);
 
     int rx = 190;
     char b[24];
     gfx_text(rx, 8, "START LINE", PAL.cyan, 1);
-    gfx_text(rx, 28, "UP/DOWN MOVE", PAL.dim, 0);
+    gfx_text(rx, 28, "UP/DN DIR  L/R MOVE", PAL.dim, 0);
     u_fmt_f(b, sizeof b, g.start_f * 100.0f, 1);
     gfx_text(rx, 48, "POS", PAL.dim, 0);
     gfx_text(rx + 34, 48, b, PAL.white, 0);
@@ -1247,6 +1248,8 @@ static void render_track_start(void) {
     gfx_text(rx, 64, "OFF", PAL.dim, 0);
     gfx_text(rx + 34, 64, b, PAL.white, 0);
     gfx_text(rx + 80, 64, "M", PAL.dim, 0);
+    gfx_text(rx, 88, t->reverse ? "DIR CCW" : "DIR CW",
+             t->reverse ? PAL.orange : PAL.green, 1);
     gfx_text(rx, 120, "PUSH SAVE", PAL.green, 1);
     gfx_text(rx, 140, "BACK CANCEL", PAL.dim, 0);
 }
@@ -2199,6 +2202,13 @@ void screens_update(float dt) {
 }
 
 /* ---------- callbacks used by confirm modals ---------- */
+static void cb_track_reverse_yes(void) {
+    track_t *t = g.engine.track;
+    if (!t) return;
+    t->reverse = t->reverse ? 0 : 1;
+    app_toast(t->reverse ? "TRACK CCW" : "TRACK CW");
+}
+
 static void cb_new_track_finish(void) {
     if (g.rec_laps == 0) {
         track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
@@ -2754,6 +2764,11 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_TRACK_START: {
+        if (d && ev->type == EV_PRESS) {
+            app_push_confirm("SWITCH TRACK DIRECTION?", "YES", "NO",
+                             cb_track_reverse_yes, NULL);
+            return;
+        }
         if (lr) {
             g.start_f += lr * 0.004f;
             g.start_f = fmodf(g.start_f + 1.0f, 1.0f);
@@ -2774,6 +2789,7 @@ void screens_handle(const event_t *ev) {
                 t->line_lat = lat;
                 t->line_lon = lon;
                 t->line_hdg = atan2f(b.y - a.y, b.x - a.x);
+                if (t->reverse) t->line_hdg += (float)M_PI;
                 if (t->store_slot >= 0) tstore_save(t->store_slot, t);
                 app_toast("START LINE SAVED");
             }

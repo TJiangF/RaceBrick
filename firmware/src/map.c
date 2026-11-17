@@ -173,14 +173,16 @@ void map_car(tmap_t *m, float f, uint16_t color) {
 
 void map_car_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
     pt_t p = map_px(m, pworld);
-    blk(m, p.x + tangent.x * 5 - 1, p.y + tangent.y * 5 - 1, 2, color);
+    /* tangent is world-space (Y north); screen Y is flipped. */
+    blk(m, p.x + tangent.x * 5 - 1, p.y - tangent.y * 5 - 1, 2, color);
     blk(m, p.x - 2, p.y - 2, 4, PAL.white);
     blk(m, p.x - 1, p.y - 1, 2, color);
 }
 
 void map_start_mark_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
     pt_t p = map_px(m, pworld);
-    float nx = -tangent.y, ny = tangent.x;
+    /* World tangent -> screen perpendicular: (ty, tx), not (-ty, tx). */
+    float nx = tangent.y, ny = tangent.x;
     for (int d = -9; d <= 9; d += 2) blk(m, p.x + nx * d, p.y + ny * d, 2, color);
 }
 
