@@ -13,6 +13,7 @@
 #include "ws2812.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "log_store.h"
 #include "math.h"
 #include "string.h"
 #include <stdio.h>
@@ -64,7 +65,7 @@ static void record_from_engine(const char *date, float duration, int mode) {
     histrec_t *r = &g.log[g.nlog++];
     memset(r, 0, sizeof(*r));
     strncpy(r->trackName, g.engine.track->name, sizeof(r->trackName) - 1);
-    strncpy(r->date, date, sizeof(r->date) - 1);
+    snprintf(r->date, sizeof(r->date), "%s", date);
     r->mode = mode;
     r->duration = duration;
     r->lapCount = g.engine.nLaps;
@@ -84,6 +85,7 @@ static void record_from_engine(const char *date, float duration, int mode) {
     else best = &g.engine.laps[0];
     r->nTrace = best->nTrace;
     memcpy(r->trace, best->trace, sizeof(pt_t) * best->nTrace);
+    if (!log_store_save(r)) ESP_LOGW("app", "race log flash save failed");
 }
 
 bool app_rec_reserve(int need) {
@@ -133,24 +135,6 @@ static void seed_tracks(void) {
     g.ntracks = 1;   /* keep a single simulated sample track; real tracks are recorded */
 }
 
-static void seed_history(void) {
-    struct { int track; int laps; float dur; const char *date; } demo[3] = {
-        {0, 7, 600, "09-27 18:20"},
-        {1, 5, 420, "09-27 17:05"},
-        {2, 4, 300, "09-26 20:41"},
-    };
-    for (int i = 0; i < 3; i++) {
-        track_t *t = &g.tracks[demo[i].track];
-        engine_init(&g.engine, t, true, &g.imu);
-        engine_set_profile(&g.engine, 0);
-        g.engine.logged = false;
-        int guard = 0;
-        while (g.engine.nLaps < demo[i].laps && guard++ < 200000)
-            engine_update(&g.engine, 0.05f);
-        record_from_engine(demo[i].date, demo[i].dur, 0);
-    }
-    g.engine_valid = false;
-}
 
 /* ================= navigation ================= */
 void app_go(scid_t id, int dir) {
@@ -747,7 +731,6 @@ void app_init(void) {
         }
     }
     seed_tracks();
-    seed_history();
     g.tracks[0].store_slot = -1;   /* seed sample until a flash track exists */
     /* Load tracks from external flash; if empty, persist the built-in sample
      * once so the external-flash path is exercised on first boot. */
@@ -777,6 +760,7 @@ void app_init(void) {
             }
         }
     }
+    g.nlog = log_store_load(g.log, HISTORY_RECORDS);
     nav_start();
     nav_set_mode(g.nav_mode, g.nav_sat);
     nav_set_zoom_level(g.nav_zoom);

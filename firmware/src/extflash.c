@@ -75,8 +75,8 @@ static bool page_program(uint32_t addr, const uint8_t *data, int n) {
     return wait_ready(500);
 }
 
-#define EXT_FLASH_MAX_XFER 3072
-static uint8_t *s_rdbuf;   /* heap: keeps ~3 KB out of .bss/DRAM */
+#define EXT_FLASH_MAX_XFER 4096
+static uint8_t *s_rdbuf;   /* heap: keeps ~4 KB out of .bss/DRAM */
 
 static bool read_data(uint32_t addr, uint8_t *buf, int n) {
     if (n > EXT_FLASH_MAX_XFER) return false;

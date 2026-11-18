@@ -6,6 +6,7 @@
 #include "gfx.h"
 #include "map.h"
 #include "theme.h"
+#include "log_store.h"
 #include "util.h"
 #include "lcd.h"
 #include "gps.h"
@@ -1529,14 +1530,21 @@ static void render_history(void) {
     }
     title_c("RACE LOG", 6);
     int start, end;
+    snprintf(b, sizeof b, "LOG %d/%d", log_store_count(), log_store_capacity());
+    gfx_text(182, 18, b, PAL.dim, 0);
+    snprintf(b, sizeof b, "%uK/%uK", (unsigned)(log_store_used_bytes() / 1024),
+             (unsigned)(log_store_total_bytes() / 1024));
+    gfx_text_right(310, 18, b, PAL.dim, 0);
     windowed(g.nlog, g.sel, 4, &start, &end);
     for (int i = start; i < end; i++) {
-        int y = 24 + (i - start) * 40;
+        int y = 34 + (i - start) * 38;
         bool on = g.entered && i == g.sel;
         gfx_pxbox(182, y, 132, 36, on ? PAL.white : PAL.line, 1, PAL.panel);
         histrec_t *r = &g.log[g.nlog - 1 - i];
         snprintf(b, sizeof b, "%s  %dL", r->trackName, r->lapCount);
-        gfx_text(188, y + 6, b, PAL.white, 1);
+        gfx_text(188, y + 5, b, PAL.white, 1);
+        snprintf(b, sizeof b, "%dK", log_store_slot_size() / 1024);
+        gfx_text_right(310, y + 5, b, PAL.gold, 0);
         u_fmt_time(b, sizeof b, r->duration);
         gfx_text(188, y + 20, r->date, PAL.dim, 0);
         gfx_text_right(310, y + 20, b, PAL.dim, 0);
@@ -2523,6 +2531,7 @@ static void rec_make_log(void) {
         }
         r->nTrace = TRACE_MAX;
     }
+    if (!log_store_save(r)) app_toast("LOG FLASH FULL");
 }
 
 static void cb_build_fused_track(void) {
@@ -2552,6 +2561,8 @@ static void cb_track_reverse_yes(void) {
 
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
 static void cb_racing_no(void) { app_back(); }
+static void cb_save_race_log_yes(void) { app_record_race(1); app_back(); }
+static void cb_save_race_log_no(void) { g.engine.logged = true; app_back(); }
 static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
 static void cb_lapseg_no(void) {
     g.session_nsec = 0;
@@ -3028,8 +3039,9 @@ void screens_handle(const event_t *ev) {
         if (ev->type == EV_PRESS && ev->button == BTN_BACK) {
             e->paused = true;
             race_store_end(e);
-            app_record_race(1);
-            app_back();
+            if (e->nLaps == 0) { app_back(); return; }
+            app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+                             cb_save_race_log_yes, cb_save_race_log_no);
             return;
         }
         screens_handle_racing_common(ev);
@@ -3348,8 +3360,10 @@ void screens_handle_racing_common(const event_t *ev) {
     }
     if (ev->button == BTN_BACK && ev->type == EV_LONG) {
         g.engine.paused = true;
-        app_record_race(1);
-        app_back();
+        race_store_end(&g.engine);
+        if (g.engine.nLaps == 0) { app_back(); return; }
+        app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+                         cb_save_race_log_yes, cb_save_race_log_no);
     }
 }
 

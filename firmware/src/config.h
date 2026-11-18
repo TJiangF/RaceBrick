@@ -145,7 +145,7 @@
 #define GPS_MAX         80        /* raw GPS points kept per lap */
 #define MAX_SECTIONS    8
 #define MAX_TRACKS      16
-#define HISTORY_RECORDS 5
+#define HISTORY_RECORDS 32
 #define HISTORY_LAPS    16
 #define REC_INITIAL     4096  /* PSRAM-backed recording buffer, grows as needed */
 #define REC_FUSION_LAPS 16    /* completed laps kept for average-track fusion */
