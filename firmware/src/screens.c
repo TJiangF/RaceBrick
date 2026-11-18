@@ -2254,7 +2254,7 @@ void screens_update(float dt) {
             g.rec_last_lap = g.rec_lap_time;
             if (g.rec_laps == 1 || g.rec_lap_time < g.rec_best_lap) g.rec_best_lap = g.rec_lap_time;
             g.rec_delta = g.rec_last_lap - g.rec_best_lap;
-            g.rec_flash = 0.8f;
+            g.rec_flash = 0.48f;
             g.rec_n = 0; g.rec_dist = 0;
             if (app_rec_reserve(1)) g.rec_pts[g.rec_n++] = (pt_t){mx, my};
             g.rec_last = (pt_t){mx, my};
@@ -2299,6 +2299,10 @@ void screens_update(float dt) {
                 }
             } else {
                 engine_update(e, dt);
+            }
+            if (e->lap_event) {
+                e->lap_event = false;
+                g.rec_flash = 0.48f;
             }
         }
         break;

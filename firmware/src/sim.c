@@ -659,6 +659,7 @@ void engine_complete_lap(engine_t *e) {
             e->bestIndex = lap->index;
         }
         e->nLaps++;
+        e->lap_event = true;
     }
     e->elapsed = 0;
     e->lap++;
@@ -804,6 +805,7 @@ static void engine_gnss_lap(engine_t *e) {
             e->bestIndex = lap->index;
         }
         e->nLaps++;
+        e->lap_event = true;
     }
     e->elapsed = 0;
     e->lap++;

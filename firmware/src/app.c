@@ -458,6 +458,16 @@ static bool ledfx_media_progress(void) {
     return true;
 }
 
+static bool ledfx_lap_flash(void) {
+    if (g.rec_flash <= 0) return false;
+    float elapsed = 0.48f - g.rec_flash;
+    bool on = fmodf(elapsed, 0.16f) < 0.10f;
+    if (on) {
+        for (int i = 0; i < LED_COUNT; i++) ws2812_set(i, 255, 255, 0);
+    }
+    return true;
+}
+
 /* per-screen WS2812 effects, kept in sync with the on-screen LED bar */
 static void ledfx_update(void) {
     ws2812_set_brightness(g.set_ledbright);
@@ -502,11 +512,10 @@ static void ledfx_update(void) {
         break;
     case SC_RACING:
     case SC_NEW_TRACK_MARK_START:
-        if (g.rec_flash > 0) {
-            for (int i = 0; i < LED_COUNT; i++) ws2812_set(i, 0, 255, 0);
-        }
+        ledfx_lap_flash();
         break;
     case SC_RACING_RECORDED:
+        if (ledfx_lap_flash()) break;
         for (int i = 0; i < LED_COUNT; i++) {
             if (g.leds[i] == 1) ws2812_set(i, 255, 0, 0);       /* slower -> red */
             else if (g.leds[i] == 2) ws2812_set(i, 0, 255, 0);  /* faster -> green */

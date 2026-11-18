@@ -144,6 +144,7 @@ typedef struct {
     int   leds[LED_COUNT];   /* 0 off, 1 red (slow), 2 green (fast) */
     bool  paused, running;
     bool  logged;
+    bool  lap_event;      /* set for one frame when a lap is completed */
 
     mpu_t    *sensor;
     fusion_t  fusion;
