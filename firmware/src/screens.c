@@ -1128,6 +1128,17 @@ static void render_panel_dots(void) {
     }
 }
 
+static float track_line_fraction(const track_t *t) {
+    if (!t || !t->geo || t->nscale <= 1e-9f) return 0.0f;
+    geo_ref_t r = { t->glat0, t->glon0 };
+    float mx, my;
+    geo_meters(&r, t->line_lat, t->line_lon, &mx, &my);
+    pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+    float s = 0, dist = 0;
+    if (!track_project(t, q, &s, &dist)) return 0.0f;
+    return s / (float)t->N;
+}
+
 static void racing_map(bool recorded, engine_t *e, float dt) {
     if (!s_map_ready) {
         if (recorded) map_init(&s_map, 4, 100, 180, 134);
@@ -1148,8 +1159,9 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
     map_trace(&s_map, e->gpsLapTrace, e->nGps, PAL.gpstrace, 2);
     map_trail(&s_map, e);
     if (recorded) {
-        pt_t sp = track_point_at(e->track, 0);
-        pt_t st = track_tangent_at(e->track, 0);
+        float sf = track_line_fraction(e->track);
+        pt_t sp = track_point_at(e->track, sf);
+        pt_t st = track_tangent_at(e->track, sf);
         map_start_checker_at(&s_map, sp, st, RGB565(0, 0, 0));
         for (int i = 0; i < e->track->nsec; i++) map_tick(&s_map, e->track->sections[i], PAL.orange, 4);
         float f = engine_progress(e);

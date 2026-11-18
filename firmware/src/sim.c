@@ -593,7 +593,8 @@ void engine_reset(engine_t *e) {
     e->gpsLapTrace[0] = p0; e->nGps = 1;
     e->gLat = 0; e->gLong = 0; e->nGTrail = 0;
     e->gpsFix = false;
-    e->gnssInit = false; e->lapArmed = false; e->sPrev = 0; e->alongPrev = 0;
+    e->gnssInit = false; e->lapArmed = false; e->start_seen = false;
+    e->sPrev = 0; e->alongPrev = 0;
 }
 
 void engine_init(engine_t *e, track_t *track, bool useHistBest, mpu_t *sensor) {
@@ -854,6 +855,33 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         return;
     }
 
+    /* Do not start timing/lap counting until the start line has been passed.
+     * If the car starts ahead of the line, it is considered already crossed;
+     * if it starts behind, wait for the first forward crossing. */
+    if (!e->start_seen) {
+        bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < 3.0f;
+        bool already_ahead = along >= 0.0f && fabsf(latd) < 3.0f;
+        if (!crossed && !already_ahead) {
+            e->alongPrev = along;
+            e->sPrev = s;
+            e->s = s;
+            engine_compute_diff(e);
+            return;
+        }
+        e->start_seen = true;
+        e->lapArmed = true;
+        e->elapsed = 0;
+        e->time = 0;
+        e->nTrace = 0;
+        e->nGps = 0;
+        for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
+        e->sPrev = s;
+        e->alongPrev = along;
+        e->s = s;
+        engine_compute_diff(e);
+        return;
+    }
+
     e->time += dt;
     e->elapsed += dt;
 
@@ -868,12 +896,12 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         if (e->nGps < GPS_MAX) e->gpsLapTrace[e->nGps++] = q;
     }
 
-    /* lap = forward crossing of the start line (6 m wide) after half a lap */
-    if (s > 0.5f * t->N) e->lapArmed = true;
+    /* Once started, only forward crossings count; the start crossing itself
+     * starts lap 1 and is not counted as a completed lap. */
     if (e->lapArmed && e->alongPrev < 0.0f && along >= 0.0f &&
         fabsf(latd) < 3.0f && e->elapsed > 2.0f) {
         engine_gnss_lap(e);
-        e->lapArmed = false;
+        /* stay armed: the next forward crossing completes lap 1 */
     }
     e->alongPrev = along;
     e->sPrev = e->s;

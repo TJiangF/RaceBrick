@@ -169,6 +169,7 @@ typedef struct {
     bool  real;         /* track->geo: drive from real GPS instead of the sim */
     bool  gnssInit;
     bool  lapArmed;
+    bool  start_seen;     /* first crossing/start line has been passed */
     float sPrev;
     float alongPrev;
 } engine_t;
