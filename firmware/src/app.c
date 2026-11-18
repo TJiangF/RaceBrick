@@ -842,6 +842,9 @@ void app_autopilot(float dt) {
     case SC_RACING_RECORDED:
         if (s_auto_t > 5.0f) { auto_tap(BTN_BACK); s_auto_t = 0; }
         break;
+    case SC_FLASH:
+        if (s_auto_t > 3.0f) { auto_tap(BTN_BACK); s_auto_t = 0; }
+        break;
     case SC_LAP_SELECT:
         if (s_auto_t > 2.0f) { auto_tap(BTN_OK); s_auto_t = 0; }
         break;

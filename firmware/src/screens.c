@@ -7,6 +7,10 @@
 #include "map.h"
 #include "theme.h"
 #include "log_store.h"
+#include "race_store.h"
+#include "tstore.h"
+#include "esp_flash.h"
+#include "esp_partition.h"
 #include "util.h"
 #include "lcd.h"
 #include "gps.h"
@@ -712,7 +716,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[14] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE", "BTN DEBUG"};
+    static const char *k[15] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE", "BTN DEBUG", "FLASH MAP"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -734,7 +738,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 6, h = 32;
     int start, end;
-    windowed(14, g.sel, K, &start, &end);
+    windowed(15, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -747,8 +751,136 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 14) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 15) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
     hint_c("UP/DN SELECT - L/R ADJUST - PUSH ACTION", HINT_Y);
+}
+
+/* ================= FLASH MAP ================= */
+typedef struct { uint32_t bytes, used; uint16_t col; } flash_seg_t;
+
+static void flash_size(char *out, int n, uint32_t b) {
+    if (b >= (1u << 20)) {
+        uint32_t t = (uint32_t)(((uint64_t)b * 10u + (1u << 19)) >> 20);
+        if (t % 10) snprintf(out, n, "%u.%uM", (unsigned)(t / 10), (unsigned)(t % 10));
+        else        snprintf(out, n, "%uM", (unsigned)(t / 10));
+    } else {
+        snprintf(out, n, "%uK", (unsigned)((b + 1023) / 1024));
+    }
+}
+
+static void flash_bar(int y, int h, uint32_t total, const flash_seg_t *s, int n, bool show_used) {
+    int x = 10, w = CW - 20;
+    gfx_fill(x, y, w, h, PAL.surface2);
+    uint32_t acc = 0;
+    int px = x;
+    for (int i = 0; i < n; i++) {
+        acc += s[i].bytes;
+        int nx = (i == n - 1) ? x + w : x + (int)((uint64_t)acc * w / total);
+        int sw = nx - px;
+        if (sw < 0) sw = 0;
+        if (show_used) {
+            gfx_fill(px, y, sw, 2, s[i].col);
+            int uw = 0;
+            if (s[i].bytes && s[i].used)
+                uw = (int)((uint64_t)sw * s[i].used / s[i].bytes);
+            if (s[i].used && uw < 1 && sw > 0) uw = 1;
+            if (uw > sw) uw = sw;
+            if (uw > 0) gfx_fill(px, y + 2, uw, h - 2, s[i].col);
+        } else {
+            gfx_fill(px, y, sw, h, s[i].col);
+        }
+        px = nx;
+    }
+    gfx_rect(x, y, w, h, PAL.line);
+}
+
+static void flash_leg(int x, int y, uint16_t col, const char *label, const char *right) {
+    gfx_fill(x, y + 2, 7, 7, col);
+    gfx_text(x + 12, y, label, PAL.text, 0);
+    if (right && *right) gfx_text_right(310, y, right, PAL.dim, 0);
+}
+
+static void render_flash(void) {
+    char b[40], a[16], c[16];
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("FLASH USAGE", 2);
+
+    uint32_t itotal = 16u << 20;
+    uint32_t phys = 0;
+    if (esp_flash_get_physical_size(NULL, &phys) == ESP_OK && phys > 0) itotal = phys;
+    const esp_partition_t *pa = esp_partition_find_first(ESP_PARTITION_TYPE_APP,
+                                                         ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+    const esp_partition_t *pd = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                         ESP_PARTITION_SUBTYPE_DATA_SPIFFS, NULL);
+    uint32_t app_b = pa ? pa->size : 0x300000u;
+    uint32_t dat_b = pd ? pd->size : 0x200000u;
+    uint32_t sys_b = 0x10000u;
+    uint32_t iused = sys_b + app_b + dat_b;
+    uint32_t ifree = itotal > iused ? itotal - iused : 0;
+
+    flash_seg_t iseg[4] = {
+        {sys_b, 0, PAL.dim},
+        {app_b, 0, PAL.cyan},
+        {dat_b, 0, PAL.green},
+        {ifree, 0, PAL.surface2},
+    };
+
+    snprintf(b, sizeof b, "ESP32-S3  %uMB", (unsigned)(itotal >> 20));
+    gfx_text(10, 20, b, PAL.cyan, 1);
+    flash_size(a, sizeof a, iused);
+    snprintf(b, sizeof b, "ALLOC %s", a);
+    gfx_text_right(310, 20, b, PAL.dim, 0);
+    flash_bar(34, 16, itotal, iseg, 4, false);
+    flash_leg(10, 54, PAL.dim, "BOOT/NVS 64K", NULL);
+    flash_size(a, sizeof a, app_b);
+    snprintf(b, sizeof b, "APP %s", a);
+    flash_leg(160, 54, PAL.cyan, b, NULL);
+    flash_size(a, sizeof a, dat_b);
+    snprintf(b, sizeof b, "DATA %s", a);
+    flash_leg(10, 68, PAL.green, b, NULL);
+    flash_size(a, sizeof a, ifree);
+    snprintf(b, sizeof b, "FREE %s", a);
+    flash_leg(160, 68, PAL.line, b, NULL);
+
+    uint32_t track_total = (uint32_t)TSTORE_EXT_SLOTS * 4096u;
+    uint32_t sess_total = (uint32_t)RACE_SLOTS * RACE_SLOT_SIZE;
+    uint32_t log_total = log_store_total_bytes();
+    uint32_t etotal = track_total + sess_total + log_total;
+    uint32_t track_used = (uint32_t)tstore_count() * 4096u;
+    uint32_t sess_used = (uint32_t)race_store_count() * RACE_SLOT_SIZE;
+    uint32_t log_used = log_store_used_bytes();
+    uint32_t eused = track_used + sess_used + log_used;
+    flash_seg_t eseg[3] = {
+        {track_total, track_used, PAL.green},
+        {sess_total, sess_used, PAL.cyan},
+        {log_total, log_used, PAL.purple},
+    };
+
+    gfx_text(10, 84, "EXTERNAL W25Q128  16MB", PAL.cyan, 1);
+    flash_size(a, sizeof a, eused);
+    snprintf(b, sizeof b, "USED %s", a);
+    gfx_text_right(310, 84, b, PAL.dim, 0);
+    flash_bar(96, 18, etotal, eseg, 3, true);
+
+    flash_size(a, sizeof a, track_total);
+    snprintf(b, sizeof b, "TRACK %s", a);
+    snprintf(c, sizeof c, "%d/%d", tstore_count(), tstore_capacity());
+    flash_leg(10, 116, PAL.green, b, c);
+    flash_size(a, sizeof a, sess_total);
+    snprintf(b, sizeof b, "SESSION %s", a);
+    snprintf(c, sizeof c, "%d/%d", race_store_count(), RACE_SLOTS);
+    flash_leg(10, 132, PAL.cyan, b, c);
+    flash_size(a, sizeof a, log_total);
+    snprintf(b, sizeof b, "RACE LOG %s", a);
+    snprintf(c, sizeof c, "%d/%d", log_store_count(), log_store_capacity());
+    flash_leg(10, 148, PAL.purple, b, c);
+
+    flash_size(a, sizeof a, eused);
+    flash_size(c, sizeof c, etotal);
+    snprintf(b, sizeof b, "USED %s / %s", a, c);
+    gfx_text(10, 164, b, PAL.white, 1);
+    gfx_text(10, 180, "EXT: OUTLINE=CAPACITY  FILL=USED", PAL.dim, 0);
+    hint_c("BACK EXIT", HINT_Y);
 }
 
 /* ================= SOUND ================= */
@@ -2191,6 +2323,7 @@ void screens_render(void) {
     case SC_BTN_DEBUG: render_btn_debug(); break;
     case SC_LOCATION: render_location(); break;
     case SC_SOUND: render_sound(); break;
+    case SC_FLASH: render_flash(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
     case SC_TRACK_START: render_track_start(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
@@ -2289,6 +2422,7 @@ void screens_enter(scid_t id) {
     case SC_IMU_DEBUG: g.i_gmax = 0; break;   /* keep the boot-pose zero offsets */
     case SC_GPS_DEBUG: gps_begin(); g.dbg_page = 0; break;
     case SC_BTN_DEBUG: break;
+    case SC_FLASH: break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -2933,7 +3067,7 @@ void screens_handle(const event_t *ev) {
                 g.settings_sel = g.sel;
                 return;
             }
-            if (d) { g.sel = (g.sel + d + 14) % 14; g.settings_sel = g.sel; return; }
+            if (d) { g.sel = (g.sel + d + 15) % 15; g.settings_sel = g.sel; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 g.settings_sel = g.sel;
@@ -2966,6 +3100,7 @@ void screens_handle(const event_t *ev) {
                     app_toast(g.ui_style ? "FORMULA 1 UI" : "PIXEL UI");
                 }
                 else if (g.sel == 13) app_go(SC_BTN_DEBUG, 1);
+                else if (g.sel == 14) app_go(SC_FLASH, 1);
                 if (g.sel <= 5 || g.sel == 7 || g.sel == 12) app_save_settings();
             } else if (ev->button == BTN_BACK) app_back();
         }
@@ -3252,6 +3387,10 @@ void screens_handle(const event_t *ev) {
         }
         break;
 
+    case SC_FLASH:
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
+        break;
+
     case SC_BTN_DEBUG:
         if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
         break;
@@ -3407,6 +3546,7 @@ void screens_chrome(void) {
     }
     case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - PUSH TO EDIT"); break;
     case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
+    case SC_FLASH: snprintf(g.status, sizeof g.status, "FLASH MAP"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
     case SC_MOUNT_SELECT: snprintf(g.status, sizeof g.status, g.sel == 0 ? "MOUNT - FIXED (TRUST IMU)" : "MOUNT - NOT FIXED (TRUST GPS)"); break;
     case SC_REC_LAP_SELECT:
