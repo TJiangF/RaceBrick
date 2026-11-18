@@ -101,6 +101,7 @@ typedef struct {
     float  start_f;            /* start-line edit position (0..1) */
     /* auto-lap state while recording */
     float  rec_hdg;            /* start-line heading (rad) */
+    float  rec_disp_hdg;       /* smoothed heading-up map rotation */
     float  rec_flash;          /* green LED flash after an auto lap */
     bool   rec_line_ok;
     float  rec_along_prev;

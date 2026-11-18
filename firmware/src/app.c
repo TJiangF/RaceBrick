@@ -108,6 +108,7 @@ void app_rec_reset(void) {
     g.rec_n = 0;
     g.rec_dist = 0;
     g.rec_flash = 0;
+    g.rec_disp_hdg = 0;
     if (g.rec_cap <= 0) app_rec_reserve(REC_INITIAL);
 }
 

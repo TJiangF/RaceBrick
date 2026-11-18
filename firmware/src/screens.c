@@ -908,12 +908,27 @@ static void render_record_track(void) {
         /* Keep the current position at the centre, and fit the complete
          * recorded trail around it. The view zooms out as the trail grows. */
         pt_t cur = g.rec_last;
+        /* Heading-up camera: the arrow stays fixed at screen centre; the
+         * world trail is rotated by the smoothed current heading. */
+        float target_hdg = g.rec_disp_hdg;
+        if (g.rec_n >= 2) {
+            float dx = g.rec_pts[g.rec_n - 1].x - g.rec_pts[g.rec_n - 2].x;
+            float dy = g.rec_pts[g.rec_n - 1].y - g.rec_pts[g.rec_n - 2].y;
+            if (hypotf(dx, dy) > 0.4f) target_hdg = atan2f(dx, dy);
+        }
+        float dh = target_hdg - g.rec_disp_hdg;
+        while (dh > (float)M_PI) dh -= 2.0f * (float)M_PI;
+        while (dh < -(float)M_PI) dh += 2.0f * (float)M_PI;
+        g.rec_disp_hdg += dh * 0.28f;
+        float ch = cosf(g.rec_disp_hdg), sh = sinf(g.rec_disp_hdg);
         float maxdx = 8.0f, maxdy = 8.0f;
         for (int i = 0; i < g.rec_n; i++) {
-            float dx = fabsf(g.rec_pts[i].x - cur.x);
-            float dy = fabsf(g.rec_pts[i].y - cur.y);
-            if (dx > maxdx) maxdx = dx;
-            if (dy > maxdy) maxdy = dy;
+            float dx = g.rec_pts[i].x - cur.x;
+            float dy = g.rec_pts[i].y - cur.y;
+            float rx = dx * ch - dy * sh;
+            float ry = -(dx * sh + dy * ch);
+            if (fabsf(rx) > maxdx) maxdx = fabsf(rx);
+            if (fabsf(ry) > maxdy) maxdy = fabsf(ry);
         }
         float s = (mw - 18) / (2.0f * maxdx);
         float sy = (mh - 18) / (2.0f * maxdy);
@@ -921,27 +936,27 @@ static void render_record_track(void) {
         float cx = mx + mw / 2.0f, cy = my + mh / 2.0f;
         int stride = g.rec_n / 900;
         if (stride < 1) stride = 1;
-        int px = (int)lroundf(cx + (g.rec_pts[0].x - cur.x) * s);
-        int py = (int)lroundf(cy - (g.rec_pts[0].y - cur.y) * s);
+        float dx0 = g.rec_pts[0].x - cur.x, dy0 = g.rec_pts[0].y - cur.y;
+        float rx0 = dx0 * ch - dy0 * sh, ry0 = -(dx0 * sh + dy0 * ch);
+        int px = (int)lroundf(cx + rx0 * s);
+        int py = (int)lroundf(cy + ry0 * s);
         for (int i = 1; i < g.rec_n; i += stride) {
-            int x = (int)lroundf(cx + (g.rec_pts[i].x - cur.x) * s);
-            int y = (int)lroundf(cy - (g.rec_pts[i].y - cur.y) * s);
+            float dx = g.rec_pts[i].x - cur.x, dy = g.rec_pts[i].y - cur.y;
+            float rx = dx * ch - dy * sh, ry = -(dx * sh + dy * ch);
+            int x = (int)lroundf(cx + rx * s);
+            int y = (int)lroundf(cy + ry * s);
             gfx_line(px, py, x, y, PAL.gpstrace);
             px = x; py = y;
         }
-        /* start/finish marker relative to the current position */
-        int sx0 = (int)lroundf(cx - cur.x * s);
-        int sy0 = (int)lroundf(cy + cur.y * s);
+        /* start/finish marker in the rotated view */
+        float sxw = -cur.x, syw = -cur.y;
+        float sxr = sxw * ch - syw * sh, syr = -(sxw * sh + syw * ch);
+        int sx0 = (int)lroundf(cx + sxr * s);
+        int sy0 = (int)lroundf(cy + syr * s);
         gfx_fill(sx0 - 2, sy0 - 2, 5, 5, PAL.white);
         gfx_fill(sx0 - 1, sy0 - 1, 3, 3, PAL.red);
 
-        float hdg = 0.0f;
-        if (g.rec_n >= 2) {
-            float dx = g.rec_pts[g.rec_n - 1].x - g.rec_pts[g.rec_n - 2].x;
-            float dy = g.rec_pts[g.rec_n - 1].y - g.rec_pts[g.rec_n - 2].y;
-            if (hypotf(dx, dy) > 0.2f) hdg = atan2f(dx, dy);
-        }
-        rec_draw_arrow((int)cx, (int)cy, hdg, PAL.cyan);
+        rec_draw_arrow((int)cx, (int)cy, 0.0f, PAL.red);
     } else {
         gfx_text(mx + 8, my + 8, g.rec_state == 1 ? "recording..." : "at the start line", PAL.dim, 0);
     }
