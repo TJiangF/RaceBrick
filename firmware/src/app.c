@@ -109,6 +109,9 @@ void app_rec_reset(void) {
     g.rec_dist = 0;
     g.rec_flash = 0;
     g.rec_disp_hdg = 0;
+    g.rec_lap_n = 0;
+    g.rec_lap_sel = 0;
+    g.rec_sel_cursor = 0;
     if (g.rec_cap <= 0) app_rec_reserve(REC_INITIAL);
 }
 
@@ -731,6 +734,10 @@ void app_init(void) {
         }
     }
     gnss_init(&g.gnss);
+    if (!g.rec_lap_data) {
+        g.rec_lap_data = (reclap_t *)heap_caps_malloc(sizeof(reclap_t) * REC_FUSION_LAPS,
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
     if (!g.tracks) {
         g.tracks = (track_t *)heap_caps_malloc(sizeof(track_t) * MAX_TRACKS,
                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

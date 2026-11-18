@@ -10,7 +10,7 @@
 
 typedef enum {
     SC_IMU_CALIB, SC_HOME, SC_RACE_MENU, SC_NAV_MENU, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT, SC_MOUNT_SELECT,
-    SC_NEW_TRACK_MARK_START, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
+    SC_NEW_TRACK_MARK_START, SC_REC_LAP_SELECT, SC_REC_PREVIEW, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
     SC_VEHICLE_SELECT, SC_TRACK_NAMING, SC_TRACK_LIST, SC_HISTORY, SC_HISTORY_DETAIL,
     SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_BTN_DEBUG, SC_TRACK_START, SC_PERF, SC_WIFI_SETUP, SC_NAV, SC_PHONE, SC_MEDIA, SC_CONFIRM, SC_COUNT
 } scid_t;
@@ -35,6 +35,12 @@ typedef struct {
     pt_t  trace[TRACE_MAX];
     int   nTrace;
 } histrec_t;
+
+typedef struct {
+    pt_t points[TRK_N];
+    float time;
+    bool valid;
+} reclap_t;
 
 typedef struct {
     /* ---- global ---- */
@@ -96,6 +102,10 @@ typedef struct {
     pt_t  *rec_pts;            /* PSRAM-backed, expands while recording */
     int    rec_cap;
     int    rec_n;
+    reclap_t *rec_lap_data;    /* PSRAM-backed completed laps */
+    int    rec_lap_n;
+    uint32_t rec_lap_sel;      /* selected completed laps for fusion */
+    int    rec_sel_cursor;
     float  rec_dist;
     pt_t   rec_last;
     float  start_f;            /* start-line edit position (0..1) */

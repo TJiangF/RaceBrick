@@ -886,6 +886,46 @@ static void rec_draw_arrow(int cx, int cy, float hdg, uint16_t color) {
     gfx_line(tipx, tipy, rx2, ry2, PAL.white);
 }
 
+static void rec_capture_lap(void) {
+    if (!g.rec_lap_data || g.rec_lap_n >= REC_FUSION_LAPS) return;
+    if (!g.sessionTrack_valid || g.sessionTrack.nscale <= 1e-9f) return;
+    reclap_t *l = &g.rec_lap_data[g.rec_lap_n];
+    l->time = g.rec_lap_time;
+    for (int i = 0; i < TRK_N; i++) {
+        l->points[i].x = (g.sessionTrack.points[i].x - g.sessionTrack.nox) / g.sessionTrack.nscale;
+        l->points[i].y = (g.sessionTrack.points[i].y - g.sessionTrack.noy) / g.sessionTrack.nscale;
+    }
+    l->valid = true;
+    g.rec_lap_n++;
+}
+
+static int rec_selected_count(void) {
+    int n = 0;
+    for (int i = 0; i < g.rec_lap_n; i++) if (g.rec_lap_sel & (1u << i)) n++;
+    return n;
+}
+
+static bool rec_build_fusion(void) {
+    int nsel = rec_selected_count();
+    if (!nsel) return false;
+    pt_t avg[TRK_N];
+    memset(avg, 0, sizeof(avg));
+    for (int i = 0; i < g.rec_lap_n; i++) {
+        if (!(g.rec_lap_sel & (1u << i))) continue;
+        for (int k = 0; k < TRK_N; k++) {
+            avg[k].x += g.rec_lap_data[i].points[k].x;
+            avg[k].y += g.rec_lap_data[i].points[k].y;
+        }
+    }
+    for (int k = 0; k < TRK_N; k++) {
+        avg[k].x /= (float)nsel;
+        avg[k].y /= (float)nsel;
+    }
+    track_build_geo(&g.sessionTrack, avg, TRK_N, g.rec_lat0, g.rec_lon0, "NEW", 0);
+    g.sessionTrack_valid = true;
+    return true;
+}
+
 static void render_record_track(void) {
     gps_state_t *gp = gps_get();
     char b[32];
@@ -1003,6 +1043,81 @@ static void render_record_track(void) {
         gfx_text(6, 210, "DOWN: GPS DEBUG   BACK CANCEL", PAL.orange, 0);
     else
         gfx_text(6, 210, "PUSH START/FINISH   BACK CANCEL", PAL.dim, 0);
+}
+
+/* ================= RECORDED LAPS / FUSION ================= */
+static pt_t rec_norm_point(pt_t m) {
+    pt_t q = { m.x * g.sessionTrack.nscale + g.sessionTrack.nox,
+               m.y * g.sessionTrack.nscale + g.sessionTrack.noy };
+    return q;
+}
+
+static void render_rec_lap_select(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("RECORDED LAPS", 4);
+    if (!s_map_ready) {
+        map_init(&s_map, 4, 20, 176, 194);
+        s_map_ready = true;
+    }
+    map_begin(&s_map);
+    pt_t tmp[TRK_N];
+    int first = -1;
+    for (int i = 0; i < g.rec_lap_n; i++) {
+        if (g.rec_lap_sel & (1u << i)) { first = i; break; }
+    }
+    if (first < 0 && g.rec_lap_n) first = 0;
+    if (first >= 0) {
+        for (int i = 0; i < TRK_N; i++) tmp[i] = rec_norm_point(g.rec_lap_data[first].points[i]);
+        map_fit_points(&s_map, tmp, TRK_N, 0.2f);
+        for (int l = 0; l < g.rec_lap_n; l++) {
+            if (!(g.rec_lap_sel & (1u << l))) continue;
+            for (int i = 0; i < TRK_N; i++) tmp[i] = rec_norm_point(g.rec_lap_data[l].points[i]);
+            map_trace(&s_map, tmp, TRK_N, l == first ? PAL.curtrace : PAL.histtrace, 2);
+        }
+    }
+
+    int start, end;
+    windowed(g.rec_lap_n + 1, g.rec_sel_cursor, 5, &start, &end);
+    int x = 190, y = 30, rh = 28;
+    for (int i = start; i < end; i++) {
+        bool cur = i == g.rec_sel_cursor;
+        if (i < g.rec_lap_n) {
+            bool on = (g.rec_lap_sel & (1u << i)) != 0;
+            gfx_pxbox(x, y, CW - x - 6, rh - 4, cur ? PAL.white : PAL.line, 1,
+                      cur ? PAL.seltint : PAL.surface);
+            gfx_fill(x + 6, y + 7, 9, 9, on ? PAL.green : PAL.checkboxoff);
+            char b[24]; snprintf(b, sizeof b, "L%d", i + 1);
+            gfx_text(x + 20, y + 4, b, PAL.white, 1);
+            u_fmt_time(b, sizeof b, g.rec_lap_data[i].time);
+            gfx_text_right(CW - 10, y + 5, b, PAL.text, 0);
+        } else {
+            gfx_pxbox(x, y, CW - x - 6, rh - 4, cur ? PAL.cyan : PAL.line, 1,
+                      cur ? PAL.seltint : PAL.panel);
+            gfx_text(x + 12, y + 4, "BUILD TRACK", PAL.cyan, 1);
+            gfx_text_right(CW - 10, y + 5, ">", PAL.dim, 0);
+        }
+        y += rh;
+    }
+    char b[32]; snprintf(b, sizeof b, "%d LAPS SELECTED", rec_selected_count());
+    gfx_text(6, 220, b, PAL.dim, 0);
+    gfx_text_center(CW / 2, 232, "UP/DN SELECT  PUSH TOGGLE/BUILD  BACK", PAL.dim, 0);
+}
+
+static void render_rec_preview(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("FUSED TRACK", 4);
+    if (!s_map_ready) {
+        map_init(&s_map, 4, 22, CW - 8, 190);
+        map_set_track(&s_map, &g.sessionTrack);
+        s_map_ready = true;
+    }
+    map_begin(&s_map);
+    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_centerline(&s_map, PAL.dim, 3);
+    pt_t sp = track_point_at(&g.sessionTrack, 0);
+    pt_t st = track_tangent_at(&g.sessionTrack, 0);
+    map_start_checker_at(&s_map, sp, st, RGB565(0, 0, 0));
+    gfx_text_center(CW / 2, 216, "PUSH CONFIRM - BACK REDO", PAL.dim, 0);
 }
 
 /* ================= RACING ================= */
@@ -2041,6 +2156,8 @@ void screens_render(void) {
     case SC_MODE_SELECT: render_mode_select(); break;
     case SC_MOUNT_SELECT: render_mount_select(); break;
     case SC_NEW_TRACK_MARK_START: render_record_track(); break;
+    case SC_REC_LAP_SELECT: render_rec_lap_select(); break;
+    case SC_REC_PREVIEW: render_rec_preview(); break;
     case SC_RACING: render_racing_panel(false, &g.engine, g.screenT > 0 ? 0.033f : 0.033f); break;
     case SC_RACING_RECORDED: render_racing_panel(true, &g.engine, 0.033f); break;
     case SC_LAP_SELECT: render_lap_select(); break;
@@ -2089,6 +2206,13 @@ void screens_enter(scid_t id) {
     case SC_PHONE: g.entered = false; break;
     case SC_MEDIA: g.entered = false; s_media_hit = -1; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
+    case SC_REC_LAP_SELECT:
+        g.rec_sel_cursor = 0;
+        g.rec_lap_sel = 0;
+        for (int i = 0; i < g.rec_lap_n; i++) g.rec_lap_sel |= (1u << i);
+        break;
+    case SC_REC_PREVIEW:
+        break;
     case SC_NEW_TRACK_MARK_START:
         g.rec_state = 0; app_rec_reset(); g.rec_has_ref = false;
         g.rec_line_ok = false; g.rec_armed = false; g.rec_along_prev = 0;
@@ -2265,6 +2389,7 @@ void screens_update(float dt) {
             track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
                             g.rec_lat0, g.rec_lon0, "NEW", 0);
             g.sessionTrack_valid = true;
+            rec_capture_lap();
             g.rec_laps++;
             g.rec_last_lap = g.rec_lap_time;
             if (g.rec_laps == 1 || g.rec_lap_time < g.rec_best_lap) g.rec_best_lap = g.rec_lap_time;
@@ -2347,25 +2472,70 @@ void screens_update(float dt) {
 }
 
 /* ---------- callbacks used by confirm modals ---------- */
+static void rec_make_log(void) {
+    int nsel = rec_selected_count();
+    if (!nsel) return;
+    if (g.nlog >= HISTORY_RECORDS) {
+        memmove(&g.log[0], &g.log[1], sizeof(histrec_t) * (HISTORY_RECORDS - 1));
+        g.nlog = HISTORY_RECORDS - 1;
+    }
+    histrec_t *r = &g.log[g.nlog++];
+    memset(r, 0, sizeof(*r));
+    strncpy(r->trackName, g.sessionTrack.name, sizeof(r->trackName) - 1);
+    strcpy(r->date, "NEW");
+    r->mode = 0;
+    r->vehicle = g.sessionTrack.vehicle;
+    r->nsec = g.sessionTrack.nsec;
+    for (int i = 0; i < r->nsec; i++) r->sections[i] = g.sessionTrack.sections[i];
+    float total = 0;
+    int best_lap = -1;
+    float best_time = 0;
+    for (int i = 0; i < g.rec_lap_n && r->lapCount < HISTORY_LAPS; i++) {
+        if (!(g.rec_lap_sel & (1u << i))) continue;
+        int k = r->lapCount++;
+        r->lapTime[k] = g.rec_lap_data[i].time;
+        r->lapIndex[k] = i + 1;
+        total += g.rec_lap_data[i].time;
+        if (best_lap < 0 || g.rec_lap_data[i].time < best_time) {
+            best_lap = i; best_time = g.rec_lap_data[i].time;
+        }
+    }
+    r->duration = total;
+    if (best_lap >= 0) {
+        r->hasBest = true;
+        r->bestTime = best_time;
+        r->bestIndex = best_lap + 1;
+        for (int j = 0; j < TRACE_MAX; j++) {
+            int src = j * TRK_N / TRACE_MAX;
+            r->trace[j] = rec_norm_point(g.rec_lap_data[best_lap].points[src]);
+        }
+        r->nTrace = TRACE_MAX;
+    }
+}
+
+static void cb_build_fused_track(void) {
+    if (!rec_build_fusion()) { app_toast("SELECT AT LEAST 1 LAP"); return; }
+    app_go(SC_REC_PREVIEW, 1);
+}
+
+static void cb_confirm_fused_track(void) {
+    app_go(SC_TRACK_NAMING, 1);
+}
+
+static void cb_keep_log_yes(void) {
+    rec_make_log();
+    app_go_home_to(0);
+}
+
+static void cb_keep_log_no(void) {
+    app_go_home_to(0);
+}
+
 static void cb_track_reverse_yes(void) {
     track_t *t = g.engine.track;
     if (!t) return;
     t->reverse = t->reverse ? 0 : 1;
     app_toast(t->reverse ? "TRACK CCW" : "TRACK CW");
-}
-
-static void cb_new_track_finish(void) {
-    if (g.rec_laps == 0) {
-        track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
-                        g.rec_lat0, g.rec_lon0, "NEW", 0);
-        g.sessionTrack_valid = true;
-    }
-    g.sessionVehicle = 0;
-    g.session_nsec = 0;
-    g.rec_state = 0;
-    g.rec_flash = 0;
-    app_toast("TRACK RECORDED");
-    app_go(SC_VEHICLE_SELECT, 1);
 }
 
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
@@ -2808,11 +2978,18 @@ void screens_handle(const event_t *ev) {
                 g.rec_lap_time = 0;
                 app_toast("RECORDING");
             } else {
-                if (g.rec_laps == 0 && (g.rec_n < 20 || g.rec_dist < 20.0f)) {
-                    app_toast("DRIVE A LAP FIRST"); return;
+                if (g.rec_lap_n == 0) {
+                    if (g.rec_n < 20 || g.rec_dist < 20.0f) {
+                        app_toast("DRIVE A LAP FIRST"); return;
+                    }
+                    track_build_geo(&g.sessionTrack, g.rec_pts, g.rec_n,
+                                    g.rec_lat0, g.rec_lon0, "NEW", 0);
+                    g.sessionTrack_valid = true;
+                    rec_capture_lap();
                 }
-                app_push_confirm("FINISH NEW TRACK?", "FINISH", "CANCEL",
-                                 cb_new_track_finish, NULL);
+                g.rec_state = 0;
+                app_toast("SELECT LAPS TO BUILD");
+                app_go(SC_REC_LAP_SELECT, 1);
             }
         } else if (ev->button == BTN_DOWN && g.rec_state == 0 && gps_get()->fix_type < 2) {
             app_go(SC_GPS_DEBUG, 1);     /* jump to GPS debug when there is no 3D fix */
@@ -2946,7 +3123,36 @@ void screens_handle(const event_t *ev) {
             app_toast(stored ? "TRACK SAVED" : "SAVED TO RAM ONLY");
             g.sessionTrack_valid = false;
             g.session_nsec = 0;
-            app_go_home_to(0);
+            if (g.rec_lap_n > 0 && rec_selected_count() > 0) {
+                app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+                                 cb_keep_log_yes, cb_keep_log_no);
+            } else {
+                app_go_home_to(0);
+            }
+        } else if (ev->button == BTN_BACK) app_back();
+        break;
+
+    case SC_REC_LAP_SELECT: {
+        int total = g.rec_lap_n + 1;
+        if (d) { g.rec_sel_cursor = (g.rec_sel_cursor + d + total) % total; return; }
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) {
+            if (g.rec_sel_cursor < g.rec_lap_n) {
+                g.rec_lap_sel ^= (1u << g.rec_sel_cursor);
+            } else {
+                if (rec_selected_count() == 0) { app_toast("SELECT AT LEAST 1 LAP"); return; }
+                app_push_confirm("BUILD TRACK FROM SELECTED LAPS?", "BUILD", "CANCEL",
+                                 cb_build_fused_track, NULL);
+            }
+        } else if (ev->button == BTN_BACK) app_back();
+        break;
+    }
+
+    case SC_REC_PREVIEW:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) {
+            app_push_confirm("CONFIRM FUSED TRACK?", "CONFIRM", "REDO",
+                             cb_confirm_fused_track, NULL);
         } else if (ev->button == BTN_BACK) app_back();
         break;
 
@@ -3177,6 +3383,12 @@ void screens_chrome(void) {
     case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
     case SC_MOUNT_SELECT: snprintf(g.status, sizeof g.status, g.sel == 0 ? "MOUNT - FIXED (TRUST IMU)" : "MOUNT - NOT FIXED (TRUST GPS)"); break;
+    case SC_REC_LAP_SELECT:
+        snprintf(g.status, sizeof g.status, "SELECT %d LAPS", rec_selected_count());
+        g.statusColor = PAL.cyan; break;
+    case SC_REC_PREVIEW:
+        snprintf(g.status, sizeof g.status, "FUSED TRACK PREVIEW");
+        g.statusColor = PAL.cyan; break;
     case SC_NEW_TRACK_MARK_START:
         if (g.rec_state == 1) {
             char tb[24]; u_fmt_time(tb, sizeof tb, g.rec_lap_time);

@@ -148,6 +148,7 @@
 #define HISTORY_RECORDS 5
 #define HISTORY_LAPS    16
 #define REC_INITIAL     4096  /* PSRAM-backed recording buffer, grows as needed */
+#define REC_FUSION_LAPS 16    /* completed laps kept for average-track fusion */
 
 /* performance test: default launch threshold in 0.01 g (Settings > LAUNCH G) */
 #define START_PERF_TRIG 15
