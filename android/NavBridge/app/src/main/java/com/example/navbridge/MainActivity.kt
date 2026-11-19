@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private var mediaIdentity: String = ""
     private var stableTitle: String = ""
     private var lastAlbumKey: String? = null
+    private var lastArtLogKey: String = ""
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
     private var lyricKey: String = ""
     private var lyricWindowKey: String = ""
@@ -1174,11 +1175,19 @@ class MainActivity : AppCompatActivity() {
         }
         val art = MediaControl.albumArt(this)
         val artKey = if (art == null) "none" else
-            "${art.width}x${art.height}:${System.identityHashCode(art)}"
+            "${art.width}x${art.height}:$mediaIdentity"
         if (artKey != lastAlbumKey) {
             lastAlbumKey = artKey
-            if (art == null) ble.send("M,ART,0")
-            else sendAlbumArt(art)
+            if (art == null) {
+                ble.send("M,ART,0")
+            } else {
+                sendAlbumArt(art)
+            }
+        }
+        if (artKey != lastArtLogKey) {
+            lastArtLogKey = artKey
+            log(if (art == null) "封面：系统没有提供 Bitmap" else
+                "封面：已获取 ${art.width}x${art.height}，正在发送")
         }
     }
 
@@ -1200,6 +1209,7 @@ class MainActivity : AppCompatActivity() {
         val album = m.album
         val duration = if (m.durationMs > 0) m.durationMs
                        else MediaControl.progress(this)?.durationMs ?: 0L
+        log("歌词请求：$title / $artist")
         lyricWorker.execute {
             val lines = LyricsRepository.fetch(title, artist, album, duration)
             runOnUiThread {
@@ -1207,6 +1217,7 @@ class MainActivity : AppCompatActivity() {
                     lyricCache[key] = lines
                     lyricLines = lines
                     lyricWindowKey = ""
+                    log(if (lines.isEmpty()) "歌词：未找到" else "歌词：${lines.size} 行")
                 }
             }
         }

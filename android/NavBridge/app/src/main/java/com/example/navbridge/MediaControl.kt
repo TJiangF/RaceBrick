@@ -61,10 +61,11 @@ object MediaControl {
     }
 
     fun albumArt(context: Context): android.graphics.Bitmap? {
-        val c = controller(context) ?: return null
-        val m = c.metadata ?: return null
-        return m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-            ?: m.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        val c = controller(context)
+        val m = c?.metadata
+        return m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: m?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: MediaNotificationArt.bitmap
     }
 
     fun progress(context: Context): Progress? {

@@ -53,9 +53,12 @@ object LyricsRepository {
     }
 
     private fun parseObject(obj: JSONObject): List<Line>? {
-        val synced = obj.optString("syncedLyrics")
-        if (synced.isNotBlank()) return parseLrc(synced)
-        val plain = obj.optString("plainLyrics")
+        val synced = obj.optString("syncedLyrics").takeUnless { it == "null" }.orEmpty()
+        if (synced.isNotBlank()) {
+            val timed = parseLrc(synced)
+            if (timed.isNotEmpty()) return timed
+        }
+        val plain = obj.optString("plainLyrics").takeUnless { it == "null" }.orEmpty()
         if (plain.isBlank()) return null
         val lines = plain.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
