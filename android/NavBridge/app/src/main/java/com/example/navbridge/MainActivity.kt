@@ -69,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var lastMediaMeta: String? = null
     private var mediaIdentity: String = ""
     private var stableTitle: String = ""
+    private var lastRawTitle: String = ""
     private var lastAlbumKey: String? = null
     private var lastArtLogKey: String = ""
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
@@ -221,6 +222,7 @@ class MainActivity : AppCompatActivity() {
                     lastMediaMeta = null
                     mediaIdentity = ""
                     stableTitle = ""
+                    lastRawTitle = ""
                     lastAlbumKey = null
                     lyricKey = ""
                     lyricLines = emptyList()
@@ -1166,12 +1168,26 @@ class MainActivity : AppCompatActivity() {
         if (identity != mediaIdentity) {
             mediaIdentity = identity
             stableTitle = m.title
+            lastRawTitle = m.title
             lastMediaMeta = identity
             val title = stableTitle.ifBlank { m.artist }
             ble.send("M,TITLE,${Uri.encode(title)}")
             ble.send("M,ARTIST,${Uri.encode(m.artist)}")
             ble.send("M,ALBUM,${Uri.encode(m.album)}")
             loadLyrics(m.copy(title = stableTitle))
+        } else if (m.title != lastRawTitle) {
+            // Some players write the current lyric line into the title/display
+            // title. Keep the first title as the song name and use later title
+            // changes as a lyric fallback when no LRC is available.
+            lastRawTitle = m.title
+            if (lyricLines.isEmpty() && m.title.isNotBlank() && m.title != stableTitle) {
+                ble.send("M,LYRIC,CLR")
+                ble.send("M,LYRIC,0,${Uri.encode(m.title)}")
+                ble.send("M,LYRICPOS,0")
+                lyricCleared = false
+                lyricWindowKey = ""
+                log("歌词回退：标题通道")
+            }
         }
         val art = MediaControl.albumArt(this)
         val artKey = if (art == null) "none" else
