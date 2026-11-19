@@ -2096,20 +2096,25 @@ static void render_media(void) {
     }
 
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    int cw = 0, ch = 0;
-    const uint16_t *cover = media_cover_cache(&cw, &ch);
-    if (cover && cw == 240 && ch == 240) gfx_blit(0, 0, cover, cw, ch, cw);
-
     bool playing = btmap_media_playing();
-    gfx_text(14, 8, "NOW PLAYING", PAL.dim, 0);
-    const char *st;
-    uint16_t sc;
-    if (!btmap_enabled()) { st = "BT OFF"; sc = PAL.red; }
-    else if (!btmap_connected()) { st = "NO LINK"; sc = PAL.yellow; }
-    else if (!btmap_subscribed()) { st = "CONNECTED"; sc = PAL.yellow; }
-    else { st = playing ? "PLAYING" : "PAUSED"; sc = playing ? PAL.green : PAL.orange; }
-    gfx_text_right(CW - 14, 8, st, sc, 0);
 
+    /* Original-size cover, top-left. */
+    int ax = 14, ay = 10, aw = 96, ah = 96;
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (art && iw == aw && ih == ah) {
+        gfx_blit(ax, ay, art, iw, ih, iw);
+    } else {
+        gfx_fill(ax, ay, aw, ah, PAL.panel);
+        gfx_rect(ax, ay, aw, ah, PAL.line);
+        gfx_disc(ax + aw / 2, ay + ah / 2, 26, PAL.surface2);
+        gfx_circle(ax + aw / 2, ay + ah / 2, 26, PAL.dim);
+        gfx_disc(ax + aw / 2, ay + ah / 2, 5, PAL.cyan);
+        gfx_text_center(ax + aw / 2, ay + ah - 13, "NO ART", PAL.dim, 0);
+    }
+    gfx_rect(ax, ay, aw, ah, PAL.line2);
+
+    /* Title/artist/album stay in their current column. */
     int rx = 124, rw = 166;
     const char *title = btmap_media_title();
     const char *artist = btmap_media_artist();
@@ -2121,33 +2126,40 @@ static void render_media(void) {
     snprintf(b, sizeof b, "%.26s", album[0] ? album : "");
     gfx_text(rx, 60, b, PAL.dim, 0);
 
+    /* Volume rail stays on the right, above the lyric region. */
+    int vol = -1, vmax = 0;
+    if (btmap_media_volume(&vol, &vmax)) {
+        int vx = CW - 18, vy = 14, vh = 92;
+        gfx_fill(vx, vy, 7, vh, PAL.surface2);
+        gfx_fill(vx, vy + vh - (vh * vol) / vmax, 7, (vh * vol) / vmax, PAL.cyan);
+        gfx_rect(vx, vy, 7, vh, PAL.line);
+        snprintf(b, sizeof b, "%d", vol);
+        gfx_text_right(CW - 14, 110, b, PAL.cyan, 0);
+    }
+
+    /* Two lyric lines below the cover, full width. Current line gets priority
+     * for the larger font; no text is truncated. */
     int ly_active = 0;
     char lyrics[5][64];
     if (btmap_media_lyrics(&ly_active, lyrics)) {
         const char *cur = lyrics[ly_active];
         const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";
-        int scale = cur[0] && gfx_text_w(cur, 1) <= rw ? 1 : 0;
-        if (cur[0]) gfx_text(rx, 78, cur, PAL.cyan, scale);
-        if (next[0]) gfx_text(rx, scale ? 94 : 90, next, PAL.dim, 0);
+        int scale = 2;
+        if (gfx_text_w(cur, 2) > CW - 20) scale = 1;
+        if (gfx_text_w(cur, 1) > CW - 20) scale = 0;
+        if (cur[0]) gfx_text(10, 112, cur, PAL.cyan, scale);
+        int ny = 112 + (scale == 2 ? 17 : 11);
+        if (next[0]) gfx_text(10, ny, next, PAL.dim, 1);
     } else {
-        gfx_text(rx, 78, "NO LYRICS", PAL.dim, 0);
+        gfx_text(10, 112, "NO LYRICS", PAL.dim, 0);
     }
 
-    int vol = -1, vmax = 0;
-    if (btmap_media_volume(&vol, &vmax)) {
-        int vx = CW - 18, vy = 34, vh = 104;
-        gfx_fill(vx, vy, 7, vh, PAL.surface2);
-        gfx_fill(vx, vy + vh - (vh * vol) / vmax, 7, (vh * vol) / vmax, PAL.cyan);
-        gfx_rect(vx, vy, 7, vh, PAL.line);
-        snprintf(b, sizeof b, "%d", vol);
-        gfx_text_right(CW - 14, 146, b, PAL.cyan, 0);
-    }
-
+    /* Lower, full-width progress just above the transport buttons. */
     int pos = 0, dur = 0;
     if (btmap_media_progress(&pos, &dur)) {
         char tb[20];
         media_clock(tb, sizeof tb, pos);
-        gfx_text(14, 184, tb, PAL.dim, 0);
+        gfx_text(10, 184, tb, PAL.dim, 0);
         media_clock(tb, sizeof tb, dur);
         gfx_text_right(CW - 14, 184, tb, PAL.dim, 0);
         gfx_fill(10, 196, CW - 20, 5, PAL.surface2);
@@ -2155,7 +2167,7 @@ static void render_media(void) {
         gfx_rect(10, 196, CW - 20, 5, PAL.line);
     }
 
-    /* Flat glass transport row attached to the bottom edge. */
+    /* Flat glass transport row, flush with the bottom edge. */
     const int by = 208, bh = 32, gap = 8;
     const int bw = (CW - 20 - gap * 2) / 3;
     int bx[3] = { 10, 10 + bw + gap, 10 + 2 * (bw + gap) };
