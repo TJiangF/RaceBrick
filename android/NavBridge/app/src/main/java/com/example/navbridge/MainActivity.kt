@@ -68,6 +68,11 @@ class MainActivity : AppCompatActivity() {
     private var lastMediaState: Boolean? = null
     private var lastMediaMeta: String? = null
     private var lastAlbumKey: String? = null
+    private var lyricLines: List<LyricsRepository.Line> = emptyList()
+    private var lyricKey: String = ""
+    private var lyricWindowKey: String = ""
+    private var lyricCleared = true
+    private val lyricCache = HashMap<String, List<LyricsRepository.Line>>()
     private var mediaPrompted = false
     private var deviceKmh = -1
     private var deviceGpsAt = 0L
@@ -79,6 +84,7 @@ class MainActivity : AppCompatActivity() {
             sendMediaProgress()
             sendMediaVolume()
             sendMediaMetadata()
+            sendLyricWindow()
             main.postDelayed(this, 1000)
         }
     }
@@ -139,6 +145,7 @@ class MainActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val tdtWorker = Executors.newSingleThreadExecutor()
     private val routeWorker = Executors.newSingleThreadExecutor()
+    private val lyricWorker = Executors.newSingleThreadExecutor()
 
     // Keep the BLE pipe busy with the newest frame: stale frames are dropped.
     private val framePump = object : Runnable {
@@ -210,10 +217,15 @@ class MainActivity : AppCompatActivity() {
                     lastMediaState = null
                     lastMediaMeta = null
                     lastAlbumKey = null
+                    lyricKey = ""
+                    lyricLines = emptyList()
+                    lyricWindowKey = ""
+                    lyricCleared = true
                     sendMediaState()
                     sendMediaProgress()
                     sendMediaVolume()
                     sendMediaMetadata()
+                    sendLyricWindow()
                     sendPosition()
                     sendLedProgress()
                     if (!sendFrames) {
@@ -1134,6 +1146,7 @@ class MainActivity : AppCompatActivity() {
             ble.send("M,TITLE,${Uri.encode(m?.title.orEmpty())}")
             ble.send("M,ARTIST,${Uri.encode(m?.artist.orEmpty())}")
             ble.send("M,ALBUM,${Uri.encode(m?.album.orEmpty())}")
+            loadLyrics(m)
         }
         val art = MediaControl.albumArt(this)
         val artKey = if (art == null) "none" else
@@ -1143,6 +1156,67 @@ class MainActivity : AppCompatActivity() {
             if (art == null) ble.send("M,ART,0")
             else sendAlbumArt(art)
         }
+    }
+
+    private fun loadLyrics(m: MediaControl.Meta?) {
+        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
+        if (key == lyricKey) return
+        lyricKey = key
+        lyricLines = emptyList()
+        lyricWindowKey = ""
+        if (!lyricCleared) { ble.send("M,LYRIC,CLR"); lyricCleared = true }
+        if (m == null || m.title.isBlank()) return
+        val cached = lyricCache[key]
+        if (cached != null) {
+            lyricLines = cached
+            return
+        }
+        val title = m.title
+        val artist = m.artist
+        val album = m.album
+        val duration = MediaControl.progress(this)?.durationMs ?: 0L
+        lyricWorker.execute {
+            val lines = LyricsRepository.fetch(title, artist, album, duration)
+            runOnUiThread {
+                if (lyricKey == key) {
+                    lyricCache[key] = lines
+                    lyricLines = lines
+                    lyricWindowKey = ""
+                }
+            }
+        }
+    }
+
+    private fun sendLyricWindow() {
+        if (!::ble.isInitialized || !ble.verified) return
+        if (lyricLines.isEmpty()) {
+            if (!lyricCleared) {
+                ble.send("M,LYRIC,CLR")
+                lyricCleared = true
+            }
+            return
+        }
+        val pos = MediaControl.progress(this)?.positionMs ?: 0L
+        var active = 0
+        for (i in lyricLines.indices) {
+            if (lyricLines[i].timeMs <= pos) active = i else break
+        }
+        var start = (active - 2).coerceAtLeast(0)
+        if (start + 5 > lyricLines.size) start = (lyricLines.size - 5).coerceAtLeast(0)
+        val window = ArrayList<String>(5)
+        for (i in 0 until 5) {
+            val idx = start + i
+            window.add(if (idx in lyricLines.indices) lyricLines[idx].text else "")
+        }
+        val key = "$start|$active|${window.joinToString("\u0001")}"
+        if (key == lyricWindowKey) return
+        lyricWindowKey = key
+        ble.send("M,LYRIC,CLR")
+        for (i in 0 until 5) {
+            ble.send("M,LYRIC,$i,${Uri.encode(window[i])}")
+        }
+        ble.send("M,LYRICPOS,${active - start}")
+        lyricCleared = false
     }
 
     private fun sendAlbumArt(bitmap: Bitmap) {
@@ -1188,6 +1262,7 @@ class MainActivity : AppCompatActivity() {
             sendMediaProgress()
             sendMediaVolume()
             sendMediaMetadata()
+            sendLyricWindow()
         }, 450)
     }
 
@@ -1230,6 +1305,7 @@ class MainActivity : AppCompatActivity() {
         worker.shutdownNow()
         tdtWorker.shutdownNow()
         routeWorker.shutdownNow()
+        lyricWorker.shutdownNow()
         frameWorker.shutdownNow()
         super.onDestroy()
     }

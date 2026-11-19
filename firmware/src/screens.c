@@ -1982,6 +1982,26 @@ static void media_next_icon(int cx, int cy, uint16_t c) {
     gfx_poly_fill(a2, b2, 3, c);
 }
 
+/* Flat wide chevrons for the glass transport bar. */
+static void media_flat_prev(int cx, int cy, uint16_t c) {
+    int height = 6;
+    int a1[3] = {cx - 15, cx - 6, cx - 6};
+    int b1[3] = {cy, cy - height, cy + height};
+    int a2[3] = {cx - 4, cx + 5, cx + 5};
+    int b2[3] = {cy, cy - height, cy + height};
+    gfx_poly_fill(a1, b1, 3, c);
+    gfx_poly_fill(a2, b2, 3, c);
+}
+static void media_flat_next(int cx, int cy, uint16_t c) {
+    int height = 6;
+    int a1[3] = {cx + 15, cx + 6, cx + 6};
+    int b1[3] = {cy, cy - height, cy + height};
+    int a2[3] = {cx + 4, cx - 5, cx - 5};
+    int b2[3] = {cy, cy - height, cy + height};
+    gfx_poly_fill(a1, b1, 3, c);
+    gfx_poly_fill(a2, b2, 3, c);
+}
+
 static void media_play_icon(int cx, int cy, uint16_t c) {
     int ax[3] = { cx - 8, cx - 8, cx + 17 };
     int ay[3] = { cy - 15, cy + 15, cy };
@@ -1994,8 +2014,7 @@ static void media_pause_icon(int cx, int cy, uint16_t c) {
 }
 
 static void media_glass_box(int x, int y, int w, int h, bool pressed) {
-    /* The panel is opaque hardware, so emulate liquid glass with a dark
-     * translucent-looking tint, a bright top edge and a thin outline. */
+    /* Simulated liquid glass: dark translucent tint + bright top edge. */
     gfx_fill(x, y, w, h, pressed ? PAL.seltint : PAL.surface);
     gfx_fill(x + 1, y + 1, w - 2, h / 2, PAL.surface2);
     gfx_hline(x + 2, y + 2, w - 4, PAL.line2);
@@ -2026,7 +2045,7 @@ static void render_media(void) {
     else { st = playing ? "PLAYING" : "PAUSED"; sc = playing ? PAL.green : PAL.orange; }
     gfx_text_right(CW - 14, 8, st, sc, 0);
 
-    /* Album cover, left. */
+    /* Cover, left. */
     int ax = 14, ay = 28, aw = 96, ah = 96;
     int iw = 0, ih = 0;
     const uint16_t *art = btmap_album_art(&iw, &ih);
@@ -2042,7 +2061,7 @@ static void render_media(void) {
     }
     gfx_rect(ax, ay, aw, ah, PAL.line2);
 
-    /* Metadata, right of the cover; leave the far right for the volume rail. */
+    /* Metadata: title stays in its own line; lyrics live below artist/album. */
     int rx = 124, rw = 166;
     const char *title = btmap_media_title();
     const char *artist = btmap_media_artist();
@@ -2050,56 +2069,62 @@ static void render_media(void) {
     snprintf(b, sizeof b, "%.26s", title[0] ? title : "NO TRACK");
     gfx_text(rx, 30, b, PAL.white, 1);
     snprintf(b, sizeof b, "%.26s", artist[0] ? artist : "UNKNOWN ARTIST");
-    gfx_text(rx, 48, b, PAL.text2, 0);
+    gfx_text(rx, 46, b, PAL.text2, 0);
     snprintf(b, sizeof b, "%.26s", album[0] ? album : "");
-    gfx_text(rx, 62, b, PAL.dim, 0);
+    gfx_text(rx, 60, b, PAL.dim, 0);
 
-    /* Vertical volume rail on the far right. */
+    int ly_active = 0;
+    char lyrics[5][64];
+    if (btmap_media_lyrics(&ly_active, lyrics)) {
+        for (int i = 0; i < 5; i++) {
+            if (!lyrics[i][0]) continue;
+            int y = 76 + i * 10;
+            char lb[40];
+            snprintf(lb, sizeof lb, "%.26s", lyrics[i]);
+            if (i == ly_active) {
+                gfx_fill(rx - 4, y, 3, 7, PAL.cyan);
+                gfx_text(rx + 2, y, lb, PAL.cyan, 0);
+            } else {
+                gfx_text(rx + 2, y, lb, PAL.dim, 0);
+            }
+        }
+    } else {
+        gfx_text(rx, 80, "NO LYRICS", PAL.dim, 0);
+    }
+
+    /* Volume rail, far right. */
     int vol = -1, vmax = 0;
     if (btmap_media_volume(&vol, &vmax)) {
-        gfx_text_right(CW - 14, 22, "VOL", PAL.dim, 0);
         int vx = CW - 18, vy = 34, vh = 84;
         gfx_fill(vx, vy, 7, vh, PAL.surface2);
-        int fill = (vh * vol) / vmax;
-        gfx_fill(vx, vy + vh - fill, 7, fill, PAL.cyan);
+        gfx_fill(vx, vy + vh - (vh * vol) / vmax, 7, (vh * vol) / vmax, PAL.cyan);
         gfx_rect(vx, vy, 7, vh, PAL.line);
         snprintf(b, sizeof b, "%d", vol);
         gfx_text_right(CW - 14, 122, b, PAL.cyan, 0);
-    } else {
-        gfx_text_right(CW - 14, 22, "VOL --", PAL.dim, 0);
     }
 
-    /* Full-width progress bar directly above the transport row. */
+    /* Progress: full width, no label. */
     int pos = 0, dur = 0;
     if (btmap_media_progress(&pos, &dur)) {
-        gfx_text(14, 128, "PROGRESS", PAL.dim, 0);
-        gfx_fill(14, 138, CW - 28, 7, PAL.surface2);
-        gfx_fill(14, 138, ((CW - 28) * pos) / dur, 7, PAL.cyan);
-        gfx_rect(14, 138, CW - 28, 7, PAL.line);
+        gfx_fill(14, 132, CW - 28, 7, PAL.surface2);
+        gfx_fill(14, 132, ((CW - 28) * pos) / dur, 7, PAL.cyan);
+        gfx_rect(14, 132, CW - 28, 7, PAL.line);
         char tb[20];
         u_fmt_time(tb, sizeof tb, pos / 1000.0f);
-        gfx_text(14, 148, tb, PAL.dim, 0);
+        gfx_text(14, 143, tb, PAL.dim, 0);
         u_fmt_time(tb, sizeof tb, dur / 1000.0f);
-        gfx_text_right(CW - 14, 148, tb, PAL.dim, 0);
-    } else {
-        gfx_text(14, 128, "PROGRESS --:--", PAL.dim, 0);
+        gfx_text_right(CW - 14, 143, tb, PAL.dim, 0);
     }
 
-    /* Flat, glassy transport buttons across the bottom. */
+    /* Flat glass transport row, icons only. */
     const int by = 166, bh = 42, gap = 8;
     const int bw = (CW - 20 - gap * 2) / 3;
     int bx[3] = { 10, 10 + bw + gap, 10 + 2 * (bw + gap) };
     for (int i = 0; i < 3; i++) media_glass_box(bx[i], by, bw, bh, media_pressed(i));
-    media_prev_icon(bx[0] + bw / 2, by + 14, media_pressed(0) ? PAL.yellow : PAL.white);
-    media_next_icon(bx[2] + bw / 2, by + 14, media_pressed(2) ? PAL.yellow : PAL.white);
-    if (playing) media_pause_icon(bx[1] + bw / 2, by + 14, media_pressed(1) ? PAL.yellow : PAL.white);
-    else media_play_icon(bx[1] + bw / 2, by + 14, media_pressed(1) ? PAL.yellow : PAL.white);
-    gfx_text_center(bx[0] + bw / 2, by + 30, "PREV", PAL.dim, 0);
-    gfx_text_center(bx[1] + bw / 2, by + 30, "PLAY/PAUSE", PAL.dim, 0);
-    gfx_text_center(bx[2] + bw / 2, by + 30, "NEXT", PAL.dim, 0);
-
-    gfx_text_center(CW / 2, 218, "UP/DN VOL   LEFT/RIGHT TRACK   PUSH PLAY", PAL.dim, 0);
-    gfx_text_center(CW / 2, 231, "BACK EXIT", PAL.dim, 0);
+    media_flat_prev(bx[0] + bw / 2, by + bh / 2, media_pressed(0) ? PAL.yellow : PAL.white);
+    media_flat_next(bx[2] + bw / 2, by + bh / 2, media_pressed(2) ? PAL.yellow : PAL.white);
+    if (playing) media_pause_icon(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
+    else media_play_icon(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */

@@ -77,6 +77,9 @@ static volatile int s_media_volmax = 0;
 static char s_media_title[64];
 static char s_media_artist[64];
 static char s_media_album[64];
+static char s_media_lyrics[5][64];
+static int s_media_lyric_active;
+static bool s_media_lyrics_valid;
 static volatile int s_nav_remain = -1;
 static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
@@ -413,6 +416,31 @@ static void handle_write(const uint8_t *b, int len) {
     else if (len >= 7 && memcmp(b, "M,ART,", 6) == 0 && b[6] == '0') {
         s_album_ready = false;
     }
+    else if (len >= 11 && memcmp(b, "M,LYRIC,CLR", 11) == 0) {
+        memset(s_media_lyrics, 0, sizeof(s_media_lyrics));
+        s_media_lyric_active = 0;
+        s_media_lyrics_valid = false;
+    }
+    else if (len >= 8 && memcmp(b, "M,LYRIC,", 8) == 0) {
+        char tmp[160], dec[80];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        char *p = tmp + 8;
+        int slot = 0;
+        while (*p >= '0' && *p <= '9') { slot = slot * 10 + (*p - '0'); p++; }
+        if (*p == ',') p++;
+        if (slot >= 0 && slot < 5) {
+            pct_decode(p, dec, sizeof dec);
+            snprintf(s_media_lyrics[slot], sizeof s_media_lyrics[slot], "%s", dec);
+            s_media_lyrics_valid = true;
+        }
+    }
+    else if (len >= 11 && memcmp(b, "M,LYRICPOS,", 11) == 0) {
+        int slot = atoi((const char *)b + 11);
+        if (slot < 0) slot = 0;
+        if (slot > 4) slot = 4;
+        s_media_lyric_active = slot;
+    }
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
     else if (len >= 6 && memcmp(b, "M,VOL,", 6) == 0) {
         char tmp[48];
@@ -543,6 +571,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_media_title[0] = 0;
         s_media_artist[0] = 0;
         s_media_album[0] = 0;
+        memset(s_media_lyrics, 0, sizeof(s_media_lyrics));
+        s_media_lyrics_valid = false;
         s_album_ready = false;
         reset_rx();
         ESP_LOGI(TAG, "disconnected (reason %d)", event->disconnect.reason);
@@ -709,6 +739,12 @@ const uint16_t *btmap_album_art(int *w, int *h) {
     if (w) *w = s_album_w;
     if (h) *h = s_album_h;
     return s_album_px;
+}
+bool btmap_media_lyrics(int *active, char lines[5][64]) {
+    if (!s_media_lyrics_valid) return false;
+    if (active) *active = s_media_lyric_active;
+    if (lines) memcpy(lines, s_media_lyrics, sizeof(s_media_lyrics));
+    return true;
 }
 
 void btmap_media_cmd(const char *cmd) {
