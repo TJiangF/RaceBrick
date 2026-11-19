@@ -62,6 +62,7 @@ static uint16_t *s_front, *s_back;
 static uint8_t *s_wire;
 static uint16_t *s_album_px;
 static volatile bool s_album_ready;
+static volatile uint32_t s_album_seq;
 static volatile int s_album_w, s_album_h;
 static SemaphoreHandle_t s_lock;
 static volatile bool s_have;
@@ -253,6 +254,7 @@ static void handle_bulk(const uint8_t *b, int len) {
             memcpy(s_album_px, s_wire, (size_t)total);
             s_album_w = BT_ALBUM_W;
             s_album_h = BT_ALBUM_H;
+            s_album_seq++;
             s_album_ready = true;
             ESP_LOGI(TAG, "album art updated (%u bytes)", (unsigned)total);
         }
@@ -740,6 +742,7 @@ const uint16_t *btmap_album_art(int *w, int *h) {
     if (h) *h = s_album_h;
     return s_album_px;
 }
+uint32_t btmap_album_art_seq(void) { return s_album_seq; }
 bool btmap_media_lyrics(int *active, char lines[5][64]) {
     if (!s_media_lyrics_valid) return false;
     if (active) *active = s_media_lyric_active;

@@ -27,6 +27,7 @@
 #include "race_store.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -2002,6 +2003,16 @@ static void media_flat_next(int cx, int cy, uint16_t c) {
     gfx_poly_fill(a2, b2, 3, c);
 }
 
+static void media_flat_play(int cx, int cy, uint16_t c) {
+    int ax[3] = {cx - 6, cx - 6, cx + 8};
+    int ay[3] = {cy - 8, cy + 8, cy};
+    gfx_poly_fill(ax, ay, 3, c);
+}
+static void media_flat_pause(int cx, int cy, uint16_t c) {
+    gfx_fill(cx - 7, cy - 8, 5, 16, c);
+    gfx_fill(cx + 2, cy - 8, 5, 16, c);
+}
+
 static void media_play_icon(int cx, int cy, uint16_t c) {
     int ax[3] = { cx - 8, cx - 8, cx + 17 };
     int ay[3] = { cy - 15, cy + 15, cy };
@@ -2011,6 +2022,50 @@ static void media_play_icon(int cx, int cy, uint16_t c) {
 static void media_pause_icon(int cx, int cy, uint16_t c) {
     gfx_fill(cx - 11, cy - 14, 8, 28, c);
     gfx_fill(cx + 3, cy - 14, 8, 28, c);
+}
+
+#define MEDIA_COVER_W 240
+#define MEDIA_COVER_H 240
+static uint16_t *s_cover_cache;
+static uint32_t s_cover_seq;
+static uint16_t s_cover_bg;
+
+static inline uint16_t blend565(uint16_t fg, uint16_t bg, int a) { /* a: 0..256 */
+    int fr = (fg >> 11) & 31, fgc = (fg >> 5) & 63, fb = fg & 31;
+    int br = (bg >> 11) & 31, bgc = (bg >> 5) & 63, bb = bg & 31;
+    int r = (fr * a + br * (256 - a)) >> 8;
+    int g = (fgc * a + bgc * (256 - a)) >> 8;
+    int b = (fb * a + bb * (256 - a)) >> 8;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+static const uint16_t *media_cover_cache(int *w, int *h) {
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (!art || iw <= 0 || ih <= 0) return NULL;
+    uint32_t seq = btmap_album_art_seq();
+    if (!s_cover_cache) {
+        s_cover_cache = (uint16_t *)heap_caps_malloc(MEDIA_COVER_W * MEDIA_COVER_H * 2,
+                                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_cover_cache) return NULL;
+    }
+    if (seq != s_cover_seq || s_cover_bg != PAL.stage) {
+        s_cover_seq = seq;
+        s_cover_bg = PAL.stage;
+        for (int y = 0; y < MEDIA_COVER_H; y++) {
+            int sy = y * ih / MEDIA_COVER_H;
+            const uint16_t *row = art + sy * iw;
+            for (int x = 0; x < MEDIA_COVER_W; x++) {
+                int sx = x * iw / MEDIA_COVER_W;
+                /* left fully opaque, right ~90% transparent */
+                int a = 256 - (x * 230) / (MEDIA_COVER_W - 1);
+                s_cover_cache[y * MEDIA_COVER_W + x] = blend565(row[sx], PAL.stage, a);
+            }
+        }
+    }
+    if (w) *w = MEDIA_COVER_W;
+    if (h) *h = MEDIA_COVER_H;
+    return s_cover_cache;
 }
 
 static void media_glass_box(int x, int y, int w, int h, bool pressed) {
@@ -2041,6 +2096,10 @@ static void render_media(void) {
     }
 
     gfx_fill(0, 0, CW, CH, PAL.stage);
+    int cw = 0, ch = 0;
+    const uint16_t *cover = media_cover_cache(&cw, &ch);
+    if (cover && cw == 240 && ch == 240) gfx_blit(0, 0, cover, cw, ch, cw);
+
     bool playing = btmap_media_playing();
     gfx_text(14, 8, "NOW PLAYING", PAL.dim, 0);
     const char *st;
@@ -2051,23 +2110,6 @@ static void render_media(void) {
     else { st = playing ? "PLAYING" : "PAUSED"; sc = playing ? PAL.green : PAL.orange; }
     gfx_text_right(CW - 14, 8, st, sc, 0);
 
-    /* Cover, left. */
-    int ax = 14, ay = 28, aw = 96, ah = 96;
-    int iw = 0, ih = 0;
-    const uint16_t *art = btmap_album_art(&iw, &ih);
-    if (art && iw == aw && ih == ah) {
-        gfx_blit(ax, ay, art, iw, ih, iw);
-    } else {
-        gfx_fill(ax, ay, aw, ah, PAL.panel);
-        gfx_rect(ax, ay, aw, ah, PAL.line);
-        gfx_disc(ax + aw / 2, ay + ah / 2, 28, PAL.surface2);
-        gfx_circle(ax + aw / 2, ay + ah / 2, 28, PAL.dim);
-        gfx_disc(ax + aw / 2, ay + ah / 2, 6, PAL.cyan);
-        gfx_text_center(ax + aw / 2, ay + ah - 14, "NO ART", PAL.dim, 0);
-    }
-    gfx_rect(ax, ay, aw, ah, PAL.line2);
-
-    /* Metadata: title stays in its own line; lyrics live below artist/album. */
     int rx = 124, rw = 166;
     const char *title = btmap_media_title();
     const char *artist = btmap_media_artist();
@@ -2082,55 +2124,46 @@ static void render_media(void) {
     int ly_active = 0;
     char lyrics[5][64];
     if (btmap_media_lyrics(&ly_active, lyrics)) {
-        for (int i = 0; i < 5; i++) {
-            if (!lyrics[i][0]) continue;
-            int y = 76 + i * 10;
-            char lb[40];
-            snprintf(lb, sizeof lb, "%.26s", lyrics[i]);
-            if (i == ly_active) {
-                gfx_fill(rx - 4, y, 3, 7, PAL.cyan);
-                gfx_text(rx + 2, y, lb, PAL.cyan, 0);
-            } else {
-                gfx_text(rx + 2, y, lb, PAL.dim, 0);
-            }
-        }
+        const char *cur = lyrics[ly_active];
+        const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";
+        int scale = cur[0] && gfx_text_w(cur, 1) <= rw ? 1 : 0;
+        if (cur[0]) gfx_text(rx, 78, cur, PAL.cyan, scale);
+        if (next[0]) gfx_text(rx, scale ? 94 : 90, next, PAL.dim, 0);
     } else {
-        gfx_text(rx, 80, "NO LYRICS", PAL.dim, 0);
+        gfx_text(rx, 78, "NO LYRICS", PAL.dim, 0);
     }
 
-    /* Volume rail, far right. */
     int vol = -1, vmax = 0;
     if (btmap_media_volume(&vol, &vmax)) {
-        int vx = CW - 18, vy = 34, vh = 84;
+        int vx = CW - 18, vy = 34, vh = 104;
         gfx_fill(vx, vy, 7, vh, PAL.surface2);
         gfx_fill(vx, vy + vh - (vh * vol) / vmax, 7, (vh * vol) / vmax, PAL.cyan);
         gfx_rect(vx, vy, 7, vh, PAL.line);
         snprintf(b, sizeof b, "%d", vol);
-        gfx_text_right(CW - 14, 122, b, PAL.cyan, 0);
+        gfx_text_right(CW - 14, 146, b, PAL.cyan, 0);
     }
 
-    /* Progress: full width, no label. */
     int pos = 0, dur = 0;
     if (btmap_media_progress(&pos, &dur)) {
-        gfx_fill(14, 132, CW - 28, 7, PAL.surface2);
-        gfx_fill(14, 132, ((CW - 28) * pos) / dur, 7, PAL.cyan);
-        gfx_rect(14, 132, CW - 28, 7, PAL.line);
         char tb[20];
         media_clock(tb, sizeof tb, pos);
-        gfx_text(14, 143, tb, PAL.dim, 0);
+        gfx_text(14, 184, tb, PAL.dim, 0);
         media_clock(tb, sizeof tb, dur);
-        gfx_text_right(CW - 14, 143, tb, PAL.dim, 0);
+        gfx_text_right(CW - 14, 184, tb, PAL.dim, 0);
+        gfx_fill(10, 196, CW - 20, 5, PAL.surface2);
+        gfx_fill(10, 196, ((CW - 20) * pos) / dur, 5, PAL.cyan);
+        gfx_rect(10, 196, CW - 20, 5, PAL.line);
     }
 
-    /* Flat glass transport row, icons only. */
-    const int by = 166, bh = 42, gap = 8;
+    /* Flat glass transport row attached to the bottom edge. */
+    const int by = 208, bh = 32, gap = 8;
     const int bw = (CW - 20 - gap * 2) / 3;
     int bx[3] = { 10, 10 + bw + gap, 10 + 2 * (bw + gap) };
     for (int i = 0; i < 3; i++) media_glass_box(bx[i], by, bw, bh, media_pressed(i));
     media_flat_prev(bx[0] + bw / 2, by + bh / 2, media_pressed(0) ? PAL.yellow : PAL.white);
     media_flat_next(bx[2] + bw / 2, by + bh / 2, media_pressed(2) ? PAL.yellow : PAL.white);
-    if (playing) media_pause_icon(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
-    else media_play_icon(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
+    if (playing) media_flat_pause(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
+    else media_flat_play(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */
