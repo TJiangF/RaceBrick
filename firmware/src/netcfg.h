@@ -11,6 +11,17 @@ bool netcfg_connected(void);
 const char *netcfg_ip(void);
 const char *netcfg_ap_ssid(void);
 void netcfg_status(char *buf, int cap);
+
+/* Phone/BLE WiFi provisioning helpers. All scan/connect calls are from the
+ * main task; the BLE bridge queues commands to avoid running WiFi work inside
+ * the NimBLE GATT callback. */
+#define NETCFG_SAVED_MAX 8
+int  netcfg_wifi_scan(void);       /* blocking; returns AP count */
+int  netcfg_wifi_scan_count(void);
+bool netcfg_wifi_scan_get(int idx, char *ssid, int cap, int *rssi, int *auth);
+int  netcfg_wifi_saved_count(void);
+bool netcfg_wifi_saved_get(int idx, char *ssid, int cap);
+bool netcfg_wifi_connect(const char *ssid, const char *pass);
 /* Disable/enable WiFi modem sleep for low-latency frame fetch (nav screen). */
 void netcfg_set_low_latency(bool on);
 

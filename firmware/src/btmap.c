@@ -1,6 +1,7 @@
 #include "btmap.h"
 #include "config.h"
 #include "gps.h"
+#include "netcfg.h"
 
 #include <string.h>
 #include <math.h>
@@ -71,6 +72,13 @@ static volatile bool s_ready_pending;
 static volatile bool s_k_pending;
 static volatile int s_k_id;
 static int64_t s_last_gps_us;
+
+/* WiFi provisioning commands are queued from the NimBLE GATT callback and
+ * executed by the main task in btmap_poll(), never inside the BLE host call. */
+static char s_wifi_cmd[256];
+static volatile bool s_wifi_pending;
+static portMUX_TYPE s_wifi_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_last_wifi_status_us;
 
 static uint8_t s_write_buf[512];
 static uint8_t s_seen[(BT_MAX_PARTS + 7) / 8];
@@ -224,8 +232,127 @@ static void handle_bulk(const uint8_t *b, int len) {
     }
 }
 
+static void pct_encode(const char *in, char *out, int cap) {
+    static const char hex[] = "0123456789ABCDEF";
+    int n = 0;
+    if (cap <= 1) return;
+    for (const unsigned char *p = (const unsigned char *)in; *p && n < cap - 1; p++) {
+        unsigned char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+            out[n++] = (char)c;
+        } else if (n + 3 <= cap - 1) {
+            out[n++] = '%'; out[n++] = hex[c >> 4]; out[n++] = hex[c & 15];
+        } else break;
+    }
+    out[n] = 0;
+}
+
+static int pct_decode(const char *in, char *out, int cap) {
+    int n = 0;
+    if (cap <= 0) return 0;
+    while (*in && n < cap - 1) {
+        if (in[0] == '%' && in[1] && in[2]) {
+            int hi = in[1] >= 'A' ? (in[1] & 0xDF) - 'A' + 10 : in[1] - '0';
+            int lo = in[2] >= 'A' ? (in[2] & 0xDF) - 'A' + 10 : in[2] - '0';
+            if (hi >= 0 && hi < 16 && lo >= 0 && lo < 16) {
+                out[n++] = (char)((hi << 4) | lo);
+                in += 3;
+                continue;
+            }
+        }
+        out[n++] = *in++;
+    }
+    out[n] = 0;
+    return n;
+}
+
+static void send_wifi_status(void) {
+    char st[80], enc[240];
+    netcfg_status(st, sizeof st);
+    pct_encode(st, enc, sizeof enc);
+    char line[300];
+    snprintf(line, sizeof line, "#W,STATUS,%s", enc);
+    send_line(line);
+}
+
+static void wifi_poll(void) {
+    bool pending;
+    char cmd[256];
+    taskENTER_CRITICAL(&s_wifi_mux);
+    pending = s_wifi_pending;
+    if (pending) {
+        memcpy(cmd, s_wifi_cmd, sizeof cmd);
+        s_wifi_pending = false;
+    }
+    taskEXIT_CRITICAL(&s_wifi_mux);
+    if (pending) {
+        if (!strcmp(cmd, "#W,SCAN")) {
+            send_line("#W,SCAN_BEGIN,0");
+            int n = netcfg_wifi_scan();
+            char line[200];
+            snprintf(line, sizeof line, "#W,SCAN_BEGIN,%d", n);
+            send_line(line);
+            for (int i = 0; i < n; i++) {
+                char ssid[33], enc[160];
+                int rssi = 0, auth = 0;
+                if (!netcfg_wifi_scan_get(i, ssid, sizeof ssid, &rssi, &auth)) continue;
+                pct_encode(ssid, enc, sizeof enc);
+                snprintf(line, sizeof line, "#W,AP,%d,%s,%d,%d", i, enc, rssi, auth);
+                send_line(line);
+            }
+            snprintf(line, sizeof line, "#W,SCAN_END,%d", n);
+            send_line(line);
+            send_wifi_status();
+        } else if (!strcmp(cmd, "#W,LIST")) {
+            int n = netcfg_wifi_saved_count();
+            char line[200];
+            for (int i = 0; i < n; i++) {
+                char ssid[33], enc[160];
+                if (!netcfg_wifi_saved_get(i, ssid, sizeof ssid)) continue;
+                pct_encode(ssid, enc, sizeof enc);
+                snprintf(line, sizeof line, "#W,SAVED,%d,%s", i, enc);
+                send_line(line);
+            }
+            snprintf(line, sizeof line, "#W,SAVED_END,%d", n);
+            send_line(line);
+        } else if (!strcmp(cmd, "#W,STATUS")) {
+            send_wifi_status();
+        } else if (strncmp(cmd, "#W,CONNECT,", 11) == 0) {
+            char ssid[33], pass[65];
+            const char *p = cmd + 11;
+            const char *comma = strchr(p, ',');
+            if (comma) {
+                size_t sl = (size_t)(comma - p);
+                if (sl >= sizeof ssid) sl = sizeof ssid - 1;
+                memcpy(ssid, p, sl); ssid[sl] = 0;
+                pct_decode(ssid, ssid, sizeof ssid);
+                pct_decode(comma + 1, pass, sizeof pass);
+                if (ssid[0]) {
+                    netcfg_wifi_connect(ssid, pass);
+                    send_wifi_status();
+                }
+            }
+        }
+    }
+    int64_t now = esp_timer_get_time();
+    if (s_subscribed && now - s_last_wifi_status_us > 1500000LL) {
+        s_last_wifi_status_us = now;
+        send_wifi_status();
+    }
+}
+
 static void handle_write(const uint8_t *b, int len) {
     if (len <= 0) return;
+    if (len >= 3 && b[0] == '#' && b[1] == 'W' && b[2] == ',') {
+        int n = len < (int)sizeof(s_wifi_cmd) - 1 ? len : (int)sizeof(s_wifi_cmd) - 1;
+        taskENTER_CRITICAL(&s_wifi_mux);
+        memcpy(s_wifi_cmd, b, n);
+        s_wifi_cmd[n] = 0;
+        s_wifi_pending = true;
+        taskEXIT_CRITICAL(&s_wifi_mux);
+        return;
+    }
     if (len >= 15 && b[0] == 'M') {
         handle_bulk(b, len);
         return;
@@ -520,6 +647,7 @@ const uint16_t *btmap_frame_lock(int *w, int *h) {
 void btmap_frame_unlock(void) { if (s_lock) xSemaphoreGive(s_lock); }
 
 void btmap_poll(void) {
+    if (s_enabled) wifi_poll();
     if (!s_started || !s_enabled) return;
     if (s_ready_pending && s_subscribed) {
         s_ready_pending = false;

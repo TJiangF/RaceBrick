@@ -40,6 +40,17 @@
                 android:textColor="#F2B95C" />
 
             <Button
+                android:id="@+id/btnWifi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:minHeight="40dp"
+                android:text="WiFi"
+                android:textColor="#66E0D2" />
+
+            <Button
                 android:id="@+id/btnSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

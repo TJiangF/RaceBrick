@@ -126,6 +126,7 @@ class MainActivity : AppCompatActivity() {
     private var selName = ""
 
     private lateinit var ble: BleClient
+    private var wifiSetup: WifiSetupDialog? = null
     private lateinit var capture: MapCapture
     private lateinit var nav: NavEngine
 
@@ -219,6 +220,7 @@ class MainActivity : AppCompatActivity() {
                         line.startsWith("M,") -> handleMediaCommand(line)
                         line.startsWith("#G,") -> handleDeviceGps(line)
                         line.startsWith("#Z,") -> handleDeviceZoom(line)
+                        line.startsWith("#W,") -> wifiSetup?.onLine(line)
                         else -> log("← $line")
                     }
                 }
@@ -331,6 +333,14 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn.setOnClickListener {
             zoomIndex = (zoomIndex + 1) % zoomLevels.size
             applyZoom(zoomLevels[zoomIndex])
+        }
+        findViewById<Button>(R.id.btnWifi).setOnClickListener {
+            if (!ble.connected) {
+                toast("请先连接 RaceBrick 蓝牙")
+                return@setOnClickListener
+            }
+            if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, ble)
+            wifiSetup?.show()
         }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -1149,6 +1159,8 @@ class MainActivity : AppCompatActivity() {
         effectBase = null
         currentPreview = null
         runCatching { capture.close() }
+        wifiSetup?.dismiss()
+        wifiSetup = null
         runCatching { ble.disconnect() }
         runCatching { nav.stop() }
         worker.shutdownNow()

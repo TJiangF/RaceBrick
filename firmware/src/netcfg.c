@@ -58,6 +58,7 @@ static bool s_connected = false;
 static int64_t s_connect_t0 = 0;
 static char s_ip[20] = "";
 static char s_ap_ssid[24] = "RaceBrick";
+static char s_sta_ssid[33] = "";
 
 #define SCAN_MAX 16
 static wifi_ap_record_t s_aps[SCAN_MAX];
@@ -78,7 +79,8 @@ const char *netcfg_ap_ssid(void) { return s_ap_ssid; }
 
 void netcfg_status(char *buf, int cap) {
     if (s_connected) {
-        snprintf(buf, cap, "CONNECTED %s", s_ip);
+        if (s_sta_ssid[0]) snprintf(buf, cap, "CONNECTED %s %s", s_sta_ssid, s_ip);
+        else snprintf(buf, cap, "CONNECTED %s", s_ip);
     } else if (s_connecting) {
         int sec = (int)((esp_timer_get_time() - s_connect_t0) / 1000000);
         if (sec > 20) snprintf(buf, cap, "FAILED - CHECK SSID/PASSWORD");
@@ -90,30 +92,131 @@ void netcfg_status(char *buf, int cap) {
     }
 }
 
-/* ---------------- credentials ---------------- */
-static void save_creds(const char *ssid, const char *pass) {
+/* ---------------- credentials (up to 8 remembered networks) ---------------- */
+static void nvs_key(char *out, int cap, const char *prefix, int i) {
+    snprintf(out, cap, "%s%d", prefix, i);
+}
+
+static int saved_read(char ssid[][33], char pass[][65]) {
+    nvs_handle_t h;
+    int n = 0;
+    if (nvs_open("wifi", NVS_READONLY, &h) == ESP_OK) {
+        int32_t cnt = 0;
+        if (nvs_get_i32(h, "count", &cnt) == ESP_OK && cnt > 0) {
+            if (cnt > NETCFG_SAVED_MAX) cnt = NETCFG_SAVED_MAX;
+            for (int i = 0; i < cnt; i++) {
+                char k[12];
+                size_t l = 33;
+                nvs_key(k, sizeof k, "s", i);
+                if (nvs_get_str(h, k, ssid[n], &l) != ESP_OK || !ssid[n][0]) continue;
+                l = 65;
+                nvs_key(k, sizeof k, "p", i);
+                if (nvs_get_str(h, k, pass[n], &l) != ESP_OK) pass[n][0] = 0;
+                n++;
+            }
+        }
+        nvs_close(h);
+    }
+    /* migrate the old single-network keys */
+    if (n == 0) {
+        if (nvs_open("wifi", NVS_READONLY, &h) == ESP_OK) {
+            size_t l = 33;
+            if (nvs_get_str(h, "ssid", ssid[0], &l) == ESP_OK && ssid[0][0]) {
+                l = 65;
+                if (nvs_get_str(h, "pass", pass[0], &l) != ESP_OK) pass[0][0] = 0;
+                n = 1;
+            }
+            nvs_close(h);
+        }
+    }
+    return n;
+}
+
+static void saved_write(char ssid[][33], char pass[][65], int n) {
     nvs_handle_t h;
     if (nvs_open("wifi", NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, "ssid", ssid);
-    nvs_set_str(h, "pass", pass);
+    if (n > NETCFG_SAVED_MAX) n = NETCFG_SAVED_MAX;
+    nvs_set_i32(h, "count", n);
+    for (int i = 0; i < n; i++) {
+        char k[12];
+        nvs_key(k, sizeof k, "s", i);
+        nvs_set_str(h, k, ssid[i]);
+        nvs_key(k, sizeof k, "p", i);
+        nvs_set_str(h, k, pass[i]);
+    }
+    if (n > 0) {
+        nvs_set_str(h, "ssid", ssid[n - 1]);
+        nvs_set_str(h, "pass", pass[n - 1]);
+        nvs_set_i32(h, "last", n - 1);
+    }
     nvs_commit(h);
     nvs_close(h);
 }
 
+static void save_creds(const char *ssid, const char *pass) {
+    if (!ssid || !ssid[0]) return;
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    int idx = -1;
+    for (int i = 0; i < n; i++) if (!strcmp(s[i], ssid)) { idx = i; break; }
+    if (idx < 0) {
+        if (n >= NETCFG_SAVED_MAX) {
+            for (int i = 1; i < NETCFG_SAVED_MAX; i++) {
+                memcpy(s[i - 1], s[i], sizeof s[i]);
+                memcpy(p[i - 1], p[i], sizeof p[i]);
+            }
+            n = NETCFG_SAVED_MAX - 1;
+        }
+        idx = n++;
+        snprintf(s[idx], sizeof s[idx], "%s", ssid);
+    }
+    snprintf(p[idx], sizeof p[idx], "%s", pass ? pass : "");
+    /* keep the last-used network at the end; move it there */
+    if (idx != n - 1) {
+        char ts[33], tp[65];
+        memcpy(ts, s[idx], sizeof ts); memcpy(tp, p[idx], sizeof tp);
+        for (int i = idx; i < n - 1; i++) {
+            memcpy(s[i], s[i + 1], sizeof s[i]);
+            memcpy(p[i], p[i + 1], sizeof p[i]);
+        }
+        memcpy(s[n - 1], ts, sizeof s[n - 1]);
+        memcpy(p[n - 1], tp, sizeof p[n - 1]);
+    }
+    saved_write(s, p, n);
+}
+
 static bool load_creds(char *ssid, int sc, char *pass, int pc) {
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    if (n <= 0) return false;
+    int idx = n - 1;
     nvs_handle_t h;
-    if (nvs_open("wifi", NVS_READONLY, &h) != ESP_OK) return false;
-    size_t l = (size_t)sc;
-    bool ok = (nvs_get_str(h, "ssid", ssid, &l) == ESP_OK) && ssid[0];
-    l = (size_t)pc;
-    if (ok) ok = (nvs_get_str(h, "pass", pass, &l) == ESP_OK);
-    nvs_close(h);
-    return ok;
+    if (nvs_open("wifi", NVS_READONLY, &h) == ESP_OK) {
+        int32_t last = -1;
+        if (nvs_get_i32(h, "last", &last) == ESP_OK && last >= 0 && last < n) idx = last;
+        nvs_close(h);
+    }
+    snprintf(ssid, sc, "%s", s[idx]);
+    snprintf(pass, pc, "%s", p[idx]);
+    return ssid[0] != 0;
 }
 
 bool netcfg_has_creds(void) {
     char ssid[33], pass[65];
     return load_creds(ssid, sizeof ssid, pass, sizeof pass);
+}
+
+int netcfg_wifi_saved_count(void) {
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    return saved_read(s, p);
+}
+
+bool netcfg_wifi_saved_get(int idx, char *ssid, int cap) {
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    if (idx < 0 || idx >= n || !ssid || cap <= 0) return false;
+    snprintf(ssid, cap, "%s", s[idx]);
+    return true;
 }
 
 static void setstr(uint8_t *dst, size_t cap, const char *src) {
@@ -124,6 +227,7 @@ static void setstr(uint8_t *dst, size_t cap, const char *src) {
 }
 
 static void start_sta(const char *ssid, const char *pass) {
+    snprintf(s_sta_ssid, sizeof s_sta_ssid, "%s", ssid ? ssid : "");
     wifi_config_t sta;
     memset(&sta, 0, sizeof(sta));
     setstr(sta.sta.ssid, sizeof(sta.sta.ssid), ssid);
@@ -176,6 +280,22 @@ static void do_scan(void) {
     s_naps = got;
     s_scan_us = esp_timer_get_time();
     ESP_LOGI(TAG, "scan: %d APs", s_naps);
+}
+
+int netcfg_wifi_scan(void) { do_scan(); return s_naps; }
+int netcfg_wifi_scan_count(void) { return s_naps; }
+bool netcfg_wifi_scan_get(int idx, char *ssid, int cap, int *rssi, int *auth) {
+    if (idx < 0 || idx >= s_naps || !ssid || cap <= 0) return false;
+    snprintf(ssid, cap, "%s", (const char *)s_aps[idx].ssid);
+    if (rssi) *rssi = s_aps[idx].rssi;
+    if (auth) *auth = (int)s_aps[idx].authmode;
+    return true;
+}
+bool netcfg_wifi_connect(const char *ssid, const char *pass) {
+    if (!s_started || !ssid || !ssid[0]) return false;
+    save_creds(ssid, pass);
+    start_sta(ssid, pass);
+    return true;
 }
 
 static esp_err_t h_api_scan(httpd_req_t *req) {
