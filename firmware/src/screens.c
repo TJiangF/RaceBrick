@@ -2157,10 +2157,13 @@ static uint16_t media_bg_color(void) {
         int b = (int)(sb[best] / cnt[best]);
         accent = RGB565(r, g, b);
     }
-    /* Wash the accent toward white first, then use only 10% of it over the
-     * theme background (90% transparent) so lyrics and controls stay clear. */
-    accent = blend565(accent, RGB565(255, 255, 255), 158);
-    cached = blend565(accent, PAL.stage, 26);
+    /* "Lighten" and "transparency" are separate effects:
+     * - lighten: mix the accent toward white (raises luminance)
+     * - transparency: mix the result into the theme background
+     * The previous 10% overlay plus heavy whitening was almost invisible.
+     * Use a pastel accent at about 35% opacity for a visible but readable tint. */
+    accent = blend565(accent, RGB565(255, 255, 255), 96);   /* 37.5% white */
+    cached = blend565(accent, PAL.stage, 90);               /* 35% accent */
     cached_seq = seq;
     cached_stage = PAL.stage;
     return cached;
