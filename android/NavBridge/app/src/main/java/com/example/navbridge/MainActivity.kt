@@ -1177,7 +1177,7 @@ class MainActivity : AppCompatActivity() {
         // Do not use the title as a lyric update trigger. Some music apps put
         // the current lyric line into the title field; identity uses the
         // stable artist/album/duration tuple instead.
-        val identity = "${m.artist}\u0001${m.album}\u0001$duration"
+        val identity = "${m.artist}\u0001${m.album}"
         val trackChanged = identity != mediaIdentity ||
             (positionReset && m.title.isNotBlank() && m.title != stableTitle)
         if (trackChanged) {
@@ -1231,7 +1231,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLyrics(m: MediaControl.Meta?) {
-        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}|${m.durationMs}"
+        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
         if (key == lyricKey) return
         lyricKey = key
         lyricLines = emptyList()

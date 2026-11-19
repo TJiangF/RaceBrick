@@ -2118,13 +2118,13 @@ static uint16_t media_bg_color(void) {
     static uint16_t cached;
     static uint32_t cached_seq;
     static uint16_t cached_stage;
+    static bool cached_valid;
     int iw = 0, ih = 0;
     const uint16_t *art = btmap_album_art(&iw, &ih);
     if (!art || iw <= 0 || ih <= 0) {
-        cached = PAL.stage;
-        cached_seq = 0;
-        cached_stage = PAL.stage;
-        return cached;
+        /* Keep the last album tint if the phone briefly loses cover metadata. */
+        if (cached_valid && cached_stage == PAL.stage) return cached;
+        return PAL.stage;
     }
     uint32_t seq = btmap_album_art_seq();
     if (seq == cached_seq && PAL.stage == cached_stage) return cached;
@@ -2166,6 +2166,7 @@ static uint16_t media_bg_color(void) {
     cached = blend565(accent, PAL.stage, 90);               /* 35% accent */
     cached_seq = seq;
     cached_stage = PAL.stage;
+    cached_valid = true;
     return cached;
 }
 
