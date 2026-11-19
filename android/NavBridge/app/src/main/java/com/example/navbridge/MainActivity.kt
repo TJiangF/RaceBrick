@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private var mediaIdentity: String = ""
     private var stableTitle: String = ""
     private var lastRawTitle: String = ""
+    private var lastMediaPositionMs: Long = -1L
     private var lastAlbumKey: String? = null
     private var lastArtLogKey: String = ""
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
@@ -216,6 +217,7 @@ class MainActivity : AppCompatActivity() {
             onStatus = { msg -> runOnUiThread { status(msg); log(msg) } },
             onReady = {
                 runOnUiThread {
+                    MediaKeepAliveService.start(this)
                     log("RaceBrick 通过验证，开始同步")
                     lastSentGen = -1L
                     lastMediaState = null
@@ -223,6 +225,7 @@ class MainActivity : AppCompatActivity() {
                     mediaIdentity = ""
                     stableTitle = ""
                     lastRawTitle = ""
+                    lastMediaPositionMs = -1L
                     lastAlbumKey = null
                     lyricKey = ""
                     lyricLines = emptyList()
@@ -336,7 +339,10 @@ class MainActivity : AppCompatActivity() {
             searchHandler.postDelayed(runnable, 350)
         }
 
-        findViewById<Button>(R.id.btnConnect).setOnClickListener { ble.connect() }
+        findViewById<Button>(R.id.btnConnect).setOnClickListener {
+            MediaKeepAliveService.start(this)
+            ble.connect()
+        }
         findViewById<Button>(R.id.btnStart).setOnClickListener { startNavigation(false) }
         findViewById<Button>(R.id.btnSimulate).setOnClickListener { startNavigation(true) }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopNavigation() }
@@ -1159,13 +1165,20 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
+        val progress = MediaControl.progress(this)
         val duration = if (m.durationMs > 0) m.durationMs
-                       else MediaControl.progress(this)?.durationMs ?: 0L
+                       else progress?.durationMs ?: 0L
+        val pos = progress?.positionMs ?: 0L
+        // Identity normally changes on a track change. If a player omits
+        // artist/album/duration, a position reset is the reliable fallback.
+        val positionReset = lastMediaPositionMs > 8000L && pos < 4000L
         // Do not use the title as a lyric update trigger. Some music apps put
         // the current lyric line into the title field; identity uses the
         // stable artist/album/duration tuple instead.
         val identity = "${m.artist}\u0001${m.album}\u0001$duration"
-        if (identity != mediaIdentity) {
+        val trackChanged = identity != mediaIdentity ||
+            (positionReset && m.title.isNotBlank() && m.title != stableTitle)
+        if (trackChanged) {
             mediaIdentity = identity
             stableTitle = m.title
             lastRawTitle = m.title
@@ -1189,6 +1202,7 @@ class MainActivity : AppCompatActivity() {
                 log("歌词回退：标题通道")
             }
         }
+        lastMediaPositionMs = pos
         val art = MediaControl.albumArt(this)
         val artKey = if (art == null) "none" else
             "${art.width}x${art.height}:$mediaIdentity"
@@ -1208,7 +1222,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLyrics(m: MediaControl.Meta?) {
-        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
+        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}|${m.durationMs}"
         if (key == lyricKey) return
         lyricKey = key
         lyricLines = emptyList()
@@ -1352,6 +1366,7 @@ class MainActivity : AppCompatActivity() {
         runCatching { capture.close() }
         wifiSetup?.dismiss()
         wifiSetup = null
+        MediaKeepAliveService.stop(this)
         runCatching { ble.disconnect() }
         runCatching { nav.stop() }
         worker.shutdownNow()

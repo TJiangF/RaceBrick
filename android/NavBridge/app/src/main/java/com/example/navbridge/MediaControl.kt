@@ -129,7 +129,13 @@ object MediaControl {
             am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE,
                 AudioManager.FLAG_SHOW_UI)
             true
-        }.getOrDefault(false)
+        }.getOrElse {
+            runCatching {
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP))
+                true
+            }.getOrDefault(false)
+        }
     }
 
     fun volumeDown(context: Context): Boolean {
@@ -138,7 +144,13 @@ object MediaControl {
             am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER,
                 AudioManager.FLAG_SHOW_UI)
             true
-        }.getOrDefault(false)
+        }.getOrElse {
+            runCatching {
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN))
+                am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN))
+                true
+            }.getOrDefault(false)
+        }
     }
 
     private fun key(context: Context, code: Int): Boolean {
