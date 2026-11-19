@@ -2078,13 +2078,13 @@ static int media_wrap(const char *s, int x, int y, int w, int scale,
                       int max_lines, int line_h, uint16_t col) {
     if (!s || !*s) return 0;
     int lines = 0;
-    char buf[128];
+    char buf[256];
     while (*s && lines < max_lines) {
         int n = 0, last_space = -1;
         while (s[n] && n < (int)sizeof(buf) - 1) {
             buf[n] = s[n];
             buf[n + 1] = 0;
-            if (gfx_text_w(buf, scale) > w) break;
+            if (gfx_text_w(buf, scale) > w - 2) break;
             n++;
             if (s[n - 1] == ' ') last_space = n;
         }
@@ -2235,7 +2235,7 @@ static void render_media(void) {
     /* Current and next lyric, full width, wrapped without truncation. The
      * current line is stable at double size; the next line is single size. */
     int ly_active = 0;
-    char lyrics[5][64];
+    char lyrics[5][160];
     if (btmap_media_lyrics(&ly_active, lyrics)) {
         const char *cur = lyrics[ly_active];
         const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";

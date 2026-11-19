@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var lastRawTitle: String = ""
     private var lastMediaPositionMs: Long = -1L
     private var lastAlbumKey: String? = null
+    private var lastArtIdentity: String = ""
     private var lastArtLogKey: String = ""
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
     private var lyricKey: String = ""
@@ -227,6 +228,7 @@ class MainActivity : AppCompatActivity() {
                     lastRawTitle = ""
                     lastMediaPositionMs = -1L
                     lastAlbumKey = null
+                    lastArtIdentity = ""
                     lyricKey = ""
                     lyricLines = emptyList()
                     lyricWindowKey = ""
@@ -1204,18 +1206,25 @@ class MainActivity : AppCompatActivity() {
         }
         lastMediaPositionMs = pos
         val art = MediaControl.albumArt(this)
-        val artKey = if (art == null) "none" else
-            "${art.width}x${art.height}:$mediaIdentity"
-        if (artKey != lastAlbumKey) {
-            lastAlbumKey = artKey
-            if (art == null) {
-                ble.send("M,ART,0")
-            } else {
+        val trackArtIdentity = "$mediaIdentity|$stableTitle"
+        if (art != null) {
+            val artKey = "${art.width}x${art.height}:$trackArtIdentity"
+            if (artKey != lastAlbumKey) {
+                lastAlbumKey = artKey
+                lastArtIdentity = trackArtIdentity
                 sendAlbumArt(art)
             }
+        } else if (trackArtIdentity != lastArtIdentity) {
+            // Only clear when the track changed. A transient null from the
+            // MediaSession must not erase a cover that was already shown.
+            lastArtIdentity = trackArtIdentity
+            lastAlbumKey = "none"
+            ble.send("M,ART,0")
         }
-        if (artKey != lastArtLogKey) {
-            lastArtLogKey = artKey
+        val logKey = if (art == null) "none:$trackArtIdentity" else
+            "${art.width}x${art.height}:$trackArtIdentity"
+        if (logKey != lastArtLogKey) {
+            lastArtLogKey = logKey
             log(if (art == null) "封面：系统没有提供 Bitmap" else
                 "封面：已获取 ${art.width}x${art.height}，正在发送")
         }

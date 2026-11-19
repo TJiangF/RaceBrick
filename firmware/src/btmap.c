@@ -78,7 +78,7 @@ static volatile int s_media_volmax = 0;
 static char s_media_title[64];
 static char s_media_artist[64];
 static char s_media_album[64];
-static char s_media_lyrics[5][64];
+static char s_media_lyrics[5][160];
 static int s_media_lyric_active;
 static bool s_media_lyrics_valid;
 static volatile int s_nav_remain = -1;
@@ -424,7 +424,7 @@ static void handle_write(const uint8_t *b, int len) {
         s_media_lyrics_valid = false;
     }
     else if (len >= 8 && memcmp(b, "M,LYRIC,", 8) == 0) {
-        char tmp[160], dec[80];
+        char tmp[480], dec[200];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         char *p = tmp + 8;
@@ -743,7 +743,7 @@ const uint16_t *btmap_album_art(int *w, int *h) {
     return s_album_px;
 }
 uint32_t btmap_album_art_seq(void) { return s_album_seq; }
-bool btmap_media_lyrics(int *active, char lines[5][64]) {
+bool btmap_media_lyrics(int *active, char lines[5][160]) {
     if (!s_media_lyrics_valid) return false;
     if (active) *active = s_media_lyric_active;
     if (lines) memcpy(lines, s_media_lyrics, sizeof(s_media_lyrics));
