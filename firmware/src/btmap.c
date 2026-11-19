@@ -288,7 +288,7 @@ static void wifi_poll(void) {
     taskEXIT_CRITICAL(&s_wifi_mux);
     if (pending) {
         if (!strcmp(cmd, "#W,SCAN")) {
-            send_line("#W,SCAN_BEGIN,0");
+            send_line("#W,SCAN_START");
             int n = netcfg_wifi_scan();
             char line[200];
             snprintf(line, sizeof line, "#W,SCAN_BEGIN,%d", n);

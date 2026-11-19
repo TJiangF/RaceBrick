@@ -137,8 +137,9 @@ class WifiSetupDialog(
     }
 
     private fun scan() {
+        // Keep the previous list visible while the ESP performs its blocking
+        // scan. It is replaced only when the fresh SCAN_BEGIN arrives.
         status.text = "ESP 正在扫描附近 WiFi…"
-        clearList()
         ble.send("#W,SCAN")
     }
 
@@ -190,6 +191,9 @@ class WifiSetupDialog(
             "STATUS" -> {
                 val text = Uri.decode(body.substringAfter(',', ""))
                 status.text = text.ifEmpty { "未知状态" }
+            }
+            "SCAN_START" -> {
+                status.text = "ESP 正在扫描附近 WiFi…"
             }
             "SCAN_BEGIN" -> {
                 clearList()
