@@ -103,6 +103,14 @@ static bool screen_needs_gps(scid_t id) {
     }
 }
 
+/* All race states run at 25 Hz; other GNSS pages keep the user setting. */
+static int screen_gps_hz(scid_t id) {
+    if (id == SC_RACING || id == SC_RACING_RECORDED || id == SC_NEW_TRACK_MARK_START)
+        return 25;
+    if (screen_needs_gps(id)) return g.gps_rate_hz;
+    return 1;
+}
+
 static void windowed(int len, int sel, int K, int *start, int *end) {
     if (len <= K) { *start = 0; *end = len; return; }
     int st = sel - K / 2;
@@ -2444,7 +2452,7 @@ void screens_enter(scid_t id) {
     default: break;
     }
     /* auto power saving: apply after page init so it is not overridden */
-    gps_set_nav_rate(screen_needs_gps(id) ? g.gps_rate_hz : 1);
+    gps_set_nav_rate(screen_gps_hz(id));
 }
 
 /* ================= update ================= */

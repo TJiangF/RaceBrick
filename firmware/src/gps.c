@@ -35,6 +35,7 @@ static int  s_ln = 0;
 
 static int  s_cur_hz = 0;          /* last programmed nav rate */
 static bool s_rate_set = false;
+static bool s_gps_bds_only = false;
 
 /* ---- 1PPS (time pulse) capture ---- */
 static volatile uint32_t s_pps_cnt = 0;
@@ -605,7 +606,7 @@ static bool ubx_send(uint8_t cls, uint8_t id, const uint8_t *payload, int n) {
 }
 
 void gps_cfg_gps_bds(void) {
-    if (!s_idev) return;
+    /* Works on both UART and I2C/DDC (ubx_send picks the transport). */
     /* 6 config blocks: gnssId,resTrkCh,maxTrkCh,reserved, flags(LE: bit0=enable) */
     uint8_t p[4 + 6 * 8];
     int k = 0;
@@ -630,8 +631,9 @@ void gps_cfg_gps_bds(void) {
     }
     bool ok = ubx_send(0x06, 0x3E, p, k);
     ESP_LOGI(TAG, "UBX-CFG-GNSS (GPS+BDS only): %s", ok ? "sent" : "FAILED");
-    /* controlled GNSS restart so the new constellation mask takes effect */
-    uint8_t rst[4] = {0xFF, 0xFF, 0x02, 0x00};  /* navBbrMask=0xFFFF, mode=2 (GNSS start) */
+    /* Hot restart keeps the baud/message/rate configuration while the new
+     * constellation mask takes effect. Do not clear BBR here. */
+    uint8_t rst[4] = {0x00, 0x00, 0x02, 0x00};  /* navBbrMask=0, mode=2 (GNSS start) */
     ubx_send(0x06, 0x04, rst, 4);
 }
 
@@ -717,7 +719,13 @@ static void ubx_tp5_1pps(void) {
 void gps_set_nav_rate(int hz) {
     if (!s_st.inited || s_st.source != 0) return;
     if (hz != 1 && hz != 5 && hz != 10 && hz != 25) hz = 1;
-    if (s_rate_set && hz == s_cur_hz) return;
+    if (s_rate_set && hz == s_cur_hz) {
+        if (hz == 25 && !s_gps_bds_only) {
+            gps_cfg_gps_bds();
+            s_gps_bds_only = true;
+        }
+        return;
+    }
     uint16_t meas = (uint16_t)(1000 / hz);
     uint8_t rate[6] = {(uint8_t)(meas & 0xFF), (uint8_t)(meas >> 8), 0x01, 0x00, 0x01, 0x00};
     ubx_send(0x06, 0x08, rate, 6);
@@ -729,6 +737,11 @@ void gps_set_nav_rate(int hz) {
     ubx_cfg_msg(0x01, 0, 0, 0, 0, 0);
     /* NAV-PVT is the preferred precise timing/position source. */
     ubx_cfg_msg_cls(0x01, 0x07, 0, (uint8_t)hz, 0, 0, 0);
+    if (hz == 25 && !s_gps_bds_only) {
+        gps_cfg_gps_bds();
+        s_gps_bds_only = true;
+        ESP_LOGI(TAG, "GNSS constellations restricted to GPS + BeiDou");
+    }
     s_cur_hz = hz;
     s_rate_set = true;
     ESP_LOGI(TAG, "nav rate -> %d Hz", hz);
