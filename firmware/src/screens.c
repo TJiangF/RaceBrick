@@ -2114,6 +2114,56 @@ static void media_scroll_text(const char *s, int x, int y, int w, int scale, uin
     gfx_set_clip(0, 0, CW, CH);
 }
 
+static uint16_t media_bg_color(void) {
+    static uint16_t cached;
+    static uint32_t cached_seq;
+    static uint16_t cached_stage;
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (!art || iw <= 0 || ih <= 0) {
+        cached = PAL.stage;
+        cached_seq = 0;
+        cached_stage = PAL.stage;
+        return cached;
+    }
+    uint32_t seq = btmap_album_art_seq();
+    if (seq == cached_seq && PAL.stage == cached_stage) return cached;
+
+    /* Dominant colour with saturation weighting; this keeps an orange cover
+     * orange instead of averaging it into a muddy brown. */
+    uint32_t cnt[64] = {0}, sr[64] = {0}, sg[64] = {0}, sb[64] = {0};
+    for (int y = 0; y < ih; y++) {
+        for (int x = 0; x < iw; x++) {
+            uint16_t c = art[y * iw + x];
+            int r = ((c >> 11) & 31) * 255 / 31;
+            int g = ((c >> 5) & 63) * 255 / 63;
+            int b = (c & 31) * 255 / 31;
+            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            int wgt = 1 + (mx - mn) * 3 / 255;  /* 1..4 */
+            int bin = ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
+            cnt[bin] += (uint32_t)wgt;
+            sr[bin] += (uint32_t)r * wgt;
+            sg[bin] += (uint32_t)g * wgt;
+            sb[bin] += (uint32_t)b * wgt;
+        }
+    }
+    int best = 0;
+    for (int i = 1; i < 64; i++) if (cnt[i] > cnt[best]) best = i;
+    uint16_t accent = PAL.stage;
+    if (cnt[best]) {
+        int r = (int)(sr[best] / cnt[best]);
+        int g = (int)(sg[best] / cnt[best]);
+        int b = (int)(sb[best] / cnt[best]);
+        accent = RGB565(r, g, b);
+    }
+    /* 60% accent + 40% theme background. */
+    cached = blend565(accent, PAL.stage, 154);
+    cached_seq = seq;
+    cached_stage = PAL.stage;
+    return cached;
+}
+
 static void media_glass_box(int x, int y, int w, int h, bool pressed) {
     /* Simulated liquid glass: dark translucent tint + bright top edge. */
     gfx_fill(x, y, w, h, pressed ? PAL.seltint : PAL.surface);
@@ -2141,7 +2191,7 @@ static void render_media(void) {
         return;
     }
 
-    gfx_fill(0, 0, CW, CH, PAL.stage);
+    gfx_fill(0, 0, CW, CH, media_bg_color());
     bool playing = btmap_media_playing();
 
     /* Original-size cover, top-left. */
