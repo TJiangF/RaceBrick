@@ -171,6 +171,7 @@ typedef struct {
     bool  gnssInit;
     bool  lapArmed;
     bool  start_seen;     /* first crossing/start line has been passed */
+    bool  outlap_pending; /* race started beyond the line; first crossing is outlap */
     uint32_t last_fix_seq;
     uint64_t prev_fix_us;  /* GNSS time of the previous fix */
     uint64_t start_us;     /* GNSS time at the first start crossing */

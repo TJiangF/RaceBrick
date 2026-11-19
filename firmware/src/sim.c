@@ -607,6 +607,7 @@ void engine_reset(engine_t *e) {
     e->gLat = 0; e->gLong = 0; e->nGTrail = 0;
     e->gpsFix = false;
     e->gnssInit = false; e->lapArmed = false; e->start_seen = false;
+    e->outlap_pending = false;
     e->last_fix_seq = 0; e->prev_fix_us = 0; e->start_us = 0; e->lap_start_us = 0;
     e->sPrev = 0; e->alongPrev = 0;
 }
@@ -881,7 +882,7 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         e->s = s; e->sPrev = s;
         e->alongPrev = along;
         e->prev_fix_us = fix_us;
-        return;
+        /* Fall through: the first fix may already be on/ahead of the line. */
     }
 
     bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < 3.0f;
@@ -906,6 +907,9 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         }
         e->start_seen = true;
         e->lapArmed = true;
+        /* If the first fix is already past the line, the car has to complete
+         * a partial lap first. That crossing is an outlap, not lap 1. */
+        e->outlap_pending = already_ahead && along > 1.0f;
         uint64_t t0 = crossed ? cross_us : fix_us;
         e->start_us = t0;
         e->lap_start_us = t0;
@@ -949,7 +953,20 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
 
     if (e->lapArmed && crossed) {
         float lap_elapsed = (float)(gnss_delta_us(e->lap_start_us, cross_us) / 1e6);
-        if (lap_elapsed > 2.0f) {
+        if (e->outlap_pending) {
+            /* End the outlap without adding a lap/best entry. The next
+             * complete crossing will become lap 1. */
+            e->outlap_pending = false;
+            e->lap = 1;
+            e->lap_start_us = cross_us;
+            e->nTrace = 0;
+            e->nGps = 0;
+            for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
+            e->elapsed = (float)(gnss_delta_us(cross_us, fix_us) / 1e6);
+            e->time = (float)(gnss_delta_us(e->start_us, fix_us) / 1e6);
+            if (e->elapsed < 0) e->elapsed = 0;
+            if (e->time < 0) e->time = 0;
+        } else if (lap_elapsed > 2.0f) {
             e->elapsed = lap_elapsed;
             engine_gnss_lap(e);
             e->lap_start_us = cross_us;

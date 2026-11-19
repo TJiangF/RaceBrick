@@ -1326,7 +1326,8 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             /* Top half: large live time + delta. Bottom-left: compact track.
              * Bottom-right: recent laps and best lap. */
             gfx_text(10, 4, "LIVE", PAL.dim, 1);
-            snprintf(b2, sizeof b2, "LAP %d", e->lap);
+            if (e->outlap_pending) snprintf(b2, sizeof b2, "OUTLAP");
+            else snprintf(b2, sizeof b2, "LAP %d", e->lap);
             gfx_text_right(CW - 10, 4, b2, PAL.dim, 1);
             u_fmt_time(b, sizeof b, e->elapsed);
             gfx_text_center(CW / 2, 20, b, PAL.white, 5);
@@ -1393,7 +1394,8 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
     } else if (g.panel == 1) {
         if (f1_ui()) gfx_fill(0, 0, CW, 3, PAL.cyan);
         gfx_text(12, 8, "LAP", PAL.cyan, 1);
-        snprintf(b2, sizeof b2, "%d", e->lap);
+        if (e->outlap_pending) snprintf(b2, sizeof b2, "OUTLAP");
+        else snprintf(b2, sizeof b2, "%d", e->lap);
         gfx_text(12 + gfx_text_w("LAP ", 1), 8, b2, PAL.cyan, 1);
         u_fmt_time(b, sizeof b, e->hasBestLap ? e->bestTime : NAN);
         char bb[32]; snprintf(bb, sizeof bb, "BEST %s", b);
@@ -3600,7 +3602,8 @@ void screens_chrome(void) {
     case SC_RACING_RECORDED: {
         engine_t *e = &g.engine;
         u_fmt_time(b, sizeof b, e->elapsed);
-        snprintf(g.status, sizeof g.status, "%s %d/4   LAP %d   %s", RACE_PANELS[g.panel], g.panel + 1, e->lap, b);
+        snprintf(g.status, sizeof g.status, "%s %d/4   %s %d   %s", RACE_PANELS[g.panel], g.panel + 1,
+                 e->outlap_pending ? "OUTLAP" : "LAP", e->lap, b);
         for (int i = 0; i < LED_COUNT; i++) g.leds[i] = e->leds[i];
         break;
     }
