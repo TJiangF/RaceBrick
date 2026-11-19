@@ -2021,6 +2021,12 @@ static void media_glass_box(int x, int y, int w, int h, bool pressed) {
     gfx_rect(x, y, w, h, pressed ? PAL.cyan : PAL.line);
 }
 
+static void media_clock(char *out, int cap, int ms) {
+    if (ms < 0) ms = 0;
+    int total = (ms + 500) / 1000;
+    snprintf(out, cap, "%d:%02d", total / 60, total % 60);
+}
+
 static void render_media(void) {
     char b[96];
     if (!g.entered) {
@@ -2110,9 +2116,9 @@ static void render_media(void) {
         gfx_fill(14, 132, ((CW - 28) * pos) / dur, 7, PAL.cyan);
         gfx_rect(14, 132, CW - 28, 7, PAL.line);
         char tb[20];
-        u_fmt_time(tb, sizeof tb, pos / 1000.0f);
+        media_clock(tb, sizeof tb, pos);
         gfx_text(14, 143, tb, PAL.dim, 0);
-        u_fmt_time(tb, sizeof tb, dur / 1000.0f);
+        media_clock(tb, sizeof tb, dur);
         gfx_text_right(CW - 14, 143, tb, PAL.dim, 0);
     }
 
