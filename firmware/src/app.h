@@ -48,7 +48,7 @@ typedef struct {
     scid_t back[8]; int back_n;
     int settings_sel;
     track_t *tracks; int ntracks;   /* PSRAM-backed: keep internal RAM for WiFi + BLE */
-    histrec_t log[HISTORY_RECORDS]; int nlog;
+    histrec_t *log; int nlog;   /* PSRAM: keep internal RAM for WiFi/BLE */
     engine_t engine; bool engine_valid;
     gnss_t gnss;
     mpu_t imu;

@@ -2628,7 +2628,7 @@ void screens_update(float dt) {
 /* ---------- callbacks used by confirm modals ---------- */
 static void rec_make_log(void) {
     int nsel = rec_selected_count();
-    if (!nsel) return;
+    if (!nsel || !g.log) return;
     if (g.nlog >= HISTORY_RECORDS) {
         memmove(&g.log[0], &g.log[1], sizeof(histrec_t) * (HISTORY_RECORDS - 1));
         g.nlog = HISTORY_RECORDS - 1;

@@ -57,7 +57,7 @@ static void section_best_from_engine(const engine_t *e, histrec_t *r) {
 }
 
 static void record_from_engine(const char *date, float duration, int mode) {
-    if (g.engine.nLaps == 0) return;
+    if (!g.log || g.engine.nLaps == 0) return;
     if (g.nlog >= HISTORY_RECORDS) {
         memmove(&g.log[0], &g.log[1], sizeof(histrec_t) * (HISTORY_RECORDS - 1));
         g.nlog = HISTORY_RECORDS - 1;
@@ -68,12 +68,16 @@ static void record_from_engine(const char *date, float duration, int mode) {
     snprintf(r->date, sizeof(r->date), "%s", date);
     r->mode = mode;
     r->duration = duration;
-    r->lapCount = g.engine.nLaps;
+    int lapCount = g.engine.nLaps;
+    if (lapCount < 0) lapCount = 0;
+    if (lapCount > MAX_LAPS) lapCount = MAX_LAPS;
+    if (lapCount > HISTORY_LAPS) lapCount = HISTORY_LAPS;
+    r->lapCount = lapCount;
     r->vehicle = g.engine.track->vehicle;
     r->hasBest = g.engine.hasBestLap;
     r->bestTime = g.engine.bestTime;
     r->bestIndex = g.engine.bestIndex;
-    for (int i = 0; i < g.engine.nLaps && i < HISTORY_LAPS; i++) {
+    for (int i = 0; i < lapCount; i++) {
         r->lapTime[i] = g.engine.laps[i].time;
         r->lapIndex[i] = g.engine.laps[i].index;
     }
@@ -81,10 +85,19 @@ static void record_from_engine(const char *date, float duration, int mode) {
     for (int i = 0; i < r->nsec; i++) r->sections[i] = g.engine.track->sections[i];
     section_best_from_engine(&g.engine, r);
     const lap_t *best = NULL;
-    if (g.engine.hasBestLap && g.engine.bestIndex >= 1) best = &g.engine.laps[g.engine.bestIndex - 1];
-    else best = &g.engine.laps[0];
-    r->nTrace = best->nTrace;
-    memcpy(r->trace, best->trace, sizeof(pt_t) * best->nTrace);
+    if (g.engine.hasBestLap && g.engine.bestIndex >= 1 &&
+        g.engine.bestIndex <= lapCount) {
+        best = &g.engine.laps[g.engine.bestIndex - 1];
+    } else if (lapCount > 0) {
+        best = &g.engine.laps[0];
+    }
+    if (best) {
+        int nt = best->nTrace;
+        if (nt < 0) nt = 0;
+        if (nt > TRACE_MAX) nt = TRACE_MAX;
+        r->nTrace = nt;
+        memcpy(r->trace, best->trace, sizeof(pt_t) * nt);
+    }
     if (!log_store_save(r)) ESP_LOGW("app", "race log flash save failed");
 }
 
@@ -722,6 +735,11 @@ void app_init(void) {
         g.rec_lap_data = (reclap_t *)heap_caps_malloc(sizeof(reclap_t) * REC_FUSION_LAPS,
                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
+    if (!g.log) {
+        g.log = (histrec_t *)heap_caps_malloc(sizeof(histrec_t) * HISTORY_RECORDS,
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!g.log) ESP_LOGE("main", "race log RAM alloc failed");
+    }
     if (!g.tracks) {
         g.tracks = (track_t *)heap_caps_malloc(sizeof(track_t) * MAX_TRACKS,
                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -760,7 +778,7 @@ void app_init(void) {
             }
         }
     }
-    g.nlog = log_store_load(g.log, HISTORY_RECORDS);
+    if (g.log) g.nlog = log_store_load(g.log, HISTORY_RECORDS);
     nav_start();
     nav_set_mode(g.nav_mode, g.nav_sat);
     nav_set_zoom_level(g.nav_zoom);
