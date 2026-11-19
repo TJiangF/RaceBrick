@@ -57,6 +57,13 @@ object MediaControl {
         return Meta(title, artist, album)
     }
 
+    fun albumArt(context: Context): android.graphics.Bitmap? {
+        val c = controller(context) ?: return null
+        val m = c.metadata ?: return null
+        return m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: m.getBitmap(MediaMetadata.METADATA_KEY_ART)
+    }
+
     fun progress(context: Context): Progress? {
         val c = controller(context) ?: return null
         val ps = c.playbackState ?: return null

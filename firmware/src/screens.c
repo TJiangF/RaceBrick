@@ -1994,7 +1994,7 @@ static void media_pause_icon(int cx, int cy, uint16_t c) {
 }
 
 static void render_media(void) {
-    char b[48];
+    char b[96];
     if (!g.entered) {
         gfx_fill(0, 0, CW, CH, PAL.stage);
         gfx_text_center(CW / 2, 56, "MEDIA", PAL.cyan, 2);
@@ -2007,70 +2007,85 @@ static void render_media(void) {
     }
 
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    gfx_text_center(CW / 2, 6, "MEDIA", PAL.cyan, 1);
-
-    /* Phone media volume reported by the app as M,VOL,cur,max. */
-    int vol = -1, vmax = 0;
-    if (btmap_media_volume(&vol, &vmax)) {
-        int bx = 92, bw = CW - bx - 18, by = 30;
-        gfx_text(18, 26, "PHONE VOL", PAL.dim, 0);
-        gfx_fill(bx, by, bw, 8, PAL.surface2);
-        gfx_fill(bx, by, (bw * vol) / vmax, 8, PAL.cyan);
-        gfx_rect(bx, by, bw, 8, PAL.line);
-        snprintf(b, sizeof b, "%d/%d", vol, vmax);
-        gfx_text_right(CW - 12, 26, b, PAL.cyan, 0);
-    } else {
-        gfx_text(18, 26, "PHONE VOL --", PAL.dim, 0);
-    }
-
-    const char *title = btmap_media_title();
-    const char *artist = btmap_media_artist();
-    if (title[0]) {
-        snprintf(b, sizeof b, "%s", title);
-        gfx_text_center(CW / 2, 40, b, PAL.white, 1);
-    }
-    if (artist[0]) {
-        snprintf(b, sizeof b, "%s", artist);
-        gfx_text_center(CW / 2, 54, b, PAL.text2, 0);
-    }
-
-    const int cy = 112, r = 36;
-    int xs[3] = { 60, CW / 2, CW - 60 };
-    for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
-
-    media_prev_icon(xs[0], cy, media_pressed(0) ? PAL.yellow : PAL.white);
-    media_next_icon(xs[2], cy, media_pressed(2) ? PAL.yellow : PAL.white);
     bool playing = btmap_media_playing();
-    if (playing) media_pause_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
-    else media_play_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
-
-    gfx_text_center(xs[0], 156, "PREV", PAL.dim, 0);
-    gfx_text_center(xs[1], 156, "PLAY/PAUSE", PAL.dim, 0);
-    gfx_text_center(xs[2], 156, "NEXT", PAL.dim, 0);
-
+    gfx_text(14, 8, "NOW PLAYING", PAL.dim, 0);
     const char *st;
     uint16_t sc;
     if (!btmap_enabled()) { st = "BT OFF"; sc = PAL.red; }
     else if (!btmap_connected()) { st = "NO LINK"; sc = PAL.yellow; }
     else if (!btmap_subscribed()) { st = "CONNECTED"; sc = PAL.yellow; }
-    else { st = playing ? "PLAYING" : "PAUSED"; sc = PAL.green; }
-    snprintf(b, sizeof b, "%s", st);
-    gfx_text_center(CW / 2, 174, b, sc, 1);
+    else { st = playing ? "PLAYING" : "PAUSED"; sc = playing ? PAL.green : PAL.orange; }
+    gfx_text_right(CW - 14, 8, st, sc, 0);
+
+    /* iPod-style cover + metadata column. */
+    int ax = 14, ay = 28, aw = 96, ah = 96;
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (art && iw == aw && ih == ah) {
+        gfx_blit(ax, ay, art, iw, ih, iw);
+    } else {
+        gfx_fill(ax, ay, aw, ah, PAL.panel);
+        gfx_rect(ax, ay, aw, ah, PAL.line);
+        gfx_disc(ax + aw / 2, ay + ah / 2, 28, PAL.surface2);
+        gfx_circle(ax + aw / 2, ay + ah / 2, 28, PAL.dim);
+        gfx_disc(ax + aw / 2, ay + ah / 2, 6, PAL.cyan);
+        gfx_text_center(ax + aw / 2, ay + ah - 14, "NO ART", PAL.dim, 0);
+    }
+    gfx_rect(ax, ay, aw, ah, PAL.line2);
+
+    int rx = 124, rw = CW - rx - 14;
+    const char *title = btmap_media_title();
+    const char *artist = btmap_media_artist();
+    const char *album = btmap_media_album();
+    snprintf(b, sizeof b, "%.30s", title[0] ? title : "NO TRACK");
+    gfx_text(rx, 30, b, PAL.white, 1);
+    snprintf(b, sizeof b, "%.36s", artist[0] ? artist : "UNKNOWN ARTIST");
+    gfx_text(rx, 48, b, PAL.text2, 0);
+    snprintf(b, sizeof b, "%.38s", album[0] ? album : "");
+    gfx_text(rx, 60, b, PAL.dim, 0);
 
     int pos = 0, dur = 0;
     if (btmap_media_progress(&pos, &dur)) {
-        int bx = 34, bw = CW - 68, by = 190;
-        gfx_fill(bx, by, bw, 6, PAL.surface2);
-        gfx_fill(bx, by, (bw * pos) / dur, 6, PAL.cyan);
-        gfx_rect(bx, by, bw, 6, PAL.line);
+        gfx_text(rx, 82, "PROGRESS", PAL.dim, 0);
+        gfx_fill(rx, 92, rw, 7, PAL.surface2);
+        gfx_fill(rx, 92, (rw * pos) / dur, 7, PAL.cyan);
+        gfx_rect(rx, 92, rw, 7, PAL.line);
         char tb[20];
         u_fmt_time(tb, sizeof tb, pos / 1000.0f);
-        gfx_text(bx, 200, tb, PAL.dim, 0);
+        gfx_text(rx, 102, tb, PAL.dim, 0);
         u_fmt_time(tb, sizeof tb, dur / 1000.0f);
-        gfx_text_right(bx + bw, 200, tb, PAL.dim, 0);
+        gfx_text_right(rx + rw, 102, tb, PAL.dim, 0);
+    } else {
+        gfx_text(rx, 82, "PROGRESS --:--", PAL.dim, 0);
     }
 
-    gfx_text_center(CW / 2, 222, "UP/DN VOL   LEFT PREV   RIGHT NEXT   PUSH PLAY", PAL.dim, 0);
+    int vol = -1, vmax = 0;
+    if (btmap_media_volume(&vol, &vmax)) {
+        gfx_text(rx, 116, "VOL", PAL.dim, 0);
+        int bx = rx + 30, bw = rw - 30 - 34;
+        gfx_fill(bx, 118, bw, 7, PAL.surface2);
+        gfx_fill(bx, 118, (bw * vol) / vmax, 7, PAL.cyan);
+        gfx_rect(bx, 118, bw, 7, PAL.line);
+        snprintf(b, sizeof b, "%d/%d", vol, vmax);
+        gfx_text_right(rx + rw, 116, b, PAL.cyan, 0);
+    } else {
+        gfx_text(rx, 116, "VOL --", PAL.dim, 0);
+    }
+
+    /* Transport controls, like the classic click-wheel row. */
+    const int cy = 170, r = 22;
+    int xs[3] = { 64, CW / 2, CW - 64 };
+    for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
+    media_prev_icon(xs[0], cy, media_pressed(0) ? PAL.yellow : PAL.white);
+    media_next_icon(xs[2], cy, media_pressed(2) ? PAL.yellow : PAL.white);
+    if (playing) media_pause_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
+    else media_play_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
+    gfx_text_center(xs[0], 196, "PREV", PAL.dim, 0);
+    gfx_text_center(xs[1], 196, "PLAY/PAUSE", PAL.dim, 0);
+    gfx_text_center(xs[2], 196, "NEXT", PAL.dim, 0);
+
+    gfx_text_center(CW / 2, 216, "UP/DN VOL   LEFT/RIGHT TRACK   PUSH PLAY", PAL.dim, 0);
+    gfx_text_center(CW / 2, 230, "BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */

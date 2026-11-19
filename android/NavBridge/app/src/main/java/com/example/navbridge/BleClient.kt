@@ -44,6 +44,7 @@ class BleClient(
         const val TYPE_ROUTE = 2
         const val TYPE_RASTER = 3
         const val TYPE_FRAME = 5   // 手机整帧：320×240 16 色 RLE
+        const val TYPE_ALBUM = 6   // 96×96 RGB565 album cover
 
         private const val BULK_HEADER = 15
         private const val MAX_WRITE = 512

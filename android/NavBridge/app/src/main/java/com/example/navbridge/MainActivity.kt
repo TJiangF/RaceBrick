@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private var lastFrameLogAt = 0L
     private var lastMediaState: Boolean? = null
     private var lastMediaMeta: String? = null
+    private var lastAlbumKey: String? = null
     private var mediaPrompted = false
     private var deviceKmh = -1
     private var deviceGpsAt = 0L
@@ -207,6 +208,8 @@ class MainActivity : AppCompatActivity() {
                     log("RaceBrick 通过验证，开始同步")
                     lastSentGen = -1L
                     lastMediaState = null
+                    lastMediaMeta = null
+                    lastAlbumKey = null
                     sendMediaState()
                     sendMediaProgress()
                     sendMediaVolume()
@@ -1126,10 +1129,41 @@ class MainActivity : AppCompatActivity() {
         if (!::ble.isInitialized || !ble.verified) return
         val m = MediaControl.metadata(this)
         val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
-        if (key == lastMediaMeta) return
-        lastMediaMeta = key
-        ble.send("M,TITLE,${Uri.encode(m?.title.orEmpty())}")
-        ble.send("M,ARTIST,${Uri.encode(m?.artist.orEmpty())}")
+        if (key != lastMediaMeta) {
+            lastMediaMeta = key
+            ble.send("M,TITLE,${Uri.encode(m?.title.orEmpty())}")
+            ble.send("M,ARTIST,${Uri.encode(m?.artist.orEmpty())}")
+            ble.send("M,ALBUM,${Uri.encode(m?.album.orEmpty())}")
+        }
+        val art = MediaControl.albumArt(this)
+        val artKey = if (art == null) "none" else
+            "${art.width}x${art.height}:${System.identityHashCode(art)}"
+        if (artKey != lastAlbumKey) {
+            lastAlbumKey = artKey
+            if (art == null) ble.send("M,ART,0")
+            else sendAlbumArt(art)
+        }
+    }
+
+    private fun sendAlbumArt(bitmap: Bitmap) {
+        if (!::ble.isInitialized || !ble.verified) return
+        val w = 96
+        val h = 96
+        val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
+        val px = IntArray(w * h)
+        scaled.getPixels(px, 0, w, 0, 0, w, h)
+        val out = ByteArray(w * h * 2)
+        for (i in px.indices) {
+            val c = px[i]
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            val v = ((r and 0xF8) shl 8) or ((g and 0xFC) shl 3) or (b shr 3)
+            out[i * 2] = (v and 0xFF).toByte()
+            out[i * 2 + 1] = ((v shr 8) and 0xFF).toByte()
+        }
+        if (scaled !== bitmap) scaled.recycle()
+        ble.sendBulk(BleClient.TYPE_ALBUM, 1, out)
     }
 
     private fun handleMediaCommand(line: String) {

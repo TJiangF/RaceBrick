@@ -34,6 +34,9 @@ static const char *TAG = "btmap";
 #define BT_FRAME_MAX (80 * 1024)
 #define BT_MAX_PARTS 4000
 #define BT_TYPE_FRAME 5
+#define BT_TYPE_ALBUM 6
+#define BT_ALBUM_W 96
+#define BT_ALBUM_H 96
 #define BT_DEVICE_NAME "RaceBrick"
 
 /* 6e400001-b5a3-f393-e0a9-e50e24dcca9e */
@@ -57,6 +60,9 @@ static uint8_t s_own_addr_type;
 
 static uint16_t *s_front, *s_back;
 static uint8_t *s_wire;
+static uint16_t *s_album_px;
+static volatile bool s_album_ready;
+static volatile int s_album_w, s_album_h;
 static SemaphoreHandle_t s_lock;
 static volatile bool s_have;
 static volatile int s_w, s_h;
@@ -70,6 +76,7 @@ static volatile int s_media_vol = -1;
 static volatile int s_media_volmax = 0;
 static char s_media_title[64];
 static char s_media_artist[64];
+static char s_media_album[64];
 static volatile int s_nav_remain = -1;
 static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
@@ -86,7 +93,7 @@ static int64_t s_last_wifi_status_us;
 
 static uint8_t s_write_buf[512];
 static uint8_t s_seen[(BT_MAX_PARTS + 7) / 8];
-static int s_rx_id = -1, s_rx_total, s_rx_parts, s_rx_got;
+static int s_rx_id = -1, s_rx_type = -1, s_rx_total, s_rx_parts, s_rx_got;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 
@@ -198,6 +205,7 @@ static bool decode_frame(const uint8_t *d, int n) {
 
 static void reset_rx(void) {
     s_rx_id = -1;
+    s_rx_type = -1;
     s_rx_total = s_rx_parts = s_rx_got = 0;
 }
 
@@ -211,16 +219,21 @@ static void handle_bulk(const uint8_t *b, int len) {
     uint32_t off = rd32(b + 11);
     int plen = len - 15;
 
-    if (type != BT_TYPE_FRAME) return;       /* raster/route are not used by PHONE page */
+    if (type != BT_TYPE_FRAME && type != BT_TYPE_ALBUM) return;
     if (parts <= 0 || parts > BT_MAX_PARTS || seq >= parts || plen <= 0 ||
         total == 0 || total > BT_FRAME_MAX || off > total ||
         (uint32_t)plen > total - off) {
         reset_rx();
         return;
     }
-    if (id != s_rx_id || total != s_rx_total || parts != s_rx_parts) {
+    if (type == BT_TYPE_ALBUM && total != (uint32_t)(BT_ALBUM_W * BT_ALBUM_H * 2)) {
+        reset_rx();
+        return;
+    }
+    if (id != s_rx_id || type != s_rx_type || total != s_rx_total || parts != s_rx_parts) {
         reset_rx();
         s_rx_id = id;
+        s_rx_type = type;
         s_rx_total = (int)total;
         s_rx_parts = parts;
         memset(s_seen, 0, sizeof s_seen);
@@ -231,7 +244,15 @@ static void handle_bulk(const uint8_t *b, int len) {
     }
     memcpy(s_wire + off, b + 15, plen);
     if (s_rx_got == s_rx_parts) {
-        decode_frame(s_wire, (int)total);
+        if (type == BT_TYPE_FRAME) {
+            decode_frame(s_wire, (int)total);
+        } else if (s_album_px) {
+            memcpy(s_album_px, s_wire, (size_t)total);
+            s_album_w = BT_ALBUM_W;
+            s_album_h = BT_ALBUM_H;
+            s_album_ready = true;
+            ESP_LOGI(TAG, "album art updated (%u bytes)", (unsigned)total);
+        }
         reset_rx();
     }
 }
@@ -381,6 +402,16 @@ static void handle_write(const uint8_t *b, int len) {
         pct_decode(tmp + 9, dec, sizeof dec);
         snprintf(s_media_artist, sizeof s_media_artist, "%s", dec);
     }
+    else if (len >= 8 && memcmp(b, "M,ALBUM,", 8) == 0) {
+        char tmp[96], dec[80];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        pct_decode(tmp + 8, dec, sizeof dec);
+        snprintf(s_media_album, sizeof s_media_album, "%s", dec);
+    }
+    else if (len >= 7 && memcmp(b, "M,ART,", 6) == 0 && b[6] == '0') {
+        s_album_ready = false;
+    }
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
     else if (len >= 6 && memcmp(b, "M,VOL,", 6) == 0) {
         char tmp[48];
@@ -510,6 +541,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_media_volmax = 0;
         s_media_title[0] = 0;
         s_media_artist[0] = 0;
+        s_media_album[0] = 0;
+        s_album_ready = false;
         reset_rx();
         ESP_LOGI(TAG, "disconnected (reason %d)", event->disconnect.reason);
         advertise();
@@ -588,8 +621,10 @@ void btmap_start(void) {
     s_front = heap_caps_malloc((size_t)BT_W * BT_H * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_back = heap_caps_malloc((size_t)BT_W * BT_H * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_wire = heap_caps_malloc(BT_FRAME_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_album_px = heap_caps_malloc((size_t)BT_ALBUM_W * BT_ALBUM_H * 2,
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_lock = xSemaphoreCreateMutex();
-    if (!s_front || !s_back || !s_wire || !s_lock) {
+    if (!s_front || !s_back || !s_wire || !s_album_px || !s_lock) {
         ESP_LOGE(TAG, "alloc failed");
         return;
     }
@@ -667,6 +702,13 @@ bool btmap_media_progress(int *pos_ms, int *dur_ms) {
 }
 const char *btmap_media_title(void) { return s_media_title; }
 const char *btmap_media_artist(void) { return s_media_artist; }
+const char *btmap_media_album(void) { return s_media_album; }
+const uint16_t *btmap_album_art(int *w, int *h) {
+    if (!s_album_ready) return NULL;
+    if (w) *w = s_album_w;
+    if (h) *h = s_album_h;
+    return s_album_px;
+}
 
 void btmap_media_cmd(const char *cmd) {
     char b[32];

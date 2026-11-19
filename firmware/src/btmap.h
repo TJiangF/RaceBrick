@@ -25,6 +25,8 @@ bool btmap_media_progress(int *pos_ms, int *dur_ms);
 bool btmap_media_volume(int *cur, int *max);
 const char *btmap_media_title(void);
 const char *btmap_media_artist(void);
+const char *btmap_media_album(void);
+const uint16_t *btmap_album_art(int *w, int *h);
 
 /* Navigation progress sent by the phone as "#P,remain_m,total_m"; -1 clears. */
 bool btmap_nav_active(void);
