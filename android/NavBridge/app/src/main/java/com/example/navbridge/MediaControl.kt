@@ -91,6 +91,34 @@ object MediaControl {
         return key(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
     }
 
+    /** Current music-stream volume, independent of notification-listener access. */
+    fun volume(context: Context): Pair<Int, Int>? {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
+        return runCatching {
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            if (max > 0) cur.coerceIn(0, max) to max else null
+        }.getOrNull()
+    }
+
+    fun volumeUp(context: Context): Boolean {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return runCatching {
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE,
+                AudioManager.FLAG_SHOW_UI)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun volumeDown(context: Context): Boolean {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return runCatching {
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER,
+                AudioManager.FLAG_SHOW_UI)
+            true
+        }.getOrDefault(false)
+    }
+
     private fun key(context: Context, code: Int): Boolean {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
         return runCatching {

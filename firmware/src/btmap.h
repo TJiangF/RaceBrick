@@ -22,6 +22,7 @@ bool btmap_has_frame(void);
 void btmap_media_cmd(const char *cmd);
 bool btmap_media_playing(void);
 bool btmap_media_progress(int *pos_ms, int *dur_ms);
+bool btmap_media_volume(int *cur, int *max);
 
 /* Navigation progress sent by the phone as "#P,remain_m,total_m"; -1 clears. */
 bool btmap_nav_active(void);

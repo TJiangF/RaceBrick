@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             sendMediaState()
             sendMediaProgress()
+            sendMediaVolume()
             main.postDelayed(this, 1000)
         }
     }
@@ -205,6 +206,7 @@ class MainActivity : AppCompatActivity() {
                     lastMediaState = null
                     sendMediaState()
                     sendMediaProgress()
+                    sendMediaVolume()
                     sendPosition()
                     sendLedProgress()
                     if (!sendFrames) {
@@ -1121,6 +1123,8 @@ class MainActivity : AppCompatActivity() {
             "TOGGLE" -> MediaControl.toggle(this)
             "NEXT" -> MediaControl.next(this)
             "PREV" -> MediaControl.prev(this)
+            "VOLUP" -> MediaControl.volumeUp(this)
+            "VOLDOWN" -> MediaControl.volumeDown(this)
             else -> return
         }
         log(if (ok) "媒体控制：$cmd" else "媒体控制失败：$cmd")
@@ -1130,7 +1134,17 @@ class MainActivity : AppCompatActivity() {
             log("请开启通知使用权，ESP 才能控制其他音乐 App")
             MediaControl.openSettings(this)
         }
-        main.postDelayed({ sendMediaState(); sendMediaProgress() }, 450)
+        main.postDelayed({
+            sendMediaState()
+            sendMediaProgress()
+            sendMediaVolume()
+        }, 450)
+    }
+
+    private fun sendMediaVolume() {
+        if (!ble.verified) return
+        val v = MediaControl.volume(this) ?: return
+        ble.send("M,VOL,${v.first},${v.second}")
     }
 
     private fun maybePromptMediaAccess() {

@@ -2009,7 +2009,21 @@ static void render_media(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     gfx_text_center(CW / 2, 6, "MEDIA", PAL.cyan, 1);
 
-    const int cy = 106, r = 38;
+    /* Phone media volume reported by the app as M,VOL,cur,max. */
+    int vol = -1, vmax = 0;
+    if (btmap_media_volume(&vol, &vmax)) {
+        int bx = 92, bw = CW - bx - 18, by = 30;
+        gfx_text(18, 26, "PHONE VOL", PAL.dim, 0);
+        gfx_fill(bx, by, bw, 8, PAL.surface2);
+        gfx_fill(bx, by, (bw * vol) / vmax, 8, PAL.cyan);
+        gfx_rect(bx, by, bw, 8, PAL.line);
+        snprintf(b, sizeof b, "%d/%d", vol, vmax);
+        gfx_text_right(CW - 12, 26, b, PAL.cyan, 0);
+    } else {
+        gfx_text(18, 26, "PHONE VOL --", PAL.dim, 0);
+    }
+
+    const int cy = 116, r = 36;
     int xs[3] = { 60, CW / 2, CW - 60 };
     for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
 
@@ -2032,7 +2046,7 @@ static void render_media(void) {
     snprintf(b, sizeof b, "%s", st);
     gfx_text_center(CW / 2, 182, b, sc, 1);
 
-    gfx_text_center(CW / 2, 212, "LEFT PREV   RIGHT NEXT   PUSH PLAY/PAUSE", PAL.dim, 0);
+    gfx_text_center(CW / 2, 212, "UP/DN VOL   LEFT PREV   RIGHT NEXT   PUSH PLAY", PAL.dim, 0);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */
@@ -2892,7 +2906,9 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_BACK) { app_back(); return; }
             int hit = -1;
             const char *cmd = NULL, *msg = NULL;
-            if (ev->button == BTN_LEFT) { hit = 0; cmd = "PREV"; msg = "PREV"; }
+            if (ev->button == BTN_UP) { cmd = "VOLUP"; msg = "VOL +"; }
+            else if (ev->button == BTN_DOWN) { cmd = "VOLDOWN"; msg = "VOL -"; }
+            else if (ev->button == BTN_LEFT) { hit = 0; cmd = "PREV"; msg = "PREV"; }
             else if (ev->button == BTN_RIGHT) { hit = 2; cmd = "NEXT"; msg = "NEXT"; }
             else if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
                 hit = 1; cmd = "TOGGLE"; msg = "PLAY/PAUSE";
