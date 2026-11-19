@@ -156,6 +156,8 @@
 
 /* MPU6050 + GPS/IMU fusion (RC.CONFIG.IMU) */
 #define TRACK_WIDTH_M  5.0f   /* default modelled track width, metres */
+#define START_LINE_WIDTH_M 10.0f
+#define START_LINE_HALF_M  (START_LINE_WIDTH_M * 0.5f)
 #define IMU_CALIB_MS        1500.0f
 #define IMU_STABLE_TILT     0.025f
 #define IMU_STABLE_GYRO     3.0f

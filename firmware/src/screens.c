@@ -2561,7 +2561,7 @@ void screens_update(float dt) {
         if (!g.rec_armed && hypotf(mx, my) > 20.0f) g.rec_armed = true;
         bool time_ok = gp->fix_time_valid && g.rec_lap_start_us && g.rec_prev_fix_us;
         bool crossed = time_ok && g.rec_armed && g.rec_along_prev < 0.0f && along >= 0.0f &&
-                       fabsf(latd) < 3.0f && g.rec_lap_time > 2.0f;
+                       fabsf(latd) < START_LINE_HALF_M && g.rec_lap_time > 2.0f;
         if (crossed) {
             float frac = (along != g.rec_along_prev) ?
                          -g.rec_along_prev / (along - g.rec_along_prev) : 0.0f;
