@@ -451,10 +451,19 @@ static bool ledfx_media_progress(void) {
     if (p > 1) p = 1;
     int lit = (int)(p * LED_COUNT + 0.5f);
     bool playing = btmap_media_playing();
+    uint16_t accent = btmap_album_accent565();
+    uint8_t ar = 0, ag = 255, ab = 255;
+    if (accent) {
+        ar = (uint8_t)(((accent >> 11) & 31) * 255 / 31);
+        ag = (uint8_t)(((accent >> 5) & 63) * 255 / 63);
+        ab = (uint8_t)((accent & 31) * 255 / 31);
+    }
     for (int i = 0; i < LED_COUNT; i++) {
         if (i < lit) {
             uint8_t v = playing ? 255 : 80;
-            ws2812_set(i, 0, v, v);          /* cyan progress */
+            ws2812_set(i, (uint8_t)((int)ar * v / 255),
+                          (uint8_t)((int)ag * v / 255),
+                          (uint8_t)((int)ab * v / 255));
         } else {
             ws2812_set(i, 0, 0, 0);
         }

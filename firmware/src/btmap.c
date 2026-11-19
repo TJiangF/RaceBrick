@@ -63,6 +63,9 @@ static uint8_t *s_wire;
 static uint16_t *s_album_px;
 static volatile bool s_album_ready;
 static volatile uint32_t s_album_seq;
+static uint16_t s_album_accent;
+static uint32_t s_album_accent_seq;
+static bool s_album_accent_valid;
 static volatile int s_album_w, s_album_h;
 static SemaphoreHandle_t s_lock;
 static volatile bool s_have;
@@ -255,6 +258,7 @@ static void handle_bulk(const uint8_t *b, int len) {
             s_album_w = BT_ALBUM_W;
             s_album_h = BT_ALBUM_H;
             s_album_seq++;
+            s_album_accent_valid = false;
             s_album_ready = true;
             ESP_LOGI(TAG, "album art updated (%u bytes)", (unsigned)total);
         }
@@ -743,6 +747,41 @@ const uint16_t *btmap_album_art(int *w, int *h) {
     return s_album_px;
 }
 uint32_t btmap_album_art_seq(void) { return s_album_seq; }
+
+uint16_t btmap_album_accent565(void) {
+    if (!s_album_ready || !s_album_px) return 0;
+    if (s_album_accent_valid && s_album_accent_seq == s_album_seq) return s_album_accent;
+    uint32_t cnt[64] = {0}, sr[64] = {0}, sg[64] = {0}, sb[64] = {0};
+    for (int y = 0; y < BT_ALBUM_H; y++) {
+        for (int x = 0; x < BT_ALBUM_W; x++) {
+            uint16_t c = s_album_px[y * BT_ALBUM_W + x];
+            int r = ((c >> 11) & 31) * 255 / 31;
+            int g = ((c >> 5) & 63) * 255 / 63;
+            int b = (c & 31) * 255 / 31;
+            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            int wgt = 1 + (mx - mn) * 3 / 255;
+            int bin = ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
+            cnt[bin] += (uint32_t)wgt;
+            sr[bin] += (uint32_t)r * wgt;
+            sg[bin] += (uint32_t)g * wgt;
+            sb[bin] += (uint32_t)b * wgt;
+        }
+    }
+    int best = 0;
+    for (int i = 1; i < 64; i++) if (cnt[i] > cnt[best]) best = i;
+    if (cnt[best]) {
+        int r = (int)(sr[best] / cnt[best]);
+        int g = (int)(sg[best] / cnt[best]);
+        int b = (int)(sb[best] / cnt[best]);
+        s_album_accent = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+    } else {
+        s_album_accent = 0;
+    }
+    s_album_accent_seq = s_album_seq;
+    s_album_accent_valid = true;
+    return s_album_accent;
+}
 bool btmap_media_lyrics(int *active, char lines[5][160]) {
     if (!s_media_lyrics_valid) return false;
     if (active) *active = s_media_lyric_active;

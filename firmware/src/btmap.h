@@ -28,6 +28,7 @@ const char *btmap_media_artist(void);
 const char *btmap_media_album(void);
 const uint16_t *btmap_album_art(int *w, int *h);
 uint32_t btmap_album_art_seq(void);
+uint16_t btmap_album_accent565(void);
 bool btmap_media_lyrics(int *active, char lines[5][160]);
 
 /* Navigation progress sent by the phone as "#P,remain_m,total_m"; -1 clears. */
