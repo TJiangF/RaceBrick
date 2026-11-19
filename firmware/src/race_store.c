@@ -91,12 +91,9 @@ bool race_store_begin(int track_slot, const char *track_name, int mode) {
     s_last_fix_seq = 0;
     s_start_valid = false;
     s_active = true;
-    if (!ext_flash_erase_sector(slot_base(slot)) ||
-        !ext_flash_write(slot_base(slot), &s_hdr, sizeof(s_hdr))) {
-        s_active = false;
-        ESP_LOGE(TAG, "session header init failed");
-        return false;
-    }
+    /* The header is written only in race_store_end(). Until then the slot is
+     * deliberately invalid; an interrupted/power-lost session never leaves a
+     * half-valid header that can be mistaken for a completed session. */
     ESP_LOGI(TAG, "session start slot=%d track=%d '%s' mode=%d",
              slot, track_slot, s_hdr.track_name, mode);
     return true;
