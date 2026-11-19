@@ -232,7 +232,7 @@ static void start_sta(const char *ssid, const char *pass) {
     memset(&sta, 0, sizeof(sta));
     setstr(sta.sta.ssid, sizeof(sta.sta.ssid), ssid);
     setstr(sta.sta.password, sizeof(sta.sta.password), pass);
-    sta.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    sta.sta.threshold.authmode = WIFI_AUTH_OPEN;  /* allow open/WPA/WPA2/WPA3 */
     esp_wifi_set_config(WIFI_IF_STA, &sta);
     s_connected = false;
     s_connecting = true;
