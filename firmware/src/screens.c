@@ -2106,7 +2106,7 @@ static void media_scroll_text(const char *s, int x, int y, int w, int scale, uin
     if (!s || !*s) return;
     int tw = gfx_text_w(s, scale);
     if (tw <= w) { gfx_text(x, y, s, col, scale); return; }
-    gfx_set_clip(x, y, w, scale >= 2 ? 16 : 9);
+    gfx_set_clip(x, y, w, scale >= 2 ? 18 : (scale == 1 ? 13 : 9));
     int span = tw + 26;
     int off = (int)(g.now * 0.024f) % span;
     gfx_text(x - off, y, s, col, scale);
@@ -2166,8 +2166,8 @@ static void render_media(void) {
     const char *artist = btmap_media_artist();
     const char *album = btmap_media_album();
     media_scroll_text(title[0] ? title : "NO TRACK", rx, 28, rw, 2, PAL.white);
-    media_scroll_text(artist[0] ? artist : "UNKNOWN ARTIST", rx, 48, rw, 1, PAL.text2);
-    media_scroll_text(album, rx, 62, rw, 1, PAL.dim);
+    media_scroll_text(artist[0] ? artist : "UNKNOWN ARTIST", rx, 52, rw, 1, PAL.text2);
+    media_scroll_text(album, rx, 70, rw, 1, PAL.dim);
 
     /* Volume rail, right, above lyrics. */
     int vol = -1, vmax = 0;
@@ -2189,7 +2189,7 @@ static void render_media(void) {
         const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";
         int lines = media_wrap(cur, 10, 112, CW - 20, 2, 2, 18, PAL.cyan);
         int ny = 112 + lines * 18 + 8;
-        if (next[0]) media_wrap(next, 10, ny, CW - 20, 1, 2, 11, PAL.dim);
+        if (next[0]) media_wrap(next, 10, ny, CW - 20, 1, 2, 13, PAL.dim);
     } else {
         gfx_text(10, 112, "NO LYRICS", PAL.dim, 0);
     }
