@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
     private var lastFrameLogAt = 0L
     private var lastMediaState: Boolean? = null
     private var lastMediaMeta: String? = null
+    private var mediaIdentity: String = ""
+    private var stableTitle: String = ""
     private var lastAlbumKey: String? = null
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
     private var lyricKey: String = ""
@@ -216,6 +218,8 @@ class MainActivity : AppCompatActivity() {
                     lastSentGen = -1L
                     lastMediaState = null
                     lastMediaMeta = null
+                    mediaIdentity = ""
+                    stableTitle = ""
                     lastAlbumKey = null
                     lyricKey = ""
                     lyricLines = emptyList()
@@ -1140,13 +1144,33 @@ class MainActivity : AppCompatActivity() {
     private fun sendMediaMetadata() {
         if (!::ble.isInitialized || !ble.verified) return
         val m = MediaControl.metadata(this)
-        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
-        if (key != lastMediaMeta) {
-            lastMediaMeta = key
-            ble.send("M,TITLE,${Uri.encode(m?.title.orEmpty())}")
-            ble.send("M,ARTIST,${Uri.encode(m?.artist.orEmpty())}")
-            ble.send("M,ALBUM,${Uri.encode(m?.album.orEmpty())}")
-            loadLyrics(m)
+        if (m == null) {
+            if (lastMediaMeta != "") {
+                lastMediaMeta = ""
+                mediaIdentity = ""
+                stableTitle = ""
+                ble.send("M,TITLE,")
+                ble.send("M,ARTIST,")
+                ble.send("M,ALBUM,")
+                loadLyrics(null)
+            }
+            return
+        }
+        val duration = if (m.durationMs > 0) m.durationMs
+                       else MediaControl.progress(this)?.durationMs ?: 0L
+        // Do not use the title as a lyric update trigger. Some music apps put
+        // the current lyric line into the title field; identity uses the
+        // stable artist/album/duration tuple instead.
+        val identity = "${m.artist}\u0001${m.album}\u0001$duration"
+        if (identity != mediaIdentity) {
+            mediaIdentity = identity
+            stableTitle = m.title
+            lastMediaMeta = identity
+            val title = stableTitle.ifBlank { m.artist }
+            ble.send("M,TITLE,${Uri.encode(title)}")
+            ble.send("M,ARTIST,${Uri.encode(m.artist)}")
+            ble.send("M,ALBUM,${Uri.encode(m.album)}")
+            loadLyrics(m.copy(title = stableTitle))
         }
         val art = MediaControl.albumArt(this)
         val artKey = if (art == null) "none" else
@@ -1174,7 +1198,8 @@ class MainActivity : AppCompatActivity() {
         val title = m.title
         val artist = m.artist
         val album = m.album
-        val duration = MediaControl.progress(this)?.durationMs ?: 0L
+        val duration = if (m.durationMs > 0) m.durationMs
+                       else MediaControl.progress(this)?.durationMs ?: 0L
         lyricWorker.execute {
             val lines = LyricsRepository.fetch(title, artist, album, duration)
             runOnUiThread {
