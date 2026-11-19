@@ -1993,6 +1993,15 @@ static void media_pause_icon(int cx, int cy, uint16_t c) {
     gfx_fill(cx + 3, cy - 14, 8, 28, c);
 }
 
+static void media_glass_box(int x, int y, int w, int h, bool pressed) {
+    /* The panel is opaque hardware, so emulate liquid glass with a dark
+     * translucent-looking tint, a bright top edge and a thin outline. */
+    gfx_fill(x, y, w, h, pressed ? PAL.seltint : PAL.surface);
+    gfx_fill(x + 1, y + 1, w - 2, h / 2, PAL.surface2);
+    gfx_hline(x + 2, y + 2, w - 4, PAL.line2);
+    gfx_rect(x, y, w, h, pressed ? PAL.cyan : PAL.line);
+}
+
 static void render_media(void) {
     char b[96];
     if (!g.entered) {
@@ -2017,7 +2026,7 @@ static void render_media(void) {
     else { st = playing ? "PLAYING" : "PAUSED"; sc = playing ? PAL.green : PAL.orange; }
     gfx_text_right(CW - 14, 8, st, sc, 0);
 
-    /* iPod-style cover + metadata column. */
+    /* Album cover, left. */
     int ax = 14, ay = 28, aw = 96, ah = 96;
     int iw = 0, ih = 0;
     const uint16_t *art = btmap_album_art(&iw, &ih);
@@ -2033,59 +2042,64 @@ static void render_media(void) {
     }
     gfx_rect(ax, ay, aw, ah, PAL.line2);
 
-    int rx = 124, rw = CW - rx - 14;
+    /* Metadata, right of the cover; leave the far right for the volume rail. */
+    int rx = 124, rw = 166;
     const char *title = btmap_media_title();
     const char *artist = btmap_media_artist();
     const char *album = btmap_media_album();
-    snprintf(b, sizeof b, "%.30s", title[0] ? title : "NO TRACK");
+    snprintf(b, sizeof b, "%.26s", title[0] ? title : "NO TRACK");
     gfx_text(rx, 30, b, PAL.white, 1);
-    snprintf(b, sizeof b, "%.36s", artist[0] ? artist : "UNKNOWN ARTIST");
+    snprintf(b, sizeof b, "%.26s", artist[0] ? artist : "UNKNOWN ARTIST");
     gfx_text(rx, 48, b, PAL.text2, 0);
-    snprintf(b, sizeof b, "%.38s", album[0] ? album : "");
-    gfx_text(rx, 60, b, PAL.dim, 0);
+    snprintf(b, sizeof b, "%.26s", album[0] ? album : "");
+    gfx_text(rx, 62, b, PAL.dim, 0);
 
-    int pos = 0, dur = 0;
-    if (btmap_media_progress(&pos, &dur)) {
-        gfx_text(rx, 82, "PROGRESS", PAL.dim, 0);
-        gfx_fill(rx, 92, rw, 7, PAL.surface2);
-        gfx_fill(rx, 92, (rw * pos) / dur, 7, PAL.cyan);
-        gfx_rect(rx, 92, rw, 7, PAL.line);
-        char tb[20];
-        u_fmt_time(tb, sizeof tb, pos / 1000.0f);
-        gfx_text(rx, 102, tb, PAL.dim, 0);
-        u_fmt_time(tb, sizeof tb, dur / 1000.0f);
-        gfx_text_right(rx + rw, 102, tb, PAL.dim, 0);
-    } else {
-        gfx_text(rx, 82, "PROGRESS --:--", PAL.dim, 0);
-    }
-
+    /* Vertical volume rail on the far right. */
     int vol = -1, vmax = 0;
     if (btmap_media_volume(&vol, &vmax)) {
-        gfx_text(rx, 116, "VOL", PAL.dim, 0);
-        int bx = rx + 30, bw = rw - 30 - 34;
-        gfx_fill(bx, 118, bw, 7, PAL.surface2);
-        gfx_fill(bx, 118, (bw * vol) / vmax, 7, PAL.cyan);
-        gfx_rect(bx, 118, bw, 7, PAL.line);
-        snprintf(b, sizeof b, "%d/%d", vol, vmax);
-        gfx_text_right(rx + rw, 116, b, PAL.cyan, 0);
+        gfx_text_right(CW - 14, 22, "VOL", PAL.dim, 0);
+        int vx = CW - 18, vy = 34, vh = 84;
+        gfx_fill(vx, vy, 7, vh, PAL.surface2);
+        int fill = (vh * vol) / vmax;
+        gfx_fill(vx, vy + vh - fill, 7, fill, PAL.cyan);
+        gfx_rect(vx, vy, 7, vh, PAL.line);
+        snprintf(b, sizeof b, "%d", vol);
+        gfx_text_right(CW - 14, 122, b, PAL.cyan, 0);
     } else {
-        gfx_text(rx, 116, "VOL --", PAL.dim, 0);
+        gfx_text_right(CW - 14, 22, "VOL --", PAL.dim, 0);
     }
 
-    /* Transport controls, like the classic click-wheel row. */
-    const int cy = 170, r = 22;
-    int xs[3] = { 64, CW / 2, CW - 64 };
-    for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
-    media_prev_icon(xs[0], cy, media_pressed(0) ? PAL.yellow : PAL.white);
-    media_next_icon(xs[2], cy, media_pressed(2) ? PAL.yellow : PAL.white);
-    if (playing) media_pause_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
-    else media_play_icon(xs[1], cy, media_pressed(1) ? PAL.yellow : PAL.white);
-    gfx_text_center(xs[0], 196, "PREV", PAL.dim, 0);
-    gfx_text_center(xs[1], 196, "PLAY/PAUSE", PAL.dim, 0);
-    gfx_text_center(xs[2], 196, "NEXT", PAL.dim, 0);
+    /* Full-width progress bar directly above the transport row. */
+    int pos = 0, dur = 0;
+    if (btmap_media_progress(&pos, &dur)) {
+        gfx_text(14, 128, "PROGRESS", PAL.dim, 0);
+        gfx_fill(14, 138, CW - 28, 7, PAL.surface2);
+        gfx_fill(14, 138, ((CW - 28) * pos) / dur, 7, PAL.cyan);
+        gfx_rect(14, 138, CW - 28, 7, PAL.line);
+        char tb[20];
+        u_fmt_time(tb, sizeof tb, pos / 1000.0f);
+        gfx_text(14, 148, tb, PAL.dim, 0);
+        u_fmt_time(tb, sizeof tb, dur / 1000.0f);
+        gfx_text_right(CW - 14, 148, tb, PAL.dim, 0);
+    } else {
+        gfx_text(14, 128, "PROGRESS --:--", PAL.dim, 0);
+    }
 
-    gfx_text_center(CW / 2, 216, "UP/DN VOL   LEFT/RIGHT TRACK   PUSH PLAY", PAL.dim, 0);
-    gfx_text_center(CW / 2, 230, "BACK EXIT", PAL.dim, 0);
+    /* Flat, glassy transport buttons across the bottom. */
+    const int by = 166, bh = 42, gap = 8;
+    const int bw = (CW - 20 - gap * 2) / 3;
+    int bx[3] = { 10, 10 + bw + gap, 10 + 2 * (bw + gap) };
+    for (int i = 0; i < 3; i++) media_glass_box(bx[i], by, bw, bh, media_pressed(i));
+    media_prev_icon(bx[0] + bw / 2, by + 14, media_pressed(0) ? PAL.yellow : PAL.white);
+    media_next_icon(bx[2] + bw / 2, by + 14, media_pressed(2) ? PAL.yellow : PAL.white);
+    if (playing) media_pause_icon(bx[1] + bw / 2, by + 14, media_pressed(1) ? PAL.yellow : PAL.white);
+    else media_play_icon(bx[1] + bw / 2, by + 14, media_pressed(1) ? PAL.yellow : PAL.white);
+    gfx_text_center(bx[0] + bw / 2, by + 30, "PREV", PAL.dim, 0);
+    gfx_text_center(bx[1] + bw / 2, by + 30, "PLAY/PAUSE", PAL.dim, 0);
+    gfx_text_center(bx[2] + bw / 2, by + 30, "NEXT", PAL.dim, 0);
+
+    gfx_text_center(CW / 2, 218, "UP/DN VOL   LEFT/RIGHT TRACK   PUSH PLAY", PAL.dim, 0);
+    gfx_text_center(CW / 2, 231, "BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */

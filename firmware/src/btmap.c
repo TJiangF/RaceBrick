@@ -383,7 +383,8 @@ static void handle_write(const uint8_t *b, int len) {
     /* Bulk frames start with M followed by the numeric type. Text media lines
      * also start with M, but their second byte is ','. Check the type byte,
      * otherwise M,POS/M,VOL longer than 14 bytes was swallowed as bulk. */
-    if (len >= 15 && b[0] == 'M' && b[1] == BT_TYPE_FRAME) {
+    if (len >= 15 && b[0] == 'M' &&
+        (b[1] == BT_TYPE_FRAME || b[1] == BT_TYPE_ALBUM)) {
         handle_bulk(b, len);
         return;
     }
