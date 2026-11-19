@@ -55,6 +55,8 @@ static httpd_handle_t s_httpd = NULL;
 static bool s_started = false;
 static bool s_connecting = false;
 static bool s_connected = false;
+static bool s_connect_failed = false;
+static bool s_scanning = false;
 static int64_t s_connect_t0 = 0;
 static char s_ip[20] = "";
 static char s_ap_ssid[24] = "RaceBrick";
@@ -81,10 +83,14 @@ void netcfg_status(char *buf, int cap) {
     if (s_connected) {
         if (s_sta_ssid[0]) snprintf(buf, cap, "CONNECTED %s %s", s_sta_ssid, s_ip);
         else snprintf(buf, cap, "CONNECTED %s", s_ip);
+    } else if (s_scanning) {
+        snprintf(buf, cap, "SCANNING...");
     } else if (s_connecting) {
         int sec = (int)((esp_timer_get_time() - s_connect_t0) / 1000000);
         if (sec > 20) snprintf(buf, cap, "FAILED - CHECK SSID/PASSWORD");
         else snprintf(buf, cap, "CONNECTING... %ds", sec);
+    } else if (s_connect_failed) {
+        snprintf(buf, cap, "FAILED - CHECK SSID/PASSWORD");
     } else if (s_started) {
         snprintf(buf, cap, "AP: %s", s_ap_ssid);
     } else {
@@ -228,6 +234,7 @@ static void setstr(uint8_t *dst, size_t cap, const char *src) {
 
 static void start_sta(const char *ssid, const char *pass) {
     snprintf(s_sta_ssid, sizeof s_sta_ssid, "%s", ssid ? ssid : "");
+    s_connect_failed = false;
     wifi_config_t sta;
     memset(&sta, 0, sizeof(sta));
     setstr(sta.sta.ssid, sizeof(sta.sta.ssid), ssid);
@@ -249,7 +256,15 @@ static void wifi_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
             if (s_connecting) esp_wifi_connect();
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_connected = false;
-            if (s_connecting) esp_wifi_connect();
+            if (s_connecting) {
+                int sec = (int)((esp_timer_get_time() - s_connect_t0) / 1000000);
+                if (sec < 20) esp_wifi_connect();
+                else {
+                    s_connecting = false;
+                    s_connect_failed = true;
+                    ESP_LOGW(TAG, "STA connect timed out after %ds", sec);
+                }
+            }
         } else if (id == WIFI_EVENT_AP_STACONNECTED) {
             ESP_LOGI(TAG, "phone joined AP");
         } else if (id == WIFI_EVENT_AP_STADISCONNECTED) {
@@ -260,6 +275,7 @@ static void wifi_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         snprintf(s_ip, sizeof s_ip, IPSTR, IP2STR(&e->ip_info.ip));
         s_connected = true;
         s_connecting = false;
+        s_connect_failed = false;
         ESP_LOGI(TAG, "got IP %s", s_ip);
     }
 }
@@ -282,7 +298,19 @@ static void do_scan(void) {
     ESP_LOGI(TAG, "scan: %d APs", s_naps);
 }
 
-int netcfg_wifi_scan(void) { do_scan(); return s_naps; }
+int netcfg_wifi_scan(void) {
+    /* Scanning must not inherit a stale FAILED auto-connect status. Abort a
+     * pending STA attempt, but leave an established connection alone. */
+    s_connect_failed = false;
+    if (s_connecting) {
+        s_connecting = false;
+        esp_wifi_disconnect();
+    }
+    s_scanning = true;
+    do_scan();
+    s_scanning = false;
+    return s_naps;
+}
 int netcfg_wifi_scan_count(void) { return s_naps; }
 bool netcfg_wifi_scan_get(int idx, char *ssid, int cap, int *rssi, int *auth) {
     if (idx < 0 || idx >= s_naps || !ssid || cap <= 0) return false;
@@ -293,6 +321,7 @@ bool netcfg_wifi_scan_get(int idx, char *ssid, int cap, int *rssi, int *auth) {
 }
 bool netcfg_wifi_connect(const char *ssid, const char *pass) {
     if (!s_started || !ssid || !ssid[0]) return false;
+    s_connect_failed = false;
     save_creds(ssid, pass);
     start_sta(ssid, pass);
     return true;
