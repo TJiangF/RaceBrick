@@ -68,6 +68,8 @@ static volatile int s_media_pos_ms = 0;
 static volatile int s_media_dur_ms = 0;
 static volatile int s_media_vol = -1;
 static volatile int s_media_volmax = 0;
+static char s_media_title[64];
+static char s_media_artist[64];
 static volatile int s_nav_remain = -1;
 static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
@@ -344,6 +346,8 @@ static void wifi_poll(void) {
     }
 }
 
+static int pct_decode(const char *in, char *out, int cap);
+
 static void handle_write(const uint8_t *b, int len) {
     if (len <= 0) return;
     if (len >= 3 && b[0] == '#' && b[1] == 'W' && b[2] == ',') {
@@ -355,11 +359,28 @@ static void handle_write(const uint8_t *b, int len) {
         taskEXIT_CRITICAL(&s_wifi_mux);
         return;
     }
-    if (len >= 15 && b[0] == 'M') {
+    /* Bulk frames start with M followed by the numeric type. Text media lines
+     * also start with M, but their second byte is ','. Check the type byte,
+     * otherwise M,POS/M,VOL longer than 14 bytes was swallowed as bulk. */
+    if (len >= 15 && b[0] == 'M' && b[1] == BT_TYPE_FRAME) {
         handle_bulk(b, len);
         return;
     }
     if (len >= 4 && memcmp(b, "#GB?", 4) == 0) s_ready_pending = true;
+    else if (len >= 8 && memcmp(b, "M,TITLE,", 8) == 0) {
+        char tmp[96], dec[80];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        pct_decode(tmp + 8, dec, sizeof dec);
+        snprintf(s_media_title, sizeof s_media_title, "%s", dec);
+    }
+    else if (len >= 9 && memcmp(b, "M,ARTIST,", 9) == 0) {
+        char tmp[96], dec[80];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        pct_decode(tmp + 9, dec, sizeof dec);
+        snprintf(s_media_artist, sizeof s_media_artist, "%s", dec);
+    }
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
     else if (len >= 6 && memcmp(b, "M,VOL,", 6) == 0) {
         char tmp[48];
@@ -482,10 +503,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_k_pending = false;
         s_nav_remain = -1;
         s_nav_total = 0;
+        s_media_playing = false;
         s_media_pos_ms = 0;
         s_media_dur_ms = 0;
         s_media_vol = -1;
         s_media_volmax = 0;
+        s_media_title[0] = 0;
+        s_media_artist[0] = 0;
         reset_rx();
         ESP_LOGI(TAG, "disconnected (reason %d)", event->disconnect.reason);
         advertise();
@@ -641,6 +665,8 @@ bool btmap_media_progress(int *pos_ms, int *dur_ms) {
     if (dur_ms) *dur_ms = s_media_dur_ms;
     return true;
 }
+const char *btmap_media_title(void) { return s_media_title; }
+const char *btmap_media_artist(void) { return s_media_artist; }
 
 void btmap_media_cmd(const char *cmd) {
     char b[32];

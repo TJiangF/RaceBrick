@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.location.Location
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private var lastEncodeAt = 0L
     private var lastFrameLogAt = 0L
     private var lastMediaState: Boolean? = null
+    private var lastMediaMeta: String? = null
     private var mediaPrompted = false
     private var deviceKmh = -1
     private var deviceGpsAt = 0L
@@ -75,6 +77,7 @@ class MainActivity : AppCompatActivity() {
             sendMediaState()
             sendMediaProgress()
             sendMediaVolume()
+            sendMediaMetadata()
             main.postDelayed(this, 1000)
         }
     }
@@ -207,6 +210,7 @@ class MainActivity : AppCompatActivity() {
                     sendMediaState()
                     sendMediaProgress()
                     sendMediaVolume()
+                    sendMediaMetadata()
                     sendPosition()
                     sendLedProgress()
                     if (!sendFrames) {
@@ -1111,10 +1115,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendMediaState() {
         if (!::ble.isInitialized || !ble.verified) return
-        val playing = MediaControl.isPlaying(this) ?: return
-        if (playing == lastMediaState) return
+        // Send a heartbeat even when unchanged. If the phone pauses while an
+        // older device still shows PLAYING, the next second corrects it.
+        val playing = MediaControl.isPlaying(this) ?: false
         lastMediaState = playing
         ble.send("M,STATE,${if (playing) 1 else 0}")
+    }
+
+    private fun sendMediaMetadata() {
+        if (!::ble.isInitialized || !ble.verified) return
+        val m = MediaControl.metadata(this)
+        val key = if (m == null) "" else "${m.title}|${m.artist}|${m.album}"
+        if (key == lastMediaMeta) return
+        lastMediaMeta = key
+        ble.send("M,TITLE,${Uri.encode(m?.title.orEmpty())}")
+        ble.send("M,ARTIST,${Uri.encode(m?.artist.orEmpty())}")
     }
 
     private fun handleMediaCommand(line: String) {
@@ -1138,6 +1153,7 @@ class MainActivity : AppCompatActivity() {
             sendMediaState()
             sendMediaProgress()
             sendMediaVolume()
+            sendMediaMetadata()
         }, 450)
     }
 

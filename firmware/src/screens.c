@@ -2023,7 +2023,18 @@ static void render_media(void) {
         gfx_text(18, 26, "PHONE VOL --", PAL.dim, 0);
     }
 
-    const int cy = 116, r = 36;
+    const char *title = btmap_media_title();
+    const char *artist = btmap_media_artist();
+    if (title[0]) {
+        snprintf(b, sizeof b, "%s", title);
+        gfx_text_center(CW / 2, 40, b, PAL.white, 1);
+    }
+    if (artist[0]) {
+        snprintf(b, sizeof b, "%s", artist);
+        gfx_text_center(CW / 2, 54, b, PAL.text2, 0);
+    }
+
+    const int cy = 112, r = 36;
     int xs[3] = { 60, CW / 2, CW - 60 };
     for (int i = 0; i < 3; i++) media_circle(xs[i], cy, r, media_pressed(i));
 
@@ -2044,9 +2055,22 @@ static void render_media(void) {
     else if (!btmap_subscribed()) { st = "CONNECTED"; sc = PAL.yellow; }
     else { st = playing ? "PLAYING" : "PAUSED"; sc = PAL.green; }
     snprintf(b, sizeof b, "%s", st);
-    gfx_text_center(CW / 2, 182, b, sc, 1);
+    gfx_text_center(CW / 2, 174, b, sc, 1);
 
-    gfx_text_center(CW / 2, 212, "UP/DN VOL   LEFT PREV   RIGHT NEXT   PUSH PLAY", PAL.dim, 0);
+    int pos = 0, dur = 0;
+    if (btmap_media_progress(&pos, &dur)) {
+        int bx = 34, bw = CW - 68, by = 190;
+        gfx_fill(bx, by, bw, 6, PAL.surface2);
+        gfx_fill(bx, by, (bw * pos) / dur, 6, PAL.cyan);
+        gfx_rect(bx, by, bw, 6, PAL.line);
+        char tb[20];
+        u_fmt_time(tb, sizeof tb, pos / 1000.0f);
+        gfx_text(bx, 200, tb, PAL.dim, 0);
+        u_fmt_time(tb, sizeof tb, dur / 1000.0f);
+        gfx_text_right(bx + bw, 200, tb, PAL.dim, 0);
+    }
+
+    gfx_text_center(CW / 2, 222, "UP/DN VOL   LEFT PREV   RIGHT NEXT   PUSH PLAY", PAL.dim, 0);
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */

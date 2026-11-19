@@ -16,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 /** Controls whichever media session is currently active on the phone. */
 object MediaControl {
     data class Progress(val positionMs: Long, val durationMs: Long, val playing: Boolean)
+    data class Meta(val title: String, val artist: String, val album: String)
     fun hasAccess(context: Context): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
@@ -44,6 +45,16 @@ object MediaControl {
     fun isPlaying(context: Context): Boolean? {
         val c = controller(context) ?: return null
         return c.playbackState?.state == PlaybackState.STATE_PLAYING
+    }
+
+    fun metadata(context: Context): Meta? {
+        val c = controller(context) ?: return null
+        val m = c.metadata ?: return null
+        val title = m.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
+        val artist = m.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: m.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty()
+        val album = m.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
+        return Meta(title, artist, album)
     }
 
     fun progress(context: Context): Progress? {
