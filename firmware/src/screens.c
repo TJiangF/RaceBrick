@@ -2077,25 +2077,25 @@ static int media_char_w(int scale) {
 static int media_wrap(const char *s, int x, int y, int w, int scale,
                       int max_lines, int line_h, uint16_t col) {
     if (!s || !*s) return 0;
-    int cw = media_char_w(scale);
-    int cap = w / cw;
-    if (cap < 1) cap = 1;
     int lines = 0;
+    char buf[128];
     while (*s && lines < max_lines) {
-        int remain = (int)strlen(s);
-        int take = remain < cap ? remain : cap;
-        int br = take;
-        if (take < remain) {
-            for (int i = take - 1; i > take / 2; i--) {
-                if (s[i] == ' ') { br = i; break; }
-            }
+        int n = 0, last_space = -1;
+        while (s[n] && n < (int)sizeof(buf) - 1) {
+            buf[n] = s[n];
+            buf[n + 1] = 0;
+            if (gfx_text_w(buf, scale) > w) break;
+            n++;
+            if (s[n - 1] == ' ') last_space = n;
         }
-        char buf[128];
-        if (br > (int)sizeof(buf) - 1) br = (int)sizeof(buf) - 1;
-        memcpy(buf, s, (size_t)br);
-        buf[br] = 0;
+        if (n == 0) n = 1;                 /* never get stuck on a wide glyph */
+        int take = n;
+        if (s[n] && last_space > 0) take = last_space;
+        if (take <= 0) take = n;
+        memcpy(buf, s, (size_t)take);
+        buf[take] = 0;
         gfx_text(x, y + lines * line_h, buf, col, scale);
-        s += br;
+        s += take;
         while (*s == ' ') s++;
         lines++;
     }
