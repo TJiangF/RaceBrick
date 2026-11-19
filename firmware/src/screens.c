@@ -2068,6 +2068,52 @@ static const uint16_t *media_cover_cache(int *w, int *h) {
     return s_cover_cache;
 }
 
+static int media_char_w(int scale) {
+    int w = gfx_text_w("M", scale);
+    return w > 0 ? w : (scale ? 6 * scale : 6);
+}
+
+/* Draw a line-oriented word/character wrapped text. Returns line count. */
+static int media_wrap(const char *s, int x, int y, int w, int scale,
+                      int max_lines, int line_h, uint16_t col) {
+    if (!s || !*s) return 0;
+    int cw = media_char_w(scale);
+    int cap = w / cw;
+    if (cap < 1) cap = 1;
+    int lines = 0;
+    while (*s && lines < max_lines) {
+        int remain = (int)strlen(s);
+        int take = remain < cap ? remain : cap;
+        int br = take;
+        if (take < remain) {
+            for (int i = take - 1; i > take / 2; i--) {
+                if (s[i] == ' ') { br = i; break; }
+            }
+        }
+        char buf[128];
+        if (br > (int)sizeof(buf) - 1) br = (int)sizeof(buf) - 1;
+        memcpy(buf, s, (size_t)br);
+        buf[br] = 0;
+        gfx_text(x, y + lines * line_h, buf, col, scale);
+        s += br;
+        while (*s == ' ') s++;
+        lines++;
+    }
+    return lines;
+}
+
+static void media_scroll_text(const char *s, int x, int y, int w, int scale, uint16_t col) {
+    if (!s || !*s) return;
+    int tw = gfx_text_w(s, scale);
+    if (tw <= w) { gfx_text(x, y, s, col, scale); return; }
+    gfx_set_clip(x, y, w, scale >= 2 ? 16 : 9);
+    int span = tw + 26;
+    int off = (int)(g.now * 0.024f) % span;
+    gfx_text(x - off, y, s, col, scale);
+    gfx_text(x - off + span, y, s, col, scale);
+    gfx_set_clip(0, 0, CW, CH);
+}
+
 static void media_glass_box(int x, int y, int w, int h, bool pressed) {
     /* Simulated liquid glass: dark translucent tint + bright top edge. */
     gfx_fill(x, y, w, h, pressed ? PAL.seltint : PAL.surface);
@@ -2114,19 +2160,16 @@ static void render_media(void) {
     }
     gfx_rect(ax, ay, aw, ah, PAL.line2);
 
-    /* Title/artist/album stay in their current column. */
+    /* Metadata stays in the current column, enlarged; long values scroll. */
     int rx = 124, rw = 166;
     const char *title = btmap_media_title();
     const char *artist = btmap_media_artist();
     const char *album = btmap_media_album();
-    snprintf(b, sizeof b, "%.26s", title[0] ? title : "NO TRACK");
-    gfx_text(rx, 30, b, PAL.white, 1);
-    snprintf(b, sizeof b, "%.26s", artist[0] ? artist : "UNKNOWN ARTIST");
-    gfx_text(rx, 46, b, PAL.text2, 0);
-    snprintf(b, sizeof b, "%.26s", album[0] ? album : "");
-    gfx_text(rx, 60, b, PAL.dim, 0);
+    media_scroll_text(title[0] ? title : "NO TRACK", rx, 28, rw, 2, PAL.white);
+    media_scroll_text(artist[0] ? artist : "UNKNOWN ARTIST", rx, 48, rw, 1, PAL.text2);
+    media_scroll_text(album, rx, 62, rw, 1, PAL.dim);
 
-    /* Volume rail stays on the right, above the lyric region. */
+    /* Volume rail, right, above lyrics. */
     int vol = -1, vmax = 0;
     if (btmap_media_volume(&vol, &vmax)) {
         int vx = CW - 18, vy = 14, vh = 92;
@@ -2137,24 +2180,21 @@ static void render_media(void) {
         gfx_text_right(CW - 14, 110, b, PAL.cyan, 0);
     }
 
-    /* Two lyric lines below the cover, full width. Current line gets priority
-     * for the larger font; no text is truncated. */
+    /* Current and next lyric, full width, wrapped without truncation. The
+     * current line is stable at double size; the next line is single size. */
     int ly_active = 0;
     char lyrics[5][64];
     if (btmap_media_lyrics(&ly_active, lyrics)) {
         const char *cur = lyrics[ly_active];
         const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";
-        int scale = 2;
-        if (gfx_text_w(cur, 2) > CW - 20) scale = 1;
-        if (gfx_text_w(cur, 1) > CW - 20) scale = 0;
-        if (cur[0]) gfx_text(10, 112, cur, PAL.cyan, scale);
-        int ny = 112 + (scale == 2 ? 17 : 11);
-        if (next[0]) gfx_text(10, ny, next, PAL.dim, 1);
+        int lines = media_wrap(cur, 10, 112, CW - 20, 2, 2, 18, PAL.cyan);
+        int ny = 112 + lines * 18 + 8;
+        if (next[0]) media_wrap(next, 10, ny, CW - 20, 1, 2, 11, PAL.dim);
     } else {
         gfx_text(10, 112, "NO LYRICS", PAL.dim, 0);
     }
 
-    /* Lower, full-width progress just above the transport buttons. */
+    /* Low, full-width progress immediately above the transport row. */
     int pos = 0, dur = 0;
     if (btmap_media_progress(&pos, &dur)) {
         char tb[20];
