@@ -929,9 +929,18 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
 
     int prevIdx = (int)floorf(e->sPrev);
     int idx = (int)floorf(s);
-    if (idx != prevIdx) {
-        for (int j = prevIdx + 1; j <= idx; j++) {
-            int jj = ((j % t->N) + t->N) % t->N;
+    int step = 0;
+    if (t->reverse) {
+        step = prevIdx - idx;
+        if (step < 0) step += t->N;          /* reverse crossing index 0 -> N-1 */
+    } else {
+        step = idx - prevIdx;
+        if (step < 0) step += t->N;          /* forward crossing index N-1 -> 0 */
+    }
+    if (step > 0) {
+        for (int j = 1; j <= step; j++) {
+            int jj = t->reverse ? (prevIdx - j + t->N) % t->N
+                                : (prevIdx + j) % t->N;
             e->currentTimes[jj] = e->elapsed;
         }
         if (e->nTrace < TRACE_MAX) e->lapTrace[e->nTrace++] = q;
