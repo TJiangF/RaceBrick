@@ -607,6 +607,7 @@ void engine_reset(engine_t *e) {
     e->gLat = 0; e->gLong = 0; e->nGTrail = 0;
     e->gpsFix = false;
     e->gnssInit = false; e->lapArmed = false; e->start_seen = false;
+    e->last_fix_seq = 0; e->prev_fix_us = 0; e->start_us = 0; e->lap_start_us = 0;
     e->sPrev = 0; e->alongPrev = 0;
 }
 
@@ -830,11 +831,28 @@ static void engine_gnss_lap(engine_t *e) {
     for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
 }
 
+#define GNSS_DAY_US 86400000000ULL
+
+/* Elapsed GNSS time, tolerant of a midnight rollover. */
+static int64_t gnss_delta_us(uint64_t from, uint64_t to) {
+    int64_t d = (int64_t)to - (int64_t)from;
+    if (d < -(int64_t)(GNSS_DAY_US / 2)) d += (int64_t)GNSS_DAY_US;
+    else if (d > (int64_t)(GNSS_DAY_US / 2)) d -= (int64_t)GNSS_DAY_US;
+    return d;
+}
+
 void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
-                        float speed_kmh, bool valid) {
-    if (e->paused || !e->running) return;
+                         float speed_kmh, bool valid, uint32_t fix_seq, uint64_t fix_us) {
+    (void)dt;
+    if (e->paused || !e->running || !valid || (!fix_us && !fix_seq)) return;
     track_t *t = e->track;
-    if (!t->geo || !valid) return;          /* need a recorded track + a fix */
+    if (!t->geo) return;
+
+    /* One update per GNSS fix. A GGA/RMC/PVT sharing the same timestamp is
+     * one fix, not three, and the UI frame rate must not drive lap timing. */
+    if (fix_seq && fix_seq == e->last_fix_seq) return;
+    if (!fix_seq && fix_us == e->prev_fix_us) return;
+    if (fix_seq) e->last_fix_seq = fix_seq;
 
     geo_ref_t r = { t->glat0, t->glon0 };
     float mx, my;
@@ -842,8 +860,6 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
     pt_t q = track_geo_to_norm(t, lat, lon);
     float s = 0, dist = 0;
     if (e->gnssInit) {
-        /* constrain the search around the last sample so a self-crossing track
-         * or a GPS spike cannot jump to the wrong part of the loop */
         if (!track_project_near(t, q, e->s, t->N / 8.0f, &s, &dist)) return;
         float dist_m = dist / (t->nscale > 1e-9f ? t->nscale : 1.0f);
         if (dist_m > 25.0f) return;      /* off track: ignore this sample */
@@ -853,29 +869,36 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
 
     e->v = (speed_kmh / 3.6f) / (t->lengthM > 1.0f ? t->lengthM : 1.0f) * (float)t->N;
 
-    /* start line: use its own (editable) position + heading */
     geo_ref_t lr = { t->line_lat, t->line_lon };
     float lx, ly;
     geo_meters(&lr, lat, lon, &lx, &ly);
     float h = t->line_hdg;
-    float along = lx * cosf(h) + ly * sinf(h);   /* + = ahead of the line */
+    float along = lx * cosf(h) + ly * sinf(h);
     float latd  = -lx * sinf(h) + ly * cosf(h);
 
     if (!e->gnssInit) {
         e->gnssInit = true;
         e->s = s; e->sPrev = s;
         e->alongPrev = along;
+        e->prev_fix_us = fix_us;
         return;
     }
 
-    /* Do not start timing/lap counting until the start line has been passed.
-     * If the car starts ahead of the line, it is considered already crossed;
-     * if it starts behind, wait for the first forward crossing. */
+    bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < 3.0f;
+    float frac = 0.0f;
+    if (crossed && along != e->alongPrev)
+        frac = -e->alongPrev / (along - e->alongPrev);
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    int64_t fix_dt_us = gnss_delta_us(e->prev_fix_us, fix_us);
+    if (fix_dt_us < 0) fix_dt_us = 0;
+    uint64_t cross_us = e->prev_fix_us + (uint64_t)(frac * (double)fix_dt_us);
+
     if (!e->start_seen) {
-        bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < 3.0f;
         bool already_ahead = along >= 0.0f && fabsf(latd) < 3.0f;
         if (!crossed && !already_ahead) {
             e->alongPrev = along;
+            e->prev_fix_us = fix_us;
             e->sPrev = s;
             e->s = s;
             engine_compute_diff(e);
@@ -883,20 +906,26 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         }
         e->start_seen = true;
         e->lapArmed = true;
-        e->elapsed = 0;
+        uint64_t t0 = crossed ? cross_us : fix_us;
+        e->start_us = t0;
+        e->lap_start_us = t0;
         e->time = 0;
+        e->elapsed = 0;
         e->nTrace = 0;
         e->nGps = 0;
         for (int i = 0; i < TRK_N; i++) e->currentTimes[i] = NAN;
-        e->sPrev = s;
+        e->prev_fix_us = fix_us;
         e->alongPrev = along;
+        e->sPrev = s;
         e->s = s;
         engine_compute_diff(e);
         return;
     }
 
-    e->time += dt;
-    e->elapsed += dt;
+    e->time = (float)(gnss_delta_us(e->start_us, fix_us) / 1e6);
+    e->elapsed = (float)(gnss_delta_us(e->lap_start_us, fix_us) / 1e6);
+    if (e->time < 0) e->time = 0;
+    if (e->elapsed < 0) e->elapsed = 0;
 
     int prevIdx = (int)floorf(e->sPrev);
     int idx = (int)floorf(s);
@@ -909,14 +938,20 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         if (e->nGps < GPS_MAX) e->gpsLapTrace[e->nGps++] = q;
     }
 
-    /* Once started, only forward crossings count; the start crossing itself
-     * starts lap 1 and is not counted as a completed lap. */
-    if (e->lapArmed && e->alongPrev < 0.0f && along >= 0.0f &&
-        fabsf(latd) < 3.0f && e->elapsed > 2.0f) {
-        engine_gnss_lap(e);
-        /* stay armed: the next forward crossing completes lap 1 */
+    if (e->lapArmed && crossed) {
+        float lap_elapsed = (float)(gnss_delta_us(e->lap_start_us, cross_us) / 1e6);
+        if (lap_elapsed > 2.0f) {
+            e->elapsed = lap_elapsed;
+            engine_gnss_lap(e);
+            e->lap_start_us = cross_us;
+            e->elapsed = (float)(gnss_delta_us(cross_us, fix_us) / 1e6);
+            e->time = (float)(gnss_delta_us(e->start_us, fix_us) / 1e6);
+            if (e->elapsed < 0) e->elapsed = 0;
+            if (e->time < 0) e->time = 0;
+        }
     }
     e->alongPrev = along;
+    e->prev_fix_us = fix_us;
     e->sPrev = e->s;
     e->s = s;
     engine_compute_diff(e);

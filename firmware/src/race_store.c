@@ -15,7 +15,9 @@ static race_hdr_t s_hdr;
 static uint32_t s_data;
 static uint32_t s_last_sector = 0xFFFFFFFFu;
 static uint64_t s_start_us;
-static uint64_t s_last_fix_us;
+static uint64_t s_last_fix_time_us;
+static uint32_t s_last_fix_seq;
+static bool s_start_valid;
 
 _Static_assert(sizeof(race_hdr_t) <= RACE_HDR_SIZE, "race header too large");
 _Static_assert(sizeof(race_sample_t) == RACE_SAMPLE_SIZE, "race sample must be 16 bytes");
@@ -84,8 +86,10 @@ bool race_store_begin(int track_slot, const char *track_name, int mode) {
     s_slot = slot;
     s_data = slot_base(slot) + RACE_HDR_SIZE;
     s_last_sector = 0xFFFFFFFFu;
-    s_start_us = esp_timer_get_time();
-    s_last_fix_us = 0;
+    s_start_us = 0;
+    s_last_fix_time_us = 0;
+    s_last_fix_seq = 0;
+    s_start_valid = false;
     s_active = true;
     if (!ext_flash_erase_sector(slot_base(slot)) ||
         !ext_flash_write(slot_base(slot), &s_hdr, sizeof(s_hdr))) {
@@ -98,11 +102,20 @@ bool race_store_begin(int track_slot, const char *track_name, int mode) {
     return true;
 }
 
-void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fix, uint64_t fix_us) {
+void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fix,
+                       uint32_t fix_seq, uint64_t fix_time_us) {
     if (!s_active) return;
-    if (!fix) return;
-    if (fix_us && fix_us == s_last_fix_us) return;
-    s_last_fix_us = fix_us;
+    if (!fix || (!fix_time_us && !fix_seq)) return;
+    /* fix_seq advances only when GGA/RMC/NAV-PVT produced a new GNSS time;
+     * GSV/GSA bytes must never create a duplicate sample. */
+    if (fix_seq && fix_seq == s_last_fix_seq) return;
+    if (!fix_seq && fix_time_us == s_last_fix_time_us) return;
+    if (fix_seq) s_last_fix_seq = fix_seq;
+    s_last_fix_time_us = fix_time_us;
+    if (!s_start_valid) {
+        s_start_us = fix_time_us;
+        s_start_valid = true;
+    }
     uint32_t max_samples = (RACE_SLOT_SIZE - RACE_HDR_SIZE) / RACE_SAMPLE_SIZE;
     if (s_hdr.sample_count >= max_samples) {
         ESP_LOGW(TAG, "session slot full (%u samples)", s_hdr.sample_count);
@@ -115,8 +128,10 @@ void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fi
         s_last_sector = sector;
     }
     race_sample_t sm;
-    uint64_t now = esp_timer_get_time();
-    sm.t_ms = (uint32_t)((now - s_start_us) / 1000);
+    int64_t dt_us = (int64_t)fix_time_us - (int64_t)s_start_us;
+    if (dt_us < -43200000000LL) dt_us += 86400000000LL;  /* midnight rollover */
+    if (dt_us < 0) dt_us = 0;
+    sm.t_ms = (uint32_t)(dt_us / 1000);
     sm.lat_e7 = (int32_t)(lat * 1e7);
     sm.lon_e7 = (int32_t)(lon * 1e7);
     sm.speed10 = (uint16_t)(speed_kmh * 10.0f + 0.5f);

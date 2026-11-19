@@ -48,7 +48,8 @@ typedef struct {
 } race_sample_t;
 
 bool race_store_begin(int track_slot, const char *track_name, int mode);
-void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fix, uint64_t fix_us);
+void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fix,
+                       uint32_t fix_seq, uint64_t fix_time_us);
 void race_store_end(const engine_t *e);
 bool race_store_active(void);
 

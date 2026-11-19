@@ -127,6 +127,9 @@ void app_rec_reset(void) {
     g.rec_lap_n = 0;
     g.rec_lap_sel = 0;
     g.rec_sel_cursor = 0;
+    g.rec_last_fix_seq = 0;
+    g.rec_prev_fix_us = 0;
+    g.rec_lap_start_us = 0;
     if (g.rec_cap <= 0) app_rec_reserve(REC_INITIAL);
 }
 

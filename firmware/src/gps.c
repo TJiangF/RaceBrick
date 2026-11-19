@@ -103,6 +103,40 @@ static double nmea_deg(const char *dm, const char *hemi) {
 /* read a 2-digit decimal field (HHMMSS / DDMMYY slices) */
 static int nmea_u2(const char *p) { return (p[0] - '0') * 10 + (p[1] - '0'); }
 
+/* hhmmss.sss -> microseconds since UTC midnight. */
+static bool nmea_utc_time(const char *s, int *hh, int *mm, int *ss, uint64_t *tod_us) {
+    if (!s || strlen(s) < 6) return false;
+    for (int i = 0; i < 6; i++) if (s[i] < '0' || s[i] > '9') return false;
+    int h = nmea_u2(s), m = nmea_u2(s + 2), sec = nmea_u2(s + 4);
+    if (h > 23 || m > 59 || sec > 60) return false;
+    double frac = 0;
+    if (s[6] == '.') frac = atof(s + 6);
+    if (frac < 0 || frac >= 1) frac = 0;
+    uint64_t us = ((uint64_t)h * 3600u + (uint64_t)m * 60u + (uint64_t)sec) * 1000000u;
+    us += (uint64_t)(frac * 1000000.0 + 0.5);
+    if (hh) *hh = h; if (mm) *mm = m; if (ss) *ss = sec;
+    if (tod_us) *tod_us = us;
+    return true;
+}
+
+/* A new GNSS time is a new fix. GGA and RMC carrying the same second/fraction
+ * must not increment twice, otherwise race_store records duplicate samples. */
+static void note_gnss_time(uint64_t tod_us) {
+    /* NMEA and NAV-PVT can describe the same fix with a few ms of rounding
+     * difference. Coalesce them; otherwise every GGA+RMC+PVT triplet would
+     * create duplicate race samples. */
+    const int64_t coalesce_us = 20000;
+    if (!s_st.fix_time_valid ||
+        llabs((long long)tod_us - (long long)s_st.fix_time_us) > coalesce_us) {
+        s_st.fix_time_valid = true;
+        s_st.fix_time_us = tod_us;
+        s_st.fix_seq++;
+    } else {
+        /* keep the latest (normally the more precise) timestamp */
+        s_st.fix_time_us = tod_us;
+    }
+}
+
 static gps_sat_t *sat_find_sys(char sys, int prn) {
     for (int i = 0; i < s_st.nsat; i++)
         if (s_st.sats[i].prn == prn && s_st.sats[i].sys == sys) return &s_st.sats[i];
@@ -177,9 +211,12 @@ static void handle_line(const char *raw) {
     if (!strcmp(type, "GGA")) {
         snprintf(s_st.last_gga, sizeof(s_st.last_gga), "%s", raw);
         if (nf > 8) {
-            if (f[1][0] && strlen(f[1]) >= 6) {
+            int hh, mm2, ss;
+            uint64_t tod = 0;
+            if (nmea_utc_time(f[1], &hh, &mm2, &ss, &tod)) {
                 s_st.has_time = true;
-                s_st.utc_h = nmea_u2(f[1]); s_st.utc_m = nmea_u2(f[1] + 2); s_st.utc_s = nmea_u2(f[1] + 4);
+                s_st.utc_h = hh; s_st.utc_m = mm2; s_st.utc_s = ss;
+                note_gnss_time(tod);
             }
             if (f[2][0]) { s_st.lat = nmea_deg(f[2], f[3]); s_st.has_pos = true; }
             if (f[4][0]) s_st.lon = nmea_deg(f[4], f[5]);
@@ -192,9 +229,12 @@ static void handle_line(const char *raw) {
         }
     } else if (!strcmp(type, "RMC")) {
         if (nf > 8) {
-            if (f[1][0] && strlen(f[1]) >= 6) {
+            int hh, mm2, ss;
+            uint64_t tod = 0;
+            if (nmea_utc_time(f[1], &hh, &mm2, &ss, &tod)) {
                 s_st.has_time = true;
-                s_st.utc_h = nmea_u2(f[1]); s_st.utc_m = nmea_u2(f[1] + 2); s_st.utc_s = nmea_u2(f[1] + 4);
+                s_st.utc_h = hh; s_st.utc_m = mm2; s_st.utc_s = ss;
+                note_gnss_time(tod);
             }
             if (f[3][0]) { s_st.lat = nmea_deg(f[3], f[4]); s_st.has_pos = true; }
             if (f[5][0]) s_st.lon = nmea_deg(f[5], f[6]);
@@ -297,6 +337,57 @@ static void ubx_monhw(const uint8_t *p, int len) {
     s_st.have_monhw = true;
 }
 
+static uint16_t rd_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+static uint32_t rd_u32(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static int32_t rd_i32(const uint8_t *p) { return (int32_t)rd_u32(p); }
+
+/* UBX-NAV-PVT (class 0x01, id 0x07), payload is 92 bytes.
+ * This is the preferred timing source: precise UTC fields + nano remainder. */
+static void ubx_navpvt(const uint8_t *p, int len) {
+    if (len < 92) return;
+    int year = rd_u16(p + 4);
+    int month = p[6], day = p[7];
+    int hour = p[8], minute = p[9], second = p[10];
+    uint8_t valid = p[11];
+    int32_t nano = rd_i32(p + 16);
+    int fix_type = p[20];
+    int num_sv = p[23];
+
+    if (valid & 0x01) {
+        s_st.year = year; s_st.month = month; s_st.day = day;
+    }
+    if (valid & 0x02) {
+        int sec = second;
+        int32_t ns = nano;
+        if (ns < 0) { sec--; ns += 1000000000; }
+        if (sec < 0) sec = 0;
+        if (sec > 60) sec = 60;
+        uint64_t tod = ((uint64_t)hour * 3600u + (uint64_t)minute * 60u + (uint64_t)sec) * 1000000u +
+                       (uint64_t)(ns / 1000);
+        s_st.has_time = true;
+        s_st.utc_h = hour; s_st.utc_m = minute; s_st.utc_s = sec;
+        note_gnss_time(tod);
+    }
+    /* Position fields are meaningful for 2D/3D fixes. */
+    if (fix_type >= 2) {
+        int32_t lat = rd_i32(p + 28), lon = rd_i32(p + 24);
+        s_st.lat = (double)lat * 1e-7;
+        s_st.lon = (double)lon * 1e-7;
+        s_st.alt = (float)(rd_i32(p + 36) / 1000.0);
+        s_st.has_pos = true;
+        s_st.fix_type = fix_type >= 3 ? 2 : 1;
+        s_st.fix_quality = 1;
+        s_st.sats_used = num_sv;
+        s_st.hdop = rd_u16(p + 76) / 100.0f;
+        s_st.speed_kmh = (float)rd_i32(p + 60) * 0.0036f;
+        s_st.course = (float)rd_i32(p + 64) * 1e-5f;
+    }
+    if (!s_st.pvt_ok) ESP_LOGI(TAG, "NAV-PVT active (precise UTC + position)");
+    s_st.pvt_ok = true;
+}
+
 static void ubx_process(const uint8_t *f, int n) {
     if (n < 8) return;
     uint8_t cls = f[2], id = f[3];
@@ -309,6 +400,8 @@ static void ubx_process(const uint8_t *f, int n) {
     if (cls == 0x0A && id == 0x04) {
         int m = len < 30 ? len : 30;
         memcpy(s_st.ver, p, m); s_st.ver[m] = 0; s_st.have_ver = true;
+    } else if (cls == 0x01 && id == 0x07) {
+        ubx_navpvt(p, len);
     } else if (cls == 0x01 && id == 0x35) {
         ubx_navsat(p, len);
     } else if (cls == 0x0A && id == 0x09) {
@@ -455,10 +548,11 @@ static const char *ant_str(int s) {
 
 void gps_dump(void) {
     gps_state_t *g = &s_st;
-    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  NMEA %lu  UTC %02d:%02d:%02d  ANT %s  pwr %s  JAM %d/%d  PPS %dms/%lu  VER %.12s  GLL %lu",
+    ESP_LOGI(TAG, "%s FIX %d  used %d  vis %d  NMEA %lu  UTC %02d:%02d:%02d.%03d  SEQ %lu  ANT %s  pwr %s  JAM %d/%d  PPS %dms/%lu  VER %.12s  GLL %lu",
              g->source == 1 ? "I2C" : "UART", g->fix_type, g->sats_used, g->sats_visible,
              (unsigned long)g->sentences,
-             g->utc_h, g->utc_m, g->utc_s,
+             g->utc_h, g->utc_m, g->utc_s, (int)((g->fix_time_us % 1000000u) / 1000u),
+             (unsigned long)g->fix_seq,
              g->have_monhw ? ant_str(g->ant_status) : "?",
              g->have_monhw ? (g->ant_power == 1 ? "ON" : (g->ant_power == 0 ? "OFF" : "?")) : "?",
              g->jam_ind, g->jam_state, gps_pps_period_ms(), (unsigned long)gps_pps_count(),
@@ -598,9 +692,13 @@ void gps_poll(void) {
  * NOTE: ubx_send() must exclude the 0xB5 0x62 sync bytes from the checksum,
  * otherwise the module silently drops every UBX frame.
  */
-static void ubx_cfg_msg(uint8_t id, uint8_t r_i2c, uint8_t r_u1, uint8_t r_u2, uint8_t r_usb, uint8_t r_spi) {
-    uint8_t p[8] = {0xF0, id, r_i2c, r_u1, r_u2, r_usb, r_spi, 0};
+static void ubx_cfg_msg_cls(uint8_t cls, uint8_t id, uint8_t r_i2c, uint8_t r_u1,
+                           uint8_t r_u2, uint8_t r_usb, uint8_t r_spi) {
+    uint8_t p[8] = {cls, id, r_i2c, r_u1, r_u2, r_usb, r_spi, 0};
     ubx_send(0x06, 0x01, p, 8);
+}
+static void ubx_cfg_msg(uint8_t id, uint8_t r_i2c, uint8_t r_u1, uint8_t r_u2, uint8_t r_usb, uint8_t r_spi) {
+    ubx_cfg_msg_cls(0xF0, id, r_i2c, r_u1, r_u2, r_usb, r_spi);
 }
 
 /* UBX-CFG-TP5: 1 Hz, 100 ms pulse, rising edge, aligned to UTC (1PPS). */
@@ -629,6 +727,8 @@ void gps_set_nav_rate(int hz) {
     ubx_cfg_msg(0x03, 0, (uint8_t)hz, 0, 0, 0);
     ubx_cfg_msg(0x05, 0, 0, 0, 0, 0);
     ubx_cfg_msg(0x01, 0, 0, 0, 0, 0);
+    /* NAV-PVT is the preferred precise timing/position source. */
+    ubx_cfg_msg_cls(0x01, 0x07, 0, (uint8_t)hz, 0, 0, 0);
     s_cur_hz = hz;
     s_rate_set = true;
     ESP_LOGI(TAG, "nav rate -> %d Hz", hz);

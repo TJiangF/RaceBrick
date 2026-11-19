@@ -31,6 +31,10 @@ typedef struct {
     uint32_t crc_errors;
     uint32_t gll_count;
     uint64_t last_rx_us;
+    uint32_t fix_seq;      /* increments only for a new GGA/RMC/NAV-PVT fix time */
+    uint64_t fix_time_us;  /* GNSS UTC time of day, microseconds (not receive time) */
+    bool   fix_time_valid;
+    bool   pvt_ok;         /* at least one valid UBX-NAV-PVT */
 
     int    fix_type;      /* 0 none, 1 = 2D, 2 = 3D (from GSA), -1 unknown */
     int    fix_quality;   /* from GGA */

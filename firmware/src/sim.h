@@ -3,6 +3,7 @@
  */
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
 #include "config.h"
 
 typedef struct { float x, y; } pt_t;
@@ -170,6 +171,10 @@ typedef struct {
     bool  gnssInit;
     bool  lapArmed;
     bool  start_seen;     /* first crossing/start line has been passed */
+    uint32_t last_fix_seq;
+    uint64_t prev_fix_us;  /* GNSS time of the previous fix */
+    uint64_t start_us;     /* GNSS time at the first start crossing */
+    uint64_t lap_start_us; /* GNSS time at the current lap crossing */
     float sPrev;
     float alongPrev;
 } engine_t;
@@ -180,7 +185,7 @@ void  engine_reset(engine_t *e);
 void  engine_update(engine_t *e, float dt);
 /* real-GNSS racing: project the live fix onto the track, time laps */
 void  engine_update_gnss(engine_t *e, float dt, double lat, double lon,
-                         float speed_kmh, bool valid);
+                         float speed_kmh, bool valid, uint32_t fix_seq, uint64_t fix_us);
 float engine_speed_kmh(const engine_t *e);
 float engine_heading_deg(const engine_t *e);
 float engine_dist_m(const engine_t *e);

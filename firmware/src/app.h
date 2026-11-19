@@ -116,7 +116,9 @@ typedef struct {
     bool   rec_line_ok;
     float  rec_along_prev;
     bool   rec_armed;
-    float  rec_lap_start;      /* g.now at the current lap start (ms) */
+    uint32_t rec_last_fix_seq;
+    uint64_t rec_prev_fix_us;
+    uint64_t rec_lap_start_us; /* GNSS time at the current lap start */
     float  rec_lap_time;       /* current lap elapsed (s) */
     float  rec_last_lap, rec_best_lap, rec_delta;
     int    rec_laps;           /* completed laps */
