@@ -534,7 +534,7 @@ static void render_battery(void) {
     int mv = battery_mv();
     bool wifi = netcfg_connected();
     uint16_t wc = wifi ? PAL.green : PAL.red;
-    int y = LCD_H - 14;
+    int y = 4;   /* global battery/WiFi indicator: top-right */
 
     if (mv <= 0) {
         const char *s = "WIFI";

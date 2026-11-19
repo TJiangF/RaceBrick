@@ -2157,8 +2157,10 @@ static uint16_t media_bg_color(void) {
         int b = (int)(sb[best] / cnt[best]);
         accent = RGB565(r, g, b);
     }
-    /* 60% accent + 40% theme background. */
-    cached = blend565(accent, PAL.stage, 154);
+    /* Wash the accent toward white first, then use only 10% of it over the
+     * theme background (90% transparent) so lyrics and controls stay clear. */
+    accent = blend565(accent, RGB565(255, 255, 255), 158);
+    cached = blend565(accent, PAL.stage, 26);
     cached_seq = seq;
     cached_stage = PAL.stage;
     return cached;
@@ -2258,9 +2260,10 @@ static void render_media(void) {
     }
 
     /* Flat glass transport row, flush with the bottom edge. */
-    const int by = 208, bh = 32, gap = 8;
-    const int bw = (CW - 20 - gap * 2) / 3;
-    int bx[3] = { 10, 10 + bw + gap, 10 + 2 * (bw + gap) };
+    const int by = 216, bh = 24, gap = 14;
+    const int bw = 78;
+    const int bx0 = (CW - (bw * 3 + gap * 2)) / 2;
+    int bx[3] = { bx0, bx0 + bw + gap, bx0 + 2 * (bw + gap) };
     for (int i = 0; i < 3; i++) media_glass_box(bx[i], by, bw, bh, media_pressed(i));
     media_flat_prev(bx[0] + bw / 2, by + bh / 2, media_pressed(0) ? PAL.yellow : PAL.white);
     media_flat_next(bx[2] + bw / 2, by + bh / 2, media_pressed(2) ? PAL.yellow : PAL.white);
