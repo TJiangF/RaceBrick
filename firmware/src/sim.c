@@ -8,7 +8,6 @@ const int TRACK_DEF_COUNT = 3;
 
 #define DENSE_STEP 24
 #define MAX_DENSE  512
-static float s_cum[MAX_DENSE + 1];
 
 /* ---------------- tiny math helpers ---------------- */
 static float wrap_pi(float d) {
@@ -43,25 +42,39 @@ static int catmull_dense(const pt_t *ctrl, int m, pt_t *out) {
     return n;
 }
 
-/* resample a closed polyline to N equal-arc-length points */
+/* Resample a closed polyline to N equal-arc-length points.
+ *
+ * Do not keep a cumulative-length array: New Track can finish with thousands
+ * of raw GPS points, while the old fixed s_cum[513] overflowed BSS and
+ * corrupted neighbouring globals (observed as a reboot on FINISH).
+ * Walking one segment at a time is O(N + m) and needs no extra buffer. */
 static void resample_closed(const pt_t *dense, int m, int N, pt_t *out) {
-    s_cum[0] = 0;
-    for (int i = 1; i <= m; i++) {
-        pt_t a = dense[i - 1];
-        pt_t b = dense[i % m];
-        s_cum[i] = s_cum[i - 1] + hypotf(b.x - a.x, b.y - a.y);
+    if (!dense || m <= 0 || N <= 0) return;
+    float total = 0;
+    for (int i = 0; i < m; i++) {
+        pt_t a = dense[i];
+        pt_t b = dense[(i + 1) % m];
+        total += hypotf(b.x - a.x, b.y - a.y);
     }
-    float total = s_cum[m];
     if (total < 1e-9f) total = 1e-9f;
+
     int k = 0;
+    float acc = 0;
+    pt_t a = dense[0];
+    pt_t b = dense[(k + 1) % m];
+    float seg = hypotf(b.x - a.x, b.y - a.y);
     for (int i = 0; i < N; i++) {
         float target = (total * i) / N;
-        while (k < m - 1 && s_cum[k + 1] < target) k++;
-        float segLen = s_cum[k + 1] - s_cum[k];
-        if (segLen < 1e-9f) segLen = 1e-9f;
-        float t = (target - s_cum[k]) / segLen;
-        pt_t a = dense[k % m];
-        pt_t b = dense[(k + 1) % m];
+        while (k < m - 1 && acc + seg < target) {
+            acc += seg;
+            k++;
+            a = dense[k];
+            b = dense[(k + 1) % m];
+            seg = hypotf(b.x - a.x, b.y - a.y);
+        }
+        float t = seg > 1e-9f ? (target - acc) / seg : 0.0f;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
         out[i].x = a.x + (b.x - a.x) * t;
         out[i].y = a.y + (b.y - a.y) * t;
     }

@@ -1041,7 +1041,7 @@ static int rec_selected_count(void) {
 static bool rec_build_fusion(void) {
     int nsel = rec_selected_count();
     if (!nsel) return false;
-    pt_t avg[TRK_N];
+    static pt_t avg[TRK_N];
     memset(avg, 0, sizeof(avg));
     for (int i = 0; i < g.rec_lap_n; i++) {
         if (!(g.rec_lap_sel & (1u << i))) continue;
@@ -1193,7 +1193,7 @@ static void render_rec_lap_select(void) {
         s_map_ready = true;
     }
     map_begin(&s_map);
-    pt_t tmp[TRK_N];
+    static pt_t tmp[TRK_N];
     int first = -1;
     for (int i = 0; i < g.rec_lap_n; i++) {
         if (g.rec_lap_sel & (1u << i)) { first = i; break; }
