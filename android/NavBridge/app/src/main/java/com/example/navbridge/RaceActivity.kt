@@ -189,7 +189,7 @@ class RaceActivity : AppCompatActivity() {
                     tracks = t
                     sessions = s
                     logs = l
-                    status("赛道 ${t.size} 条，场次 ${s.size} 场，Race Log ${l.size} 条")
+                    status("赛道 ${t.size} 条，Race Log ${s.size} 条")
                     when {
                         showingLogs -> renderLogs()
                         showingSessions -> renderSessions()
@@ -226,17 +226,11 @@ class RaceActivity : AppCompatActivity() {
             card.addView(
                 row(
                     button("编辑") { editTrack(t) },
-                    button("查看场次") {
+                    button("Race Log") {
                         filterTrack = t.id
                         showingSessions = true
                         showingLogs = false
                         renderSessions()
-                    },
-                    button("Race Log") {
-                        logFilterName = t.name
-                        showingSessions = false
-                        showingLogs = true
-                        renderLogs()
                     },
                     button("删除", danger = true) { confirmDeleteTrack(t) },
                 )
@@ -273,14 +267,16 @@ class RaceActivity : AppCompatActivity() {
         }
         if (visible.isEmpty()) {
             empty(
-                if (filter == null) "没有比赛场次。设备端进入 RACE 并在 GPS 有定位后开始比赛，结束后会自动保存。"
-                else "这条赛道还没有场次。"
+                if (filter == null) "没有 Race Log。设备端进入 RACE 并在 GPS 有定位后开始比赛，结束后会自动保存完整记录。"
+                else "这条赛道还没有 Race Log。"
             )
             return
         }
         for (s in visible.sortedByDescending { it.startEpoch }) {
             val card = card()
-            card.addView(title(s.trackName.ifBlank { "赛道 #${s.trackSlot}" }))
+            val displayName = tracks.firstOrNull { it.id == s.trackSlot }?.name
+                ?: s.trackName.ifBlank { "赛道 #${s.trackSlot}" }
+            card.addView(title(displayName))
             card.addView(
                 meta(
                     "${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  " +
@@ -414,7 +410,7 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun showSessionDetail(summary: RaceSession) {
-        status("正在读取场次详情…")
+        status("正在读取 Race Log 详情…")
         val b = base()
         worker.execute {
             runCatching {
@@ -486,7 +482,9 @@ class RaceActivity : AppCompatActivity() {
             setPadding(dp(20), dp(8), dp(20), 0)
         }
         content.addView(meta("${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  ${s.samples} 点"))
-        val best = laps.filter { !it.deleted && it.time > 0 }.minByOrNull { it.time }?.lap
+        val maxDist = laps.filter { !it.deleted }.maxOfOrNull { it.distanceM } ?: 0.0
+        val complete = laps.filter { !it.deleted && it.time > 0 && (maxDist <= 0.0 || it.distanceM >= maxDist * 0.7) }
+        val best = complete.minByOrNull { it.time }?.lap
         if (traces.isNotEmpty()) {
             val map = TrackMapView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -580,7 +578,7 @@ class RaceActivity : AppCompatActivity() {
         }
         val scroll = ScrollView(this).apply { addView(content) }
         return AlertDialog.Builder(this)
-            .setTitle("场次详情")
+            .setTitle("Race Log 详情")
             .setView(scroll)
             .setPositiveButton("关闭", null)
             .create()

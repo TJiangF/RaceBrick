@@ -149,7 +149,7 @@
                     android:layout_weight="1"
                     android:background="@drawable/btn_secondary"
                     android:backgroundTint="@null"
-                    android:text="场次"
+                    android:text="Race Log"
                     android:textColor="#D7E7E4" />
 
                 <Button
@@ -158,9 +158,10 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
+                    android:visibility="gone"
                     android:background="@drawable/btn_secondary"
                     android:backgroundTint="@null"
-                    android:text="Race Log"
+                    android:text="OLD LOG"
                     android:textColor="#D7E7E4" />
             </LinearLayout>
         </LinearLayout>

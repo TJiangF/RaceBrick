@@ -806,6 +806,14 @@ float engine_lat_g(const engine_t *e) {
 }
 
 /* ---------------- real-GNSS racing ---------------- */
+static float engine_gps_trace_m(const track_t *t, const pt_t *p, int n) {
+    if (n < 2) return 0;
+    float sum = 0;
+    for (int i = 1; i < n; i++) sum += hypotf(p[i].x - p[i-1].x, p[i].y - p[i-1].y);
+    float scale = t->nscale > 1e-9f ? t->nscale : 1.0f;
+    return sum / scale;
+}
+
 static void engine_gnss_lap(engine_t *e) {
     if (e->nLaps < MAX_LAPS) {
         lap_t *lap = &e->laps[e->nLaps];
@@ -817,7 +825,9 @@ static void engine_gnss_lap(engine_t *e) {
         memcpy(lap->trace, e->lapTrace, sizeof(pt_t) * e->nTrace);
         lap->nGps = e->nGps;
         memcpy(lap->gps, e->gpsLapTrace, sizeof(pt_t) * e->nGps);
-        lap->valid = e->elapsed > 2.0f;
+        float covered_m = engine_gps_trace_m(e->track, lap->gps, lap->nGps);
+        bool complete = covered_m >= e->track->lengthM * 0.65f;
+        lap->valid = e->elapsed > 2.0f && complete;
         if (lap->valid && (!e->hasBestLap || e->elapsed < e->bestTime)) {
             e->hasBestLap = true;
             e->bestTime = e->elapsed;

@@ -75,6 +75,16 @@ int log_store_load(histrec_t *out, int cap) {
 }
 
 
+
+bool log_store_clear(void) {
+    bool ok = true;
+    for (int i = 0; i < LOG_SLOTS; i++) {
+        if (!ext_flash_erase_sector(slot_addr(i))) ok = false;
+    }
+    s_count = 0;
+    return ok;
+}
+
 int log_store_rename(const char *old_name, const char *new_name) {
     if (!old_name || !new_name || !new_name[0]) return 0;
     int changed = 0;

@@ -730,6 +730,19 @@ void app_init(void) {
         nvs_flash_init();
     }
     settings_load();
+    {
+        nvs_handle_t h;
+        if (nvs_open("rb", NVS_READWRITE, &h) == ESP_OK) {
+            int32_t merged = 0;
+            if (nvs_get_i32(h, "logmerged", &merged) != ESP_OK || merged != 1) {
+                log_store_clear();
+                nvs_set_i32(h, "logmerged", 1);
+                nvs_commit(h);
+                ESP_LOGI("app", "cleared legacy Race Log summaries; raw sessions are now Race Log");
+            }
+            nvs_close(h);
+        }
+    }
     btmap_set_color_tuning(g.media_near_black, g.media_black_pct);
     theme_set_style(g.ui_style);
     theme_set(g.theme_light);
