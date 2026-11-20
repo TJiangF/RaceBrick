@@ -21,3 +21,4 @@ uint32_t log_store_used_bytes(void);
 uint32_t log_store_total_bytes(void);
 int  log_store_load(histrec_t *out, int cap); /* valid records, oldest first */
 bool log_store_save(const histrec_t *rec);     /* first free slot */
+int  log_store_rename(const char *old_name, const char *new_name);

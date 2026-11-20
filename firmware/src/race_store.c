@@ -2,6 +2,7 @@
 #include "extflash.h"
 #include "config.h"
 #include <string.h>
+#include <stdio.h>
 #include <time.h>
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -166,6 +167,20 @@ bool race_store_read_sample(int slot, int index, race_sample_t *out) {
     if (!read_hdr(slot, &h) || index < 0 || (uint32_t)index >= h.sample_count) return false;
     uint32_t off = slot_base(slot) + RACE_HDR_SIZE + (uint32_t)index * RACE_SAMPLE_SIZE;
     return ext_flash_read(off, out, sizeof(*out));
+}
+
+
+int race_store_rename(const char *old_name, const char *new_name) {
+    if (!old_name || !new_name || !new_name[0]) return 0;
+    int changed = 0;
+    race_hdr_t h;
+    for (int i = 0; i < RACE_SLOTS; i++) {
+        if (!read_hdr(i, &h)) continue;
+        if (strcmp(h.track_name, old_name) != 0) continue;
+        snprintf(h.track_name, sizeof(h.track_name), "%s", new_name);
+        if (write_hdr(i, &h)) changed++;
+    }
+    return changed;
 }
 
 bool race_store_delete(int slot) {

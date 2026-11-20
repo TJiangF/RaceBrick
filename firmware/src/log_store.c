@@ -2,6 +2,7 @@
 #include "extflash.h"
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #include "esp_log.h"
 
 #define LOG_MAGIC 0x524C4F47u  /* 'RLOG' */
@@ -71,6 +72,22 @@ int log_store_load(histrec_t *out, int cap) {
              (unsigned)((uint32_t)total * LOG_SLOT_SIZE / 1024),
              (unsigned)((uint32_t)LOG_SLOTS * LOG_SLOT_SIZE / 1024));
     return n;
+}
+
+
+int log_store_rename(const char *old_name, const char *new_name) {
+    if (!old_name || !new_name || !new_name[0]) return 0;
+    int changed = 0;
+    for (int i = 0; i < LOG_SLOTS; i++) {
+        if (!ext_flash_read(slot_addr(i), &s_io, sizeof(s_io)) || !valid_rec(&s_io)) continue;
+        if (strcmp(s_io.rec.trackName, old_name) != 0) continue;
+        snprintf(s_io.rec.trackName, sizeof(s_io.rec.trackName), "%s", new_name);
+        s_io.hash = fnv((const uint8_t *)&s_io, (int)offsetof(log_rec_t, hash));
+        if (ext_flash_erase_sector(slot_addr(i)) &&
+            ext_flash_write(slot_addr(i), &s_io, sizeof(s_io))) changed++;
+    }
+    if (changed) { s_count = -1; log_store_count(); }
+    return changed;
 }
 
 bool log_store_save(const histrec_t *rec_in) {

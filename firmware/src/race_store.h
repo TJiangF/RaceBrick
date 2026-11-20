@@ -57,4 +57,5 @@ int  race_store_count(void);
 bool race_store_info(int slot, race_hdr_t *out);
 bool race_store_read_sample(int slot, int index, race_sample_t *out);
 bool race_store_delete(int slot);
+int race_store_rename(const char *old_name, const char *new_name);
 bool race_store_delete_lap(int slot, int lap);

@@ -22,6 +22,15 @@ data class RaceTrack(
     val reverse: Boolean = false,
 )
 
+data class TrackDetail(
+    val name: String,
+    val lengthM: Double,
+    val widthM: Double,
+    val startF: Double,
+    val reverse: Boolean,
+    val points: List<TrackMapView.Layer>,
+)
+
 data class RaceLogEntry(
     val index: Int,
     val trackName: String,
@@ -34,6 +43,11 @@ data class RaceLogEntry(
     val hasBest: Boolean,
     val vehicle: Int,
     val lapTimes: List<Double>,
+)
+
+data class RaceLogDetail(
+    val entry: RaceLogEntry,
+    val trace: List<android.graphics.PointF>,
 )
 
 data class LapDetail(
@@ -104,6 +118,57 @@ object RaceApi {
             )
         }
         return out
+    }
+
+    fun track(base: String, id: Int): TrackDetail {
+        val o = JSONObject(get(base, "/api/track?id=$id").toString(StandardCharsets.UTF_8))
+        val pts = ArrayList<android.graphics.PointF>()
+        val arr = o.optJSONArray("points")
+        if (arr != null) {
+            var i = 0
+            while (i + 1 < arr.length()) {
+                pts += android.graphics.PointF(arr.optDouble(i).toFloat(), arr.optDouble(i + 1).toFloat())
+                i += 2
+            }
+        }
+        return TrackDetail(
+            name = o.optString("name", ""),
+            lengthM = o.optDouble("length_m", 0.0),
+            widthM = o.optDouble("width", 5.0),
+            startF = o.optDouble("start_f", 0.0),
+            reverse = o.optInt("reverse", 0) != 0,
+            points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
+        )
+    }
+
+    fun logDetail(base: String, index: Int): RaceLogDetail {
+        val o = JSONObject(get(base, "/api/log?id=$index").toString(StandardCharsets.UTF_8))
+        val times = ArrayList<Double>()
+        val ta = o.optJSONArray("lap_times")
+        if (ta != null) for (j in 0 until ta.length()) times += ta.optDouble(j, 0.0)
+        val entry = RaceLogEntry(
+            index = o.optInt("index"),
+            trackName = o.optString("track_name", ""),
+            date = o.optString("date", ""),
+            mode = o.optInt("mode", 0),
+            durationS = o.optDouble("duration", 0.0),
+            laps = o.optInt("laps", 0),
+            bestS = o.optDouble("best", 0.0),
+            bestIndex = o.optInt("best_index", 0),
+            hasBest = o.optInt("has_best", 0) != 0,
+            vehicle = o.optInt("vehicle", 0),
+            lapTimes = times,
+        )
+        val trace = ArrayList<android.graphics.PointF>()
+        val tr = o.optJSONArray("trace")
+        if (tr != null) {
+            var i = 0
+            while (i + 1 < tr.length()) {
+                trace += android.graphics.PointF(tr.optDouble(i).toFloat(), tr.optDouble(i + 1).toFloat())
+                i += 2
+            }
+        }
+        return RaceLogDetail(entry, trace)
     }
 
     fun logs(base: String): List<RaceLogEntry> {

@@ -16,6 +16,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.CheckBox
+import android.widget.HorizontalScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
@@ -45,6 +47,7 @@ class RaceActivity : AppCompatActivity() {
     private var sessions: List<RaceSession> = emptyList()
     private var logs: List<RaceLogEntry> = emptyList()
     private var filterTrack: Int? = null
+    private var logFilterName: String? = null
     private var showingSessions = false
     private var showingLogs = false
     private var directPending = false
@@ -69,6 +72,7 @@ class RaceActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
             showingLogs = false
+            logFilterName = null
             renderTracks()
         }
         findViewById<Button>(R.id.btnRaceSessions).setOnClickListener {
@@ -79,6 +83,7 @@ class RaceActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRaceLogs).setOnClickListener {
             showingSessions = false
             showingLogs = true
+            logFilterName = null
             renderLogs()
         }
 
@@ -224,7 +229,14 @@ class RaceActivity : AppCompatActivity() {
                     button("查看场次") {
                         filterTrack = t.id
                         showingSessions = true
+                        showingLogs = false
                         renderSessions()
+                    },
+                    button("Race Log") {
+                        logFilterName = t.name
+                        showingSessions = false
+                        showingLogs = true
+                        renderLogs()
                     },
                     button("删除", danger = true) { confirmDeleteTrack(t) },
                 )
@@ -291,11 +303,21 @@ class RaceActivity : AppCompatActivity() {
 
     private fun renderLogs() {
         llList.removeAllViews()
-        if (logs.isEmpty()) {
+        val filter = logFilterName
+        val visible = if (filter == null) logs else logs.filter { it.trackName == filter }
+        if (filter != null) {
+            llList.addView(TextView(this).apply {
+                text = "筛选：$filter"
+                setTextColor(0xFFF2B95C.toInt())
+                textSize = 13f
+                setPadding(dp(4), 0, dp(4), dp(8))
+            })
+        }
+        if (visible.isEmpty()) {
             empty("没有 Race Log 记录。RaceBrick 上完成比赛并选择 KEEP RACE LOG 后会出现在这里。")
             return
         }
-        for (l in logs) {
+        for (l in visible) {
             val card = card()
             card.addView(title(l.trackName.ifBlank { "RaceBrick 记录" }))
             card.addView(
@@ -315,11 +337,31 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun showLogDetail(l: RaceLogEntry) {
+        val b = base()
+        status("正在读取 Race Log 轨迹…")
+        worker.execute {
+            runCatching { RaceApi.logDetail(b, l.index) }
+                .onSuccess { d -> main.post { if (!isFinishing) buildLogDetailDialog(d).show() } }
+                .onFailure { e -> main.post { fail("读取 Race Log 失败：${e.message}") } }
+        }
+    }
+
+    private fun buildLogDetailDialog(d: RaceLogDetail): AlertDialog {
+        val l = d.entry
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), 0)
+            setPadding(dp(16), dp(8), dp(16), 0)
         }
         content.addView(meta("${l.date}  ·  ${l.laps} 圈  ·  Vehicle ${l.vehicle}"))
+        if (d.trace.isNotEmpty()) {
+            content.addView(TrackMapView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(220),
+                ).apply { topMargin = dp(6) }
+                setLayers(listOf(TrackMapView.Layer(d.trace, 0xFFFFD700.toInt(), "BEST")))
+            })
+            content.addView(meta("Race Log 保存的是最佳圈轨迹（L${l.bestIndex}）。"))
+        }
         if (l.lapTimes.isEmpty()) {
             content.addView(meta("该 Race Log 没有保存圈速。"))
         } else {
@@ -335,11 +377,11 @@ class RaceActivity : AppCompatActivity() {
                 })
             }
         }
-        AlertDialog.Builder(this)
-            .setTitle("Race Log 圈速")
+        return AlertDialog.Builder(this)
+            .setTitle("Race Log 详情")
             .setView(ScrollView(this).apply { addView(content) })
             .setPositiveButton("关闭", null)
-            .show()
+            .create()
     }
 
     private fun showSessionDetail(summary: RaceSession) {
@@ -349,20 +391,111 @@ class RaceActivity : AppCompatActivity() {
             runCatching {
                 val s = RaceApi.session(b, summary.slot)
                 val laps = runCatching { RaceApi.sessionLaps(b, summary.slot) }.getOrElse { emptyList() }
-                s to laps
-            }.onSuccess { (s, laps) ->
-                main.post { if (!isFinishing) buildDetailDialog(s, laps).show() }
+                val csv = runCatching { RaceApi.sessionCsv(b, summary.slot) }.getOrNull()
+                Triple(s, laps, if (csv != null) parseSessionTraces(csv) else emptyMap())
+            }.onSuccess { (s, laps, traces) ->
+                main.post { if (!isFinishing) buildDetailDialog(s, laps, traces).show() }
             }.onFailure { e -> main.post { fail("读取详情失败：${e.message}") } }
         }
     }
 
-    private fun buildDetailDialog(s: RaceSession, laps: List<LapDetail>): AlertDialog {
+    private fun parseSessionTraces(data: ByteArray): Map<Int, List<android.graphics.PointF>> {
+        val text = String(data, Charsets.UTF_8)
+        val grouped = LinkedHashMap<Int, MutableList<android.graphics.PointF>>()
+        var lat0 = Double.NaN
+        var lon0 = 0.0
+        for (line in text.lineSequence()) {
+            val p = line.split(',')
+            if (p.size < 7) continue
+            val lap = p[2].trim().toIntOrNull() ?: continue
+            val lat = p[4].trim().toDoubleOrNull() ?: continue
+            val lon = p[5].trim().toDoubleOrNull() ?: continue
+            if (lat == 0.0 && lon == 0.0) continue
+            if (lat0.isNaN()) { lat0 = lat; lon0 = lon }
+            val x = (lon - lon0) * 111320.0 * kotlin.math.cos(Math.toRadians(lat0))
+            val y = (lat - lat0) * 111320.0
+            grouped.getOrPut(lap) { ArrayList() } += android.graphics.PointF(x.toFloat(), y.toFloat())
+        }
+        val out = LinkedHashMap<Int, List<android.graphics.PointF>>()
+        for ((lap, pts) in grouped) {
+            if (pts.size < 2) continue
+            val step = (pts.size / 360).coerceAtLeast(1)
+            val reduced = ArrayList<android.graphics.PointF>(360)
+            var i = 0
+            while (i < pts.size) { reduced += pts[i]; i += step }
+            if (reduced.last() !== pts.last()) reduced += pts.last()
+            out[lap] = reduced
+        }
+        return out
+    }
+
+    private fun shapes(
+        selected: Set<Int>,
+        traces: Map<Int, List<android.graphics.PointF>>,
+        colors: IntArray,
+        best: Int?,
+    ): List<TrackMapView.Layer> {
+        val layers = ArrayList<TrackMapView.Layer>()
+        for ((idx, lap) in traces.keys.sorted().withIndex()) {
+            if (lap !in selected) continue
+            layers += TrackMapView.Layer(
+                traces[lap].orEmpty(),
+                if (lap == best) 0xFFFFD700.toInt() else colors[idx % colors.size],
+                "L$lap",
+            )
+        }
+        return layers
+    }
+
+    private fun buildDetailDialog(
+        s: RaceSession,
+        laps: List<LapDetail>,
+        traces: Map<Int, List<android.graphics.PointF>>,
+    ): AlertDialog {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
         }
         content.addView(meta("${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  ${s.samples} 点"))
         val best = laps.filter { !it.deleted && it.time > 0 }.minByOrNull { it.time }?.lap
+        if (traces.isNotEmpty()) {
+            val map = TrackMapView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(220),
+                )
+            }
+            val colors = intArrayOf(
+                0xFF66E0D2.toInt(), 0xFFFFB74D.toInt(), 0xFF8B5CF6.toInt(),
+                0xFF5ED6A3.toInt(), 0xFFFF6B9A.toInt(), 0xFF42A5F5.toInt(),
+                0xFFFFD700.toInt(), 0xFFFF7043.toInt(),
+            )
+            val selected = HashSet<Int>()
+            fun refreshMap() {
+                val layers = shapes(selected, traces, colors, best)
+                map.setLayers(layers)
+            }
+            selected.addAll(traces.keys)
+            refreshMap()
+            content.addView(map)
+            val checks = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            for (lap in traces.keys.sorted()) {
+                checks.addView(CheckBox(this).apply {
+                    text = "L$lap"
+                    textSize = 12f
+                    isChecked = true
+                    setTextColor(if (lap == best) 0xFFFFD700.toInt() else 0xFFD7E7E4.toInt())
+                    setOnCheckedChangeListener { _, checked ->
+                        if (checked) selected.add(lap) else selected.remove(lap)
+                        refreshMap()
+                    }
+                })
+            }
+            content.addView(HorizontalScrollView(this).apply { addView(checks) })
+            content.addView(meta("可勾选单圈或多圈叠加轨迹。"))
+        }
         if (laps.isEmpty() && s.lapTimes.isEmpty()) {
             content.addView(meta("没有有效圈速。"))
         } else if (laps.isNotEmpty()) {
@@ -425,6 +558,16 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun editTrack(t: RaceTrack) {
+        val b = base()
+        status("正在读取赛道轨迹…")
+        worker.execute {
+            runCatching { RaceApi.track(b, t.id) }
+                .onSuccess { d -> main.post { if (!isFinishing) showTrackEditor(t, d) } }
+                .onFailure { e -> main.post { fail("读取轨迹失败：${e.message}") } }
+        }
+    }
+
+    private fun showTrackEditor(t: RaceTrack, detail: TrackDetail) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
@@ -444,6 +587,18 @@ class RaceActivity : AppCompatActivity() {
             setSelection(text.length)
         }
         box.addView(etName)
+        addLabel("赛道轨迹 / 起始线预览")
+        val map = TrackMapView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(210),
+            ).apply { topMargin = dp(6) }
+            setLayers(detail.points)
+            startF = t.startF.toFloat()
+            widthM = t.widthM.toFloat()
+            trackLengthM = detail.lengthM.toFloat()
+            reverse = t.reverse
+        }
+        box.addView(map)
         addLabel("起始线位置")
         val tvStart = TextView(this).apply {
             text = String.format(Locale.US, "%.1f%%", t.startF * 100.0)
@@ -459,6 +614,7 @@ class RaceActivity : AppCompatActivity() {
         sbStart.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvStart.text = String.format(Locale.US, "%.1f%%", progress / 10.0)
+                map.startF = progress / 1000f
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -479,7 +635,9 @@ class RaceActivity : AppCompatActivity() {
         }
         sbWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                tvWidth.text = String.format(Locale.US, "%.1f m", 1.0 + progress / 10.0)
+                val w = 1.0 + progress / 10.0
+                tvWidth.text = String.format(Locale.US, "%.1f m", w)
+                map.widthM = w.toFloat()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -489,6 +647,7 @@ class RaceActivity : AppCompatActivity() {
         val swReverse = Switch(this).apply {
             text = "反向起点方向（CCW）"
             isChecked = t.reverse
+            setOnCheckedChangeListener { _, checked -> map.reverse = checked }
         }
         box.addView(swReverse)
         box.addView(TextView(this).apply {

@@ -575,6 +575,8 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
         bool ok = tstore_load(id, t);
+        char old_name[48] = {0};
+        if (ok) snprintf(old_name, sizeof old_name, "%s", t->name);
         int old_reverse = t ? t->reverse : 0;
         bool heading_updated = false;
         if (ok) {
@@ -607,6 +609,15 @@ static esp_err_t h_api_track(httpd_req_t *req) {
                 t->line_hdg += (float)M_PI;
             }
             ok = tstore_save(id, t);
+            if (ok && has_name && strcmp(old_name, t->name) != 0) {
+                log_store_rename(old_name, t->name);
+                race_store_rename(old_name, t->name);
+                if (g.log) {
+                    for (int j = 0; j < g.nlog; j++)
+                        if (strcmp(g.log[j].trackName, old_name) == 0)
+                            snprintf(g.log[j].trackName, sizeof(g.log[j].trackName), "%s", t->name);
+                }
+            }
             if (ok) {
                 for (int j = 0; j < g.ntracks; j++) {
                     if (g.tracks[j].store_slot == id) g.tracks[j] = *t;
@@ -689,6 +700,34 @@ static esp_err_t h_api_logs(httpd_req_t *req) {
     esp_err_t r = httpd_resp_send(req, b, n);
     free(arr); free(b);
     return r;
+}
+
+static esp_err_t h_api_log(httpd_req_t *req) {
+    int idx = query_int(req, "id", -1);
+    histrec_t *arr = (histrec_t *)heap_caps_malloc(
+        sizeof(histrec_t) * HISTORY_RECORDS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *b = (char *)heap_caps_malloc(24576, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!arr || !b) { free(arr); free(b); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int nrec = log_store_load(arr, HISTORY_RECORDS);
+    if (idx < 0 || idx >= nrec) { free(arr); free(b); httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "log not found"); return ESP_FAIL; }
+    histrec_t *r = &arr[idx];
+    int n = snprintf(b, 24576,
+        "{\"index\":%d,\"track_name\":\"%s\",\"date\":\"%s\",\"mode\":%d,"
+        "\"duration\":%.3f,\"laps\":%d,\"best\":%.3f,\"best_index\":%d,"
+        "\"has_best\":%d,\"vehicle\":%d,\"lap_times\":[",
+        idx, r->trackName, r->date, r->mode, (double)r->duration,
+        r->lapCount, (double)r->bestTime, r->bestIndex, r->hasBest ? 1 : 0, r->vehicle);
+    for (int i = 0; i < r->lapCount && i < HISTORY_LAPS; i++)
+        n += snprintf(b + n, 24576 - n, "%s%.3f", i ? "," : "", (double)r->lapTime[i]);
+    n += snprintf(b + n, 24576 - n, "],\"trace\":[");
+    for (int i = 0; i < r->nTrace && n < 23000; i++)
+        n += snprintf(b + n, 24576 - n, "%s%.5f,%.5f", i ? "," : "",
+                      (double)r->trace[i].x, (double)r->trace[i].y);
+    n += snprintf(b + n, 24576 - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t rr = httpd_resp_send(req, b, n);
+    free(arr); free(b);
+    return rr;
 }
 
 static esp_err_t h_api_sessions(httpd_req_t *req) {
@@ -952,6 +991,7 @@ static void start_httpd(void) {
     httpd_uri_t u20 = { .uri = "/api/track", .method = HTTP_POST, .handler = h_api_track };
     httpd_uri_t u21 = { .uri = "/api/session/laps", .method = HTTP_GET, .handler = h_api_session_laps };
     httpd_uri_t u22 = { .uri = "/api/logs", .method = HTTP_GET, .handler = h_api_logs };
+    httpd_uri_t u23 = { .uri = "/api/log", .method = HTTP_GET, .handler = h_api_log };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -974,6 +1014,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u20);
     httpd_register_uri_handler(s_httpd, &u21);
     httpd_register_uri_handler(s_httpd, &u22);
+    httpd_register_uri_handler(s_httpd, &u23);
 }
 
 void netcfg_start_ap(void) {
