@@ -41,7 +41,7 @@
 static tmap_t s_map;
 static bool   s_map_ready;
 
-static const char *RACE_PANELS[4] = {"TRACK", "TIMER", "DASH", "SECTOR"};
+static const char *RACE_PANELS[4] = {"TRACK MODE", "TIME MODE", "G FORCE MODE", "SECTION MODE"};
 
 static const char *VEH_NAMES[4] = {"KART", "4-STROKE", "KART+", "RACE"};
 #define HOMEF1_RED    RGB565(0xe1, 0x06, 0x00)
@@ -1401,24 +1401,34 @@ static void render_racing_panel(bool recorded, engine_t *e, float dt) {
             }
         }
     } else if (g.panel == 1) {
-        if (f1_ui()) gfx_fill(0, 0, CW, 3, PAL.cyan);
-        gfx_text(12, 8, "LAP", PAL.cyan, 1);
-        if (e->outlap_pending) snprintf(b2, sizeof b2, "OUTLAP");
-        else snprintf(b2, sizeof b2, "%d", e->lap);
-        gfx_text(12 + gfx_text_w("LAP ", 1), 8, b2, PAL.cyan, 1);
-        u_fmt_time(b, sizeof b, e->hasBestLap ? e->bestTime : NAN);
-        char bb[32]; snprintf(bb, sizeof bb, "BEST %s", b);
-        gfx_text_right(CW - 12, 8, bb, PAL.gold, 1);
+        bool neutral = !isfinite((double)e->diff) || fabsf(e->diff) < 0.02f;
+        uint16_t top_bg = neutral ? PAL.surface : (e->diff > 0 ? PAL.red : PAL.green);
+        gfx_fill(0, 0, CW, CH, PAL.stage);
+        gfx_fill(0, 0, CW, CH / 2, top_bg);
+
+        /* Delta is the primary timing-tower value. */
+        gfx_text(12, 5, "DELTA", PAL.white, 1);
+        snprintf(b2, sizeof b2, e->outlap_pending ? "OUTLAP" : "LAP %d", e->lap);
+        gfx_text_right(CW - 12, 5, b2, PAL.white, 1);
+        if (neutral) snprintf(b, sizeof b, "--.---");
+        else u_fmt_delta(b, sizeof b, e->diff, 3);
+        gfx_text_center(CW / 2, 18, b, PAL.white, 5);
+
+        /* Live lap time is the second line. */
+        gfx_text(12, 60, "LIVE", PAL.white, 1);
         u_fmt_time(b, sizeof b, e->elapsed);
-        gfx_text_center(CW / 2, 86, b, PAL.white, 5);
-        u_fmt_delta(b2, sizeof b2, e->diff, 3);
-        uint16_t dc = fabsf(e->diff) < 0.02f ? PAL.dim : (e->diff > 0 ? PAL.red : PAL.green);
-        gfx_text_center(CW / 2, 142, b2, dc, 3);
-        if (e->nLaps) {
-            u_fmt_time(b, sizeof b, e->laps[e->nLaps - 1].time);
-            snprintf(bb, sizeof bb, "LAST %s", b);
-        } else snprintf(bb, sizeof bb, "LAST --:--.---");
-        gfx_text_center(CW / 2, 198, bb, PAL.dim, 1);
+        gfx_text_center(CW / 2, 72, b, PAL.white, 4);
+
+        /* Best lap below the coloured header. */
+        gfx_text(12, 128, "BEST", PAL.gold, 1);
+        if (e->hasBestLap) {
+            snprintf(b2, sizeof b2, "L%d", e->bestIndex);
+            gfx_text_right(CW - 12, 128, b2, PAL.gold, 1);
+            u_fmt_time(b, sizeof b, e->bestTime);
+            gfx_text_center(CW / 2, 144, b, PAL.white, 4);
+        } else {
+            gfx_text_center(CW / 2, 144, "--:--.---", PAL.dim, 4);
+        }
     } else if (g.panel == 2) {
         gps_state_t *gp = gps_get();
         bool real = recorded && (gp->source == 0 || gp->source == 1);
