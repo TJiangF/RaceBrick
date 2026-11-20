@@ -2171,6 +2171,32 @@ static void media_clock(char *out, int cap, int ms) {
     snprintf(out, cap, "%d:%02d", total / 60, total % 60);
 }
 
+static bool s_lyr_menu;
+static int s_lyr_menu_sel;
+static const char *LYR_MODES[5] = {"AUTO", "LRCLIB", "NETEASE", "NOTIF", "TITLE"};
+
+static void media_lyric_menu(void) {
+    const int x = 116, y = 12, w = 194;
+    gfx_fill(x, y, w, 204, PAL.panel);
+    gfx_rect(x, y, w, 204, PAL.cyan);
+    gfx_text(x + 8, y + 6, "LYRIC SOURCE", PAL.cyan, 1);
+    for (int i = 0; i < 6; i++) {
+        int ry = y + 22 + i * 23;
+        bool sel = i == s_lyr_menu_sel;
+        bool cur = i == btmap_media_lyric_mode();
+        if (sel) gfx_fill(x + 5, ry - 2, w - 10, 21, PAL.seltint);
+        if (i < 5) {
+            gfx_text(x + 12, ry + 3, LYR_MODES[i], sel ? PAL.white : PAL.text, 1);
+            if (cur) gfx_text_right(x + w - 12, ry + 3, "*", PAL.cyan, 1);
+        } else {
+            char b[24];
+            snprintf(b, sizeof b, "NE OFFSET %dms", btmap_media_lyric_offset());
+            gfx_text(x + 12, ry + 3, b, sel ? PAL.white : PAL.text, 0);
+        }
+    }
+    gfx_text(x + 8, y + 178, "UP/DN  L/R OFFSET  PUSH  BACK", PAL.dim, 0);
+}
+
 static void render_media(void) {
     char b[96];
     if (!g.entered) {
@@ -2264,7 +2290,7 @@ static void render_media(void) {
     /* Current and next lyric, full width, wrapped without truncation. The
      * current line is stable at double size; the next line is single size. */
     int ly_active = 0;
-    char lyrics[5][160];
+    char lyrics[5][192];
     if (btmap_media_lyrics(&ly_active, lyrics)) {
         const char *cur = lyrics[ly_active];
         const char *next = (ly_active + 1 < 5) ? lyrics[ly_active + 1] : "";
@@ -2298,6 +2324,8 @@ static void render_media(void) {
     media_flat_next(bx[2] + bw / 2, by + bh / 2, media_pressed(2) ? PAL.yellow : PAL.white);
     if (playing) media_flat_pause(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
     else media_flat_play(bx[1] + bw / 2, by + bh / 2, media_pressed(1) ? PAL.yellow : PAL.white);
+
+    if (s_lyr_menu) media_lyric_menu();
 }
 
 /* ================= BUTTON DEBUG (V4 RKJXM1015004) ================= */
@@ -2736,7 +2764,7 @@ void screens_enter(scid_t id) {
         break;
     case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
     case SC_PHONE: g.entered = false; break;
-    case SC_MEDIA: g.entered = false; s_media_hit = -1; break;
+    case SC_MEDIA: g.entered = false; s_media_hit = -1; s_lyr_menu = false; break;
     case SC_WIFI_SETUP: netcfg_start_ap(); break;
     case SC_REC_LAP_SELECT:
         g.rec_sel_cursor = 0;
@@ -3246,11 +3274,36 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_MEDIA:
+        if (g.entered && s_lyr_menu) {
+            if (ev->type != EV_PRESS) return;
+            if (ev->button == BTN_UP) { s_lyr_menu_sel = (s_lyr_menu_sel + 5) % 6; return; }
+            if (ev->button == BTN_DOWN) { s_lyr_menu_sel = (s_lyr_menu_sel + 1) % 6; return; }
+            if (s_lyr_menu_sel == 5 && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
+                int ms = btmap_media_lyric_offset() + (ev->button == BTN_RIGHT ? 100 : -100);
+                btmap_set_media_lyric_offset(ms);
+                char c[28];
+                snprintf(c, sizeof c, "LYROFFSET,%d", btmap_media_lyric_offset());
+                if (btmap_subscribed()) btmap_media_cmd(c);
+                else app_toast("NO BT LINK");
+                return;
+            }
+            if (ev->button == BTN_PUSH || ev->button == BTN_OK) {
+                if (s_lyr_menu_sel < 5) {
+                    char c[24];
+                    snprintf(c, sizeof c, "LYRSET,%d", s_lyr_menu_sel);
+                    if (btmap_subscribed()) btmap_media_cmd(c);
+                    else app_toast("NO BT LINK");
+                }
+                s_lyr_menu = false;
+                return;
+            }
+            if (ev->button == BTN_BACK) s_lyr_menu = false;
+            return;
+        }
         if (g.entered && ev->type == EV_LONG &&
             (ev->button == BTN_PUSH || ev->button == BTN_OK)) {
-            if (!btmap_subscribed()) { app_toast("NO BT LINK"); return; }
-            btmap_media_cmd("LYRICSRC");
-            app_toast("LYRIC SOURCE");
+            s_lyr_menu = true;
+            s_lyr_menu_sel = btmap_media_lyric_mode();
             return;
         }
         if (!g.entered) {

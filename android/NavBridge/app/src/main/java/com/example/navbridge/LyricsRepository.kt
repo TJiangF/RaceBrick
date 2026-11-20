@@ -82,7 +82,11 @@ object LyricsRepository {
         val lyricRoot = runCatching { JSONObject(lyricText) }.getOrNull() ?: return emptyList()
         val lrc = lyricRoot.optJSONObject("lrc")?.optString("lyric").orEmpty()
         if (lrc.isBlank() || lrc == "null") return emptyList()
-        return parseLrc(lrc)
+        // NetEase LRC starts with credits/production metadata. Keep those out
+        // of the timed lyric stream (LRCLIB results are untouched).
+        val parsed = parseLrc(lrc).filterNot { isMetadataLine(it.text) }
+        val timed = parsed.filter { it.timeMs > 0 }
+        return if (timed.isNotEmpty()) timed else parsed
     }
 
     private fun http(url: String, referer: String? = null): String? {
@@ -119,8 +123,22 @@ object LyricsRepository {
         return lines.mapIndexed { i, text -> Line(i * 4000L, text) }
     }
 
+    private fun isMetadataLine(text: String): Boolean {
+        val t = text.trim().lowercase()
+        if (t.isEmpty()) return true
+        val heads = arrayOf(
+            "作词", "作曲", "编曲", "制作人", "制作", "出品", "监制", "混音",
+            "母带", "录音", "和声", "吉他", "贝斯", "鼓", "弦乐", "词：", "曲：",
+            "op", "sp", "lyrics", "composer", "arranger", "producer",
+            "written by", "music by", "mixed by", "mastered by"
+        )
+        return heads.any { t.startsWith(it) } && t.length < 48
+    }
+
     private fun parseLrc(lrc: String): List<Line> {
         val stamp = Regex("""\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]""")
+        val offsetMs = Regex("""\[offset:([+-]?\d+)\]""")
+            .find(lrc)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
         val out = ArrayList<Line>()
         for (raw in lrc.lines()) {
             val marks = stamp.findAll(raw).toList()
@@ -137,7 +155,8 @@ object LyricsRepository {
                     2 -> fracRaw.toLong() * 10
                     else -> fracRaw.take(3).toLong()
                 }
-                out.add(Line((min * 60 + sec) * 1000 + frac, text))
+                val t = (min * 60 + sec) * 1000 + frac + offsetMs
+                out.add(Line(if (t < 0) 0 else t, text))
             }
         }
         out.sortBy { it.timeMs }

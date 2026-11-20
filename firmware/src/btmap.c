@@ -84,11 +84,13 @@ static volatile int s_media_pos_ms = 0;
 static volatile int s_media_dur_ms = 0;
 static volatile int s_media_vol = -1;
 static volatile int s_media_volmax = 0;
-static char s_media_title[64];
-static char s_media_artist[64];
-static char s_media_album[64];
+static char s_media_title[128];
+static char s_media_artist[128];
+static char s_media_album[128];
 static char s_media_lyric_src[16] = "NONE";
-static char s_media_lyrics[5][160];
+static int s_media_lyric_mode;
+static int s_media_lyric_offset = 0;
+static char s_media_lyrics[5][192];
 static int s_media_lyric_active;
 static bool s_media_lyrics_valid;
 static volatile int s_nav_remain = -1;
@@ -305,6 +307,9 @@ static void handle_bulk(const uint8_t *b, int len) {
                 s_cover_refresh_pending = false;
                 ESP_LOGI(TAG, "cover refresh ack token=%d", s_cover_refresh_token);
             }
+            /* Unsolicited display-side acknowledgement lets the phone run a
+             * 5-second watchdog and resend a cover that was lost in transit. */
+            send_line("#R,ART,OK");
         }
         reset_rx();
     }
@@ -324,6 +329,27 @@ static void pct_encode(const char *in, char *out, int cap) {
         } else break;
     }
     out[n] = 0;
+}
+
+static int utf8_char_len(const char *p) {
+    unsigned char c = (unsigned char)*p;
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+static void utf8_copy(char *dst, size_t cap, const char *src) {
+    if (!dst || cap == 0) return;
+    size_t n = 0;
+    while (src[n]) {
+        int l = utf8_char_len(src + n);
+        if (n + (size_t)l > cap - 1) break;
+        n += (size_t)l;
+    }
+    memcpy(dst, src, n);
+    dst[n] = 0;
 }
 
 static int pct_decode(const char *in, char *out, int cap) {
@@ -454,28 +480,44 @@ static void handle_write(const uint8_t *b, int len) {
         }
     }
     else if (len >= 8 && memcmp(b, "M,TITLE,", 8) == 0) {
-        char tmp[96], dec[80];
+        char tmp[512], dec[512];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 8, dec, sizeof dec);
         if (strcmp(s_media_title, dec) != 0) ESP_LOGI(TAG, "media title: %s", dec);
-        snprintf(s_media_title, sizeof s_media_title, "%s", dec);
+        utf8_copy(s_media_title, sizeof s_media_title, dec);
     }
     else if (len >= 9 && memcmp(b, "M,ARTIST,", 9) == 0) {
-        char tmp[96], dec[80];
+        char tmp[512], dec[512];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 9, dec, sizeof dec);
         if (strcmp(s_media_artist, dec) != 0) ESP_LOGI(TAG, "media artist: %s", dec);
-        snprintf(s_media_artist, sizeof s_media_artist, "%s", dec);
+        utf8_copy(s_media_artist, sizeof s_media_artist, dec);
     }
     else if (len >= 8 && memcmp(b, "M,ALBUM,", 8) == 0) {
-        char tmp[96], dec[80];
+        char tmp[512], dec[512];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 8, dec, sizeof dec);
         if (strcmp(s_media_album, dec) != 0) ESP_LOGI(TAG, "media album: %s", dec);
-        snprintf(s_media_album, sizeof s_media_album, "%s", dec);
+        utf8_copy(s_media_album, sizeof s_media_album, dec);
+    }
+    else if (len >= 9 && memcmp(b, "M,LYROFF,", 9) == 0) {
+        char tmp[20];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        int ms = atoi(tmp + 9);
+        btmap_set_media_lyric_offset(ms);
+    }
+    else if (len >= 10 && memcmp(b, "M,LYRMODE,", 10) == 0) {
+        char tmp[20];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        int mode = atoi(tmp + 10);
+        if (mode < 0) mode = 0;
+        if (mode > 4) mode = 4;
+        s_media_lyric_mode = mode;
     }
     else if (len >= 11 && memcmp(b, "M,LYRICSRC,", 11) == 0) {
         char tmp[24];
@@ -496,7 +538,7 @@ static void handle_write(const uint8_t *b, int len) {
         s_media_lyrics_valid = false;
     }
     else if (len >= 8 && memcmp(b, "M,LYRIC,", 8) == 0) {
-        char tmp[480], dec[200];
+        char tmp[1024], dec[512];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         char *p = tmp + 8;
@@ -505,15 +547,22 @@ static void handle_write(const uint8_t *b, int len) {
         if (*p == ',') p++;
         if (slot >= 0 && slot < 5) {
             pct_decode(p, dec, sizeof dec);
-            snprintf(s_media_lyrics[slot], sizeof s_media_lyrics[slot], "%s", dec);
+            utf8_copy(s_media_lyrics[slot], sizeof s_media_lyrics[slot], dec);
             s_media_lyrics_valid = true;
         }
     }
     else if (len >= 11 && memcmp(b, "M,LYRICPOS,", 11) == 0) {
-        int slot = atoi((const char *)b + 11);
+        /* b is a raw BLE write buffer, not NUL-terminated. atoi() here could
+         * read into stale/adjacent bytes and turn "0" into 4, which made the
+         * display start at the fifth lyric line. Parse only this packet. */
+        char tmp[20];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        int slot = atoi(tmp + 11);
         if (slot < 0) slot = 0;
         if (slot > 4) slot = 4;
         s_media_lyric_active = slot;
+        ESP_LOGI(TAG, "lyric active slot=%d", slot);
     }
     else if (len >= 9 && memcmp(b, "M,STATE,", 8) == 0) s_media_playing = (b[8] == '1');
     else if (len >= 6 && memcmp(b, "M,VOL,", 6) == 0) {
@@ -647,6 +696,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_media_artist[0] = 0;
         s_media_album[0] = 0;
         snprintf(s_media_lyric_src, sizeof s_media_lyric_src, "NONE");
+        s_media_lyric_mode = 0;
         memset(s_media_lyrics, 0, sizeof(s_media_lyrics));
         s_media_lyrics_valid = false;
         s_album_ready = false;
@@ -816,6 +866,13 @@ const char *btmap_media_title(void) { return s_media_title; }
 const char *btmap_media_artist(void) { return s_media_artist; }
 const char *btmap_media_album(void) { return s_media_album; }
 const char *btmap_media_lyric_src(void) { return s_media_lyric_src; }
+int btmap_media_lyric_mode(void) { return s_media_lyric_mode; }
+int btmap_media_lyric_offset(void) { return s_media_lyric_offset; }
+void btmap_set_media_lyric_offset(int ms) {
+    if (ms < -2000) ms = -2000;
+    if (ms > 2000) ms = 2000;
+    s_media_lyric_offset = ms;
+}
 const uint16_t *btmap_album_art(int *w, int *h) {
     if (!s_album_ready) return NULL;
     if (w) *w = s_album_w;
@@ -913,7 +970,7 @@ bool btmap_album_black_dominant(void) {
     if (s_album_accent_seq != s_album_seq) return false;
     return s_album_black_dominant;
 }
-bool btmap_media_lyrics(int *active, char lines[5][160]) {
+bool btmap_media_lyrics(int *active, char lines[5][192]) {
     if (!s_media_lyrics_valid) return false;
     if (active) *active = s_media_lyric_active;
     if (lines) memcpy(lines, s_media_lyrics, sizeof(s_media_lyrics));

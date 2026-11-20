@@ -23,8 +23,10 @@ DEFAULT_PIXEL = "/tmp/rb_fonts/fusion/fusion-pixel-12px-proportional-zh_hans.otf
 
 # Common Chinese punctuation and symbols used by music metadata/lyrics.
 CN_PUNCT = "，。！？；：、（）【】《》“”‘’…—～·「」『』〈〉〔〕〖〗·×÷±°％＋－＝"
+# Manually requested additional glyphs outside GB2312 level-1.
+CN_EXTRA = "喆"
 def cps_common():
-    out = {ord(c) for c in CN_PUNCT}
+    out = {ord(c) for c in CN_PUNCT + CN_EXTRA}
     # GB2312 level-1 rows B0-D7 contain the 3755 most common Hanzi.
     for a in range(0xB0, 0xD8):
         for b in range(0xA1, 0xFF):

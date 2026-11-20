@@ -88,6 +88,10 @@ class MainActivity : AppCompatActivity() {
     private var lastArtSkipSig: String = ""
     private var artTxSeq: Int = 0
     private var artHoldUntil: Long = 0L
+    private var artAckSeen: Boolean = true
+    private var artAckToken: Int = 0
+    private var artRetryCount: Int = 0
+    private var artWatchdog: Runnable? = null
     private var lastNotifLyric: String = ""
     private var coverRefreshToken: Int = 0
     private var coverRefreshAttempts: Int = 0
@@ -111,6 +115,9 @@ class MainActivity : AppCompatActivity() {
     private var systemLyricSent: String = ""
     private var lyricKey: String = ""
     private var lyricMode: Int = 0
+    private var lyricOffsetMs: Int = 0
+    private var forceFirstLyric: Boolean = false
+    private var preferNotificationLyric: Boolean = false
     private val lyricModeNames = arrayOf("AUTO", "LRCLIB", "NETEASE", "NOTIF", "TITLE")
     private var lyricSource: String = "NONE"
     private var lastLyricSourceSent: String = ""
@@ -231,6 +238,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        lyricOffsetMs = getSharedPreferences("navbridge", MODE_PRIVATE)
+            .getInt("lyric_offset2", 0).coerceIn(-2000, 2000)
 
         mainScroll = findViewById(R.id.mainScroll)
         connectGate = findViewById(R.id.connectGate)
@@ -282,6 +291,7 @@ class MainActivity : AppCompatActivity() {
                     lastArtSentIdentity = ""
                     lastArtSrcSig = ""
                     lastArtSkipSig = ""
+                    cancelArtWatchdog()
                     lyricKey = ""
                     lyricSource = "NONE"
                     lastLyricSourceSent = ""
@@ -290,6 +300,8 @@ class MainActivity : AppCompatActivity() {
                     systemLyricSent = ""
                     lyricWindowKey = ""
                     lyricCleared = true
+                    ble.send("M,LYRMODE,$lyricMode")
+                    ble.send("M,LYROFF,$lyricOffsetMs")
                     sendMediaState()
                     sendMediaProgress()
                     sendMediaVolume()
@@ -324,6 +336,7 @@ class MainActivity : AppCompatActivity() {
                         line.startsWith("#Z,") -> handleDeviceZoom(line)
                         line.startsWith("#W,") -> wifiSetup?.onLine(line)
                         line.startsWith("#R,COVER,") -> handleCoverRefreshAck(line)
+                        line == "#R,ART,OK" -> handleArtAck()
                         else -> log("← $line")
                     }
                 }
@@ -512,6 +525,7 @@ class MainActivity : AppCompatActivity() {
         connectGate.visibility = if (active) View.GONE else View.VISIBLE
         floatingStatus.visibility = if (active) View.VISIBLE else View.GONE
         if (!active) {
+            cancelArtWatchdog()
             tvGateStatus.text = "未连接 RaceBrick"
         }
     }
@@ -563,6 +577,44 @@ class MainActivity : AppCompatActivity() {
         sendMediaMetadata()
         main.removeCallbacks(coverRefreshTimeout)
         main.postDelayed(coverRefreshTimeout, 2000)
+    }
+
+    private fun cancelArtWatchdog() {
+        artWatchdog?.let { main.removeCallbacks(it) }
+        artWatchdog = null
+        artAckSeen = true
+        artAckToken++
+        artRetryCount = 0
+    }
+
+    private fun armArtWatchdog() {
+        artAckSeen = false
+        artAckToken++
+        val token = artAckToken
+        artWatchdog?.let { main.removeCallbacks(it) }
+        val r = Runnable {
+            if (artAckSeen || token != artAckToken || !ble.verified) return@Runnable
+            if (artRetryCount >= 3) {
+                log("封面确认超时：停止重试")
+                return@Runnable
+            }
+            artRetryCount++
+            log("封面5秒未确认，重发 #$artRetryCount")
+            lastArtSentIdentity = ""
+            artHoldUntil = 0L
+            sendMediaMetadata()
+        }
+        artWatchdog = r
+        main.postDelayed(r, 5000)
+    }
+
+    private fun handleArtAck() {
+        artAckSeen = true
+        artRetryCount = 0
+        artWatchdog?.let { main.removeCallbacks(it) }
+        artWatchdog = null
+        coverRefreshPendingToken = -1
+        main.removeCallbacks(coverRefreshTimeout)
     }
 
     private fun handleCoverRefreshAck(line: String) {
@@ -1344,19 +1396,30 @@ class MainActivity : AppCompatActivity() {
         val trackChanged = identity != mediaIdentity ||
             (positionReset && m.title.isNotBlank() && m.title != stableTitle)
         if (trackChanged) {
+            // A manually selected lyric source is only for the current song.
+            // Every new track returns to the automatic matching rules.
+            if (lyricMode != 0) {
+                lyricMode = 0
+                preferNotificationLyric = false
+                ble.send("M,LYRMODE,0")
+                log("歌词模式恢复：AUTO")
+            }
             mediaIdentity = identity
             stableTitle = m.title
             lastRawTitle = m.title
             lastMediaMeta = identity
             systemLyric = ""
             systemLyricSent = ""
+            forceFirstLyric = false
             lastNotifLyric = MediaNotificationArt.lyric
+            preferNotificationLyric = false
+            cancelArtWatchdog()
             artHoldUntil = SystemClock.elapsedRealtime() + 450L
             log("曲目变化：$stableTitle / ${m.artist} / ${m.album}")
             val title = stableTitle.ifBlank { m.artist }
-            ble.send("M,TITLE,${Uri.encode(title)}")
-            ble.send("M,ARTIST,${Uri.encode(m.artist)}")
-            ble.send("M,ALBUM,${Uri.encode(m.album)}")
+            ble.send("M,TITLE,${Uri.encode(clipUtf8(title, 96))}")
+            ble.send("M,ARTIST,${Uri.encode(clipUtf8(m.artist, 64))}")
+            ble.send("M,ALBUM,${Uri.encode(clipUtf8(m.album, 64))}")
             loadLyrics(m.copy(title = stableTitle))
         } else if (m.title != lastRawTitle) {
             // Some players write the current lyric line into the title/display
@@ -1375,15 +1438,23 @@ class MainActivity : AppCompatActivity() {
         if (notifLine.isNotEmpty() && notifLine != lastNotifLyric) {
             lastNotifLyric = notifLine
             log("通知歌词候选：$notifLine")
-            if ((lyricMode == 0 || lyricMode == 3) &&
-                lyricLines.isEmpty() && notifLine.length > 1 &&
+            val cjkTrack = containsCjk(m.title + m.artist + m.album)
+            val autoNe = lyricMode == 0 && isAllChineseTitle(m.title)
+            val validLine = notifLine.length > 1 &&
                 !notifLine.equals(m.title, true) &&
                 !notifLine.equals(m.artist, true) &&
-                !notifLine.equals(m.album, true)) {
+                !notifLine.equals(m.album, true)
+            // For fully-Chinese titles AUTO selects NETEASE directly. Other
+            // Chinese-content tracks may use the status-bar notification line.
+            if (validLine && ((lyricMode == 0 && cjkTrack && !autoNe) ||
+                              ((lyricMode == 3 || (lyricMode == 0 && !autoNe)) && lyricLines.isEmpty()))) {
                 systemLyric = notifLine
                 lyricSource = "NOTI"
+                if (lyricMode == 0 && cjkTrack) {
+                    preferNotificationLyric = true
+                    log("歌词优先级：中文通知歌词")
+                }
                 sendLyricSource(true)
-                log("歌词来源：通知文本")
             }
         }
         sendLyricSource()
@@ -1456,15 +1527,17 @@ class MainActivity : AppCompatActivity() {
         if (cached != null) {
             lyricLines = cached.lines
             lyricSource = cached.source
+            if (cached.lines.isNotEmpty()) forceFirstLyric = true
             return
         }
-        if (lyricMode == 3) {
+        val effectiveMode = effectiveLyricMode(m.title)
+        if (effectiveMode == 3) {
             lyricSource = "NOTI"
             lastNotifLyric = ""
             sendLyricSource(true)
             return
         }
-        if (lyricMode == 4) {
+        if (effectiveMode == 4) {
             lyricSource = "TITL"
             lastRawTitle = stableTitle
             sendLyricSource(true)
@@ -1477,28 +1550,49 @@ class MainActivity : AppCompatActivity() {
                        else MediaControl.progress(this)?.durationMs ?: 0L
         log("歌词请求：$title / $artist")
         lyricWorker.execute {
-            val result = LyricsRepository.fetch(title, artist, album, duration, lyricMode)
+            val result = LyricsRepository.fetch(title, artist, album, duration, effectiveMode)
             runOnUiThread {
                 if (lyricKey == key) {
                     lyricCache[key] = result
                     lyricLines = result.lines
                     lyricWindowKey = ""
                     if (result.lines.isNotEmpty()) {
-                        systemLyric = ""
-                        systemLyricSent = ""
-                        lyricSource = result.source
+                        forceFirstLyric = true
+                        if (preferNotificationLyric && systemLyric.isNotEmpty()) {
+                            // Keep the NotificationListenerService line as the
+                            // priority source for Chinese tracks; network LRC
+                            // remains available as fallback data.
+                            lyricSource = "NOTI"
+                        } else {
+                            systemLyric = ""
+                            systemLyricSent = ""
+                            lyricSource = result.source
+                        }
                     } else if (systemLyric.isEmpty()) {
                         lyricSource = "NONE"
                     }
                     sendLyricSource(true)
+                    if (result.lines.isNotEmpty()) {
+                        log("歌词首句：${result.lines.first().text}")
+                    }
                     log(if (result.lines.isEmpty()) "歌词：LRCLIB/网易云均未找到 / ${result.source}" else "歌词：${result.lines.size} 行 / ${result.source}")
                 }
             }
         }
     }
 
-    private fun cycleLyricMode() {
-        lyricMode = (lyricMode + 1) % lyricModeNames.size
+    private fun setLyricOffset(ms: Int) {
+        lyricOffsetMs = ms.coerceIn(-2000, 2000)
+        getSharedPreferences("navbridge", MODE_PRIVATE).edit()
+            .putInt("lyric_offset2", lyricOffsetMs).apply()
+        lyricWindowKey = ""
+        ble.send("M,LYROFF,$lyricOffsetMs")
+        log("歌词偏移：${lyricOffsetMs}ms")
+        sendLyricWindow()
+    }
+
+    private fun setLyricMode(index: Int) {
+        lyricMode = index.coerceIn(0, lyricModeNames.size - 1)
         lyricCache.clear()
         lyricKey = ""
         lyricLines = emptyList()
@@ -1507,8 +1601,10 @@ class MainActivity : AppCompatActivity() {
         systemLyricSent = ""
         lastNotifLyric = ""
         lastRawTitle = stableTitle
+        preferNotificationLyric = false
         lyricSource = "WAIT"
         if (!lyricCleared) { ble.send("M,LYRIC,CLR"); lyricCleared = true }
+        ble.send("M,LYRMODE,$lyricMode")
         sendLyricSource(true)
         log("歌词模式：${lyricModeNames[lyricMode]}")
         val raw = MediaControl.metadata(this)
@@ -1522,6 +1618,46 @@ class MainActivity : AppCompatActivity() {
         sendLyricWindow()
     }
 
+    private fun cycleLyricMode() {
+        setLyricMode((lyricMode + 1) % lyricModeNames.size)
+    }
+
+    private fun clipUtf8(s: String, maxBytes: Int): String {
+        if (s.toByteArray(Charsets.UTF_8).size <= maxBytes) return s
+        val out = StringBuilder()
+        var bytes = 0
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            val n = when {
+                cp < 0x80 -> 1
+                cp < 0x800 -> 2
+                cp < 0x10000 -> 3
+                else -> 4
+            }
+            if (bytes + n > maxBytes) break
+            out.appendCodePoint(cp)
+            bytes += n
+            i += Character.charCount(cp)
+        }
+        return out.toString()
+    }
+
+    private fun containsCjk(s: String): Boolean =
+        s.any { it.code in 0x3400..0x9FFF }
+
+    private fun isAllChineseTitle(title: String): Boolean {
+        val t = title.trim()
+        if (t.isEmpty()) return false
+        val punct = "，。！？；：、（）【】《》“”‘’…—～·"
+        return t.all { ch ->
+            ch.code in 0x3400..0x9FFF || ch.isWhitespace() || punct.indexOf(ch) >= 0
+        }
+    }
+
+    private fun effectiveLyricMode(title: String): Int =
+        if (lyricMode == 0 && isAllChineseTitle(title)) 2 else lyricMode
+
     private fun sendLyricSource(force: Boolean = false) {
         if (!::ble.isInitialized || !ble.verified) return
         val code = lyricSource.ifBlank { "NONE" }
@@ -1534,11 +1670,21 @@ class MainActivity : AppCompatActivity() {
     private fun sendLyricWindow() {
         if (!::ble.isInitialized || !ble.verified) return
         sendLyricSource(true)
+        if (preferNotificationLyric && systemLyric.isNotEmpty()) {
+            if (systemLyric != systemLyricSent) {
+                ble.send("M,LYRIC,CLR")
+                ble.send("M,LYRIC,0,${Uri.encode(clipUtf8(systemLyric, 120))}")
+                ble.send("M,LYRICPOS,0")
+                systemLyricSent = systemLyric
+                lyricCleared = false
+            }
+            return
+        }
         if (lyricLines.isEmpty()) {
             if (systemLyric.isNotEmpty()) {
                 if (systemLyric != systemLyricSent) {
                     ble.send("M,LYRIC,CLR")
-                    ble.send("M,LYRIC,0,${Uri.encode(systemLyric)}")
+                    ble.send("M,LYRIC,0,${Uri.encode(clipUtf8(systemLyric, 120))}")
                     ble.send("M,LYRICPOS,0")
                     systemLyricSent = systemLyric
                     lyricCleared = false
@@ -1553,9 +1699,21 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val pos = MediaControl.progress(this)?.positionMs ?: 0L
-        var active = 0
+        val effectivePos = if (lyricSource == "NE") (pos - lyricOffsetMs).coerceAtLeast(0) else pos
+        var active = -1
         for (i in lyricLines.indices) {
-            if (lyricLines[i].timeMs <= pos) active = i else break
+            if (lyricLines[i].timeMs <= effectivePos) active = i else break
+        }
+        // Show the first available lyric during the intro instead of leaving
+        // the screen blank until its timestamp. For NetEase the first real
+        // lyric is the 5th raw LRC line because the first four are metadata.
+        if (active < 0) active = 0
+        // Guarantee the first available line is shown once when a fresh lyric
+        // list arrives, even if network loading finished several seconds in.
+        if (forceFirstLyric) {
+            active = 0
+            forceFirstLyric = false
+            log("歌词定位：显示第一句")
         }
         var start = (active - 2).coerceAtLeast(0)
         if (start + 5 > lyricLines.size) start = (lyricLines.size - 5).coerceAtLeast(0)
@@ -1569,7 +1727,7 @@ class MainActivity : AppCompatActivity() {
         lyricWindowKey = key
         ble.send("M,LYRIC,CLR")
         for (i in 0 until 5) {
-            ble.send("M,LYRIC,$i,${Uri.encode(window[i])}")
+            ble.send("M,LYRIC,$i,${Uri.encode(clipUtf8(window[i], 120))}")
         }
         ble.send("M,LYRICPOS,${active - start}")
         lyricCleared = false
@@ -1615,13 +1773,23 @@ class MainActivity : AppCompatActivity() {
             txHash = txHash and 0xffffffffL
         }
         log("封面TX：96x96 ${out.size}B hash=${java.lang.Long.toHexString(txHash)}")
-        return ble.sendBulk(BleClient.TYPE_ALBUM, 1, out)
+        val ok = ble.sendBulk(BleClient.TYPE_ALBUM, 1, out)
+        if (ok) armArtWatchdog()
+        return ok
     }
 
     private fun handleMediaCommand(line: String) {
         val cmd = line.removePrefix("M,").trim()
         if (cmd == "LYRICSRC") {
             cycleLyricMode()
+            return
+        }
+        if (cmd.startsWith("LYRSET,")) {
+            cmd.substringAfter(',').toIntOrNull()?.let { setLyricMode(it) }
+            return
+        }
+        if (cmd.startsWith("LYROFFSET,")) {
+            cmd.substringAfter(',').toIntOrNull()?.let { setLyricOffset(it) }
             return
         }
         val ok = when (cmd) {

@@ -27,12 +27,15 @@ const char *btmap_media_title(void);
 const char *btmap_media_artist(void);
 const char *btmap_media_album(void);
 const char *btmap_media_lyric_src(void);
+int btmap_media_lyric_mode(void);
+int btmap_media_lyric_offset(void);
+void btmap_set_media_lyric_offset(int ms);
 const uint16_t *btmap_album_art(int *w, int *h);
 uint32_t btmap_album_art_seq(void);
 uint16_t btmap_album_accent565(void);
 void btmap_set_color_tuning(int near_black, int black_pct);
 bool btmap_album_black_dominant(void);
-bool btmap_media_lyrics(int *active, char lines[5][160]);
+bool btmap_media_lyrics(int *active, char lines[5][192]);
 
 /* Navigation progress sent by the phone as "#P,remain_m,total_m"; -1 clears. */
 bool btmap_nav_active(void);
