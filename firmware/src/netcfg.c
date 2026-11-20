@@ -18,6 +18,7 @@
 #include "nav.h"
 #include "tstore.h"
 #include "race_store.h"
+#include "log_store.h"
 #include "gfx.h"
 #include "geo.h"
 #include <math.h>
@@ -606,6 +607,13 @@ static esp_err_t h_api_track(httpd_req_t *req) {
                 t->line_hdg += (float)M_PI;
             }
             ok = tstore_save(id, t);
+            if (ok) {
+                for (int j = 0; j < g.ntracks; j++) {
+                    if (g.tracks[j].store_slot == id) g.tracks[j] = *t;
+                }
+                if (g.engine_valid && g.engine.track && g.engine.track->store_slot == id)
+                    *g.engine.track = *t;
+            }
         }
         free(t);
         httpd_resp_set_type(req, "application/json");
@@ -651,6 +659,35 @@ static esp_err_t h_api_track(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
     esp_err_t r = httpd_resp_send(req, b, n);
     free(b);
+    return r;
+}
+
+static esp_err_t h_api_logs(httpd_req_t *req) {
+    histrec_t *arr = (histrec_t *)heap_caps_malloc(
+        sizeof(histrec_t) * HISTORY_RECORDS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char *b = (char *)heap_caps_malloc(32768, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!arr || !b) { free(arr); free(b); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int nrec = log_store_load(arr, HISTORY_RECORDS);
+    int n = snprintf(b, 32768, "{\"count\":%d,\"logs\":[", nrec);
+    bool first = true;
+    for (int k = nrec - 1; k >= 0 && n < 31000; k--) {
+        histrec_t *r = &arr[k];
+        n += snprintf(b + n, 32768 - n,
+            "%s{\"index\":%d,\"track_name\":\"%s\",\"date\":\"%s\",\"mode\":%d,"
+            "\"duration\":%.3f,\"laps\":%d,\"best\":%.3f,\"best_index\":%d,"
+            "\"has_best\":%d,\"vehicle\":%d,\"lap_times\":[",
+            first ? "" : ",", k, r->trackName, r->date, r->mode,
+            (double)r->duration, r->lapCount, (double)r->bestTime,
+            r->bestIndex, r->hasBest ? 1 : 0, r->vehicle);
+        for (int i = 0; i < r->lapCount && i < HISTORY_LAPS; i++)
+            n += snprintf(b + n, 32768 - n, "%s%.3f", i ? "," : "", (double)r->lapTime[i]);
+        n += snprintf(b + n, 32768 - n, "]}");
+        first = false;
+    }
+    n += snprintf(b + n, 32768 - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t r = httpd_resp_send(req, b, n);
+    free(arr); free(b);
     return r;
 }
 
@@ -914,6 +951,7 @@ static void start_httpd(void) {
     httpd_uri_t u19 = { .uri = "/api/session/file", .method = HTTP_GET, .handler = h_api_session_file };
     httpd_uri_t u20 = { .uri = "/api/track", .method = HTTP_POST, .handler = h_api_track };
     httpd_uri_t u21 = { .uri = "/api/session/laps", .method = HTTP_GET, .handler = h_api_session_laps };
+    httpd_uri_t u22 = { .uri = "/api/logs", .method = HTTP_GET, .handler = h_api_logs };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -935,6 +973,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u19);
     httpd_register_uri_handler(s_httpd, &u20);
     httpd_register_uri_handler(s_httpd, &u21);
+    httpd_register_uri_handler(s_httpd, &u22);
 }
 
 void netcfg_start_ap(void) {

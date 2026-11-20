@@ -22,6 +22,20 @@ data class RaceTrack(
     val reverse: Boolean = false,
 )
 
+data class RaceLogEntry(
+    val index: Int,
+    val trackName: String,
+    val date: String,
+    val mode: Int,
+    val durationS: Double,
+    val laps: Int,
+    val bestS: Double,
+    val bestIndex: Int,
+    val hasBest: Boolean,
+    val vehicle: Int,
+    val lapTimes: List<Double>,
+)
+
 data class LapDetail(
     val lap: Int,
     val time: Double,
@@ -87,6 +101,32 @@ object RaceApi {
                 widthM = o.optDouble("width", 5.0),
                 startF = o.optDouble("start_f", 0.0),
                 reverse = o.optInt("reverse", 0) != 0,
+            )
+        }
+        return out
+    }
+
+    fun logs(base: String): List<RaceLogEntry> {
+        val root = JSONObject(get(base, "/api/logs").toString(StandardCharsets.UTF_8))
+        val arr = root.optJSONArray("logs") ?: JSONArray()
+        val out = ArrayList<RaceLogEntry>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val times = ArrayList<Double>()
+            val ta = o.optJSONArray("lap_times")
+            if (ta != null) for (j in 0 until ta.length()) times += ta.optDouble(j, 0.0)
+            out += RaceLogEntry(
+                index = o.optInt("index"),
+                trackName = o.optString("track_name", ""),
+                date = o.optString("date", ""),
+                mode = o.optInt("mode", 0),
+                durationS = o.optDouble("duration", 0.0),
+                laps = o.optInt("laps", 0),
+                bestS = o.optDouble("best", 0.0),
+                bestIndex = o.optInt("best_index", 0),
+                hasBest = o.optInt("has_best", 0) != 0,
+                vehicle = o.optInt("vehicle", 0),
+                lapTimes = times,
             )
         }
         return out

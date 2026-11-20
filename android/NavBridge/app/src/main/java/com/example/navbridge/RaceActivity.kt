@@ -13,10 +13,11 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -42,8 +43,10 @@ class RaceActivity : AppCompatActivity() {
 
     private var tracks: List<RaceTrack> = emptyList()
     private var sessions: List<RaceSession> = emptyList()
+    private var logs: List<RaceLogEntry> = emptyList()
     private var filterTrack: Int? = null
     private var showingSessions = false
+    private var showingLogs = false
     private var directPending = false
     private var awaitingWriteSettings = false
 
@@ -65,11 +68,18 @@ class RaceActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
+            showingLogs = false
             renderTracks()
         }
         findViewById<Button>(R.id.btnRaceSessions).setOnClickListener {
             showingSessions = true
+            showingLogs = false
             renderSessions()
+        }
+        findViewById<Button>(R.id.btnRaceLogs).setOnClickListener {
+            showingSessions = false
+            showingLogs = true
+            renderLogs()
         }
 
         loadAll()
@@ -166,14 +176,20 @@ class RaceActivity : AppCompatActivity() {
             runCatching {
                 val t = RaceApi.tracks(b)
                 val s = RaceApi.sessions(b)
-                t to s
-            }.onSuccess { (t, s) ->
+                val l = runCatching { RaceApi.logs(b) }.getOrElse { emptyList() }
+                Triple(t, s, l)
+            }.onSuccess { (t, s, l) ->
                 main.post {
                     if (gen != generation) return@post
                     tracks = t
                     sessions = s
-                    status("赛道 ${t.size} 条，场次 ${s.size} 场")
-                    if (showingSessions) renderSessions() else renderTracks()
+                    logs = l
+                    status("赛道 ${t.size} 条，场次 ${s.size} 场，Race Log ${l.size} 条")
+                    when {
+                        showingLogs -> renderLogs()
+                        showingSessions -> renderSessions()
+                        else -> renderTracks()
+                    }
                 }
             }.onFailure { e ->
                 main.post {
@@ -271,6 +287,59 @@ class RaceActivity : AppCompatActivity() {
             )
             llList.addView(card)
         }
+    }
+
+    private fun renderLogs() {
+        llList.removeAllViews()
+        if (logs.isEmpty()) {
+            empty("没有 Race Log 记录。RaceBrick 上完成比赛并选择 KEEP RACE LOG 后会出现在这里。")
+            return
+        }
+        for (l in logs) {
+            val card = card()
+            card.addView(title(l.trackName.ifBlank { "RaceBrick 记录" }))
+            card.addView(
+                meta(
+                    "${l.date}  ·  ${formatDuration((l.durationS * 1000).toLong())}  ·  " +
+                        "${l.laps} 圈  ·  " +
+                        if (l.hasBest) "最佳 ${formatLap(l.bestS)}（L${l.bestIndex}）" else "无最佳圈"
+                )
+            )
+            card.addView(
+                row(
+                    button("圈速详情") { showLogDetail(l) },
+                )
+            )
+            llList.addView(card)
+        }
+    }
+
+    private fun showLogDetail(l: RaceLogEntry) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        content.addView(meta("${l.date}  ·  ${l.laps} 圈  ·  Vehicle ${l.vehicle}"))
+        if (l.lapTimes.isEmpty()) {
+            content.addView(meta("该 Race Log 没有保存圈速。"))
+        } else {
+            for ((i, t) in l.lapTimes.withIndex()) {
+                val lap = i + 1
+                val best = l.hasBest && lap == l.bestIndex
+                content.addView(TextView(this).apply {
+                    text = "第 $lap 圈   ${formatLap(t)}${if (best) "   BEST" else ""}"
+                    setTextColor(if (best) 0xFFFFD700.toInt() else 0xFFF0F6F4.toInt())
+                    textSize = 14f
+                    setTypeface(typeface, if (best) Typeface.BOLD else Typeface.NORMAL)
+                    setPadding(0, dp(6), 0, dp(6))
+                })
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Race Log 圈速")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton("关闭", null)
+            .show()
     }
 
     private fun showSessionDetail(summary: RaceSession) {
@@ -375,25 +444,53 @@ class RaceActivity : AppCompatActivity() {
             setSelection(text.length)
         }
         box.addView(etName)
-        addLabel("起始线位置（0–100%）")
-        val etStart = EditText(this).apply {
-            setText(String.format(Locale.US, "%.1f", t.startF * 100.0))
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        addLabel("起始线位置")
+        val tvStart = TextView(this).apply {
+            text = String.format(Locale.US, "%.1f%%", t.startF * 100.0)
+            setTextColor(0xFF66E0D2.toInt())
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
         }
-        box.addView(etStart)
-        addLabel("赛道宽度 / 起始线长度（1–50 米）")
-        val etWidth = EditText(this).apply {
-            setText(String.format(Locale.US, "%.1f", t.widthM))
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        box.addView(tvStart)
+        val sbStart = SeekBar(this).apply {
+            max = 1000
+            progress = (t.startF * 1000.0).toInt().coerceIn(0, 1000)
         }
-        box.addView(etWidth)
-        val cbReverse = CheckBox(this).apply {
+        sbStart.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                tvStart.text = String.format(Locale.US, "%.1f%%", progress / 10.0)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        box.addView(sbStart)
+
+        addLabel("赛道宽度 / 起始线长度")
+        val tvWidth = TextView(this).apply {
+            text = String.format(Locale.US, "%.1f m", t.widthM)
+            setTextColor(0xFF66E0D2.toInt())
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        box.addView(tvWidth)
+        val sbWidth = SeekBar(this).apply {
+            max = 490
+            progress = ((t.widthM - 1.0) * 10.0).toInt().coerceIn(0, 490)
+        }
+        sbWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                tvWidth.text = String.format(Locale.US, "%.1f m", 1.0 + progress / 10.0)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        box.addView(sbWidth)
+
+        val swReverse = Switch(this).apply {
             text = "反向起点方向（CCW）"
             isChecked = t.reverse
         }
-        box.addView(cbReverse)
+        box.addView(swReverse)
         box.addView(TextView(this).apply {
             text = "保存后会写入 ESP，并立即用于下一场计圈。"
             setTextColor(0xFF6D817D.toInt())
@@ -410,14 +507,10 @@ class RaceActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = etName.text.toString().trim()
-                val startPct = etStart.text.toString().trim().toDoubleOrNull()
-                val width = etWidth.text.toString().trim().toDoubleOrNull()
-                if (name.isEmpty() || startPct == null || width == null) {
-                    toast("请填写名称、起点和宽度")
-                    return@setOnClickListener
-                }
-                if (startPct !in 0.0..100.0 || width !in 1.0..50.0) {
-                    toast("起点需 0–100%，宽度 1–50m")
+                val startPct = sbStart.progress / 10.0
+                val width = 1.0 + sbWidth.progress / 10.0
+                if (name.isEmpty()) {
+                    toast("请填写名称")
                     return@setOnClickListener
                 }
                 val b = base()
@@ -426,12 +519,16 @@ class RaceActivity : AppCompatActivity() {
                     runCatching {
                         RaceApi.updateTrack(
                             b, t.id, name, startPct / 100.0,
-                            cbReverse.isChecked, width,
+                            swReverse.isChecked, width,
                         )
+                        val saved = RaceApi.tracks(b).firstOrNull { it.id == t.id }
+                        if (saved == null || saved.name != name) {
+                            throw IllegalStateException("设备未确认新名称")
+                        }
                     }.onSuccess {
                         main.post {
                             dialog.dismiss()
-                            toast("赛道设置已保存")
+                            toast("赛道设置已保存并同步")
                             loadAll()
                         }
                     }.onFailure { e -> main.post { fail("保存失败：${e.message}") } }
