@@ -64,7 +64,7 @@ static void record_from_engine(const char *date, float duration, int mode) {
     }
     histrec_t *r = &g.log[g.nlog++];
     memset(r, 0, sizeof(*r));
-    strncpy(r->trackName, g.engine.track->name, sizeof(r->trackName) - 1);
+    snprintf(r->trackName, sizeof(r->trackName), "%s", g.engine.track->name);
     snprintf(r->date, sizeof(r->date), "%s", date);
     r->mode = mode;
     r->duration = duration;
@@ -476,8 +476,8 @@ static bool ledfx_media_progress(void) {
 
 static bool ledfx_lap_flash(void) {
     if (g.rec_flash <= 0) return false;
-    float elapsed = 0.48f - g.rec_flash;
-    bool on = fmodf(elapsed, 0.16f) < 0.10f;
+    float elapsed = 2.0f - g.rec_flash;
+    bool on = fmodf(elapsed, 0.40f) < 0.20f;
     if (on) {
         for (int i = 0; i < LED_COUNT; i++) ws2812_set(i, 255, 255, 0);
     }
@@ -608,6 +608,12 @@ void app_render(void) {
     gfx_set_scale(1.0f);
     gfx_set_clip(0, CONTENT_Y, LCD_W, CONTENT_H);
     screens_render();
+
+    if (g.rec_flash > 0) {
+        float elapsed = 2.0f - g.rec_flash;
+        if (fmodf(elapsed, 0.40f) < 0.20f)
+            gfx_fill(0, 0, LCD_W, LCD_H, PAL.yellow);
+    }
 
     if (g.overlay_active) render_overlay();
 

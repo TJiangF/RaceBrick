@@ -80,7 +80,7 @@ bool race_store_begin(int track_slot, const char *track_name, int mode) {
     s_hdr.track_slot = (uint16_t)track_slot;
     s_hdr.mode = (uint8_t)mode;
     if (track_name) {
-        strncpy(s_hdr.track_name, track_name, sizeof(s_hdr.track_name) - 1);
+        snprintf(s_hdr.track_name, sizeof(s_hdr.track_name), "%s", track_name);
     }
     s_hdr.start_epoch = (uint32_t)time(NULL);
     s_slot = slot;

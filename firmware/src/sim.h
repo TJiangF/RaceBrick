@@ -12,12 +12,13 @@ typedef struct { float l, n; } gpt_t;   /* lateral / longitudinal g (trail) */
 /* ---------------- track ---------------- */
 typedef struct {
     int   N;
-    char  name[8];
+    char  name[48];
     int   vehicle;
     float best;        /* historical best (s) */
     bool  hasBest;
     float lapTarget;
     float lengthM;
+    float widthM;
     float maxSpeed;
     pt_t  points[TRK_N];
     float curvNorm[TRK_N];

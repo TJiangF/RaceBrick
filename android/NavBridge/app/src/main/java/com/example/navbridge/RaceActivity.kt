@@ -13,6 +13,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -195,13 +196,15 @@ class RaceActivity : AppCompatActivity() {
             card.addView(title(t.name.ifBlank { "赛道 #${t.id}" }))
             card.addView(
                 meta(
-                    "${formatLength(t.lengthM)}  ·  ${t.sections} 个分段  ·  " +
+                    "${formatLength(t.lengthM)}  ·  宽 ${String.format(Locale.US, "%.1f", t.widthM)}m  ·  " +
+                        "起点 ${String.format(Locale.US, "%.1f", t.startF * 100)}%  ·  " +
+                        (if (t.reverse) "CCW" else "CW") + "  ·  " +
                         if (t.geo) "有 GPS 基准" else "无 GPS 基准"
                 )
             )
             card.addView(
                 row(
-                    button("改名") { renameTrack(t) },
+                    button("编辑") { editTrack(t) },
                     button("查看场次") {
                         filterTrack = t.id
                         showingSessions = true
@@ -262,7 +265,7 @@ class RaceActivity : AppCompatActivity() {
             card.addView(
                 row(
                     button("详情") { showSessionDetail(s) },
-                    button("导出 CSV") { exportSession(s) },
+                    button("导出 RaceChrono") { exportSession(s) },
                     button("删除", danger = true) { confirmDeleteSession(s) },
                 )
             )
@@ -274,43 +277,74 @@ class RaceActivity : AppCompatActivity() {
         status("正在读取场次详情…")
         val b = base()
         worker.execute {
-            runCatching { RaceApi.session(b, summary.slot) }
-                .onSuccess { s -> main.post { if (!isFinishing) buildDetailDialog(s).show() } }
-                .onFailure { e -> main.post { fail("读取详情失败：${e.message}") } }
+            runCatching {
+                val s = RaceApi.session(b, summary.slot)
+                val laps = runCatching { RaceApi.sessionLaps(b, summary.slot) }.getOrElse { emptyList() }
+                s to laps
+            }.onSuccess { (s, laps) ->
+                main.post { if (!isFinishing) buildDetailDialog(s, laps).show() }
+            }.onFailure { e -> main.post { fail("读取详情失败：${e.message}") } }
         }
     }
 
-    private fun buildDetailDialog(s: RaceSession): AlertDialog {
+    private fun buildDetailDialog(s: RaceSession, laps: List<LapDetail>): AlertDialog {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
         }
         content.addView(meta("${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  ${s.samples} 点"))
-        if (s.lapTimes.isEmpty()) {
+        val best = laps.filter { !it.deleted && it.time > 0 }.minByOrNull { it.time }?.lap
+        if (laps.isEmpty() && s.lapTimes.isEmpty()) {
             content.addView(meta("没有有效圈速。"))
+        } else if (laps.isNotEmpty()) {
+            for (l in laps) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, dp(6), 0, dp(6))
+                }
+                val isBest = l.lap == best
+                row.addView(
+                    TextView(this).apply {
+                        text = "第 ${l.lap} 圈   ${formatLap(l.time)}" +
+                            (if (isBest) "   BEST" else "") +
+                            (if (l.deleted) "   (已删除)" else "")
+                        setTextColor(
+                            when {
+                                l.deleted -> 0xFF8A9A9A.toInt()
+                                isBest -> 0xFFFFD700.toInt()
+                                else -> 0xFFF0F6F4.toInt()
+                            }
+                        )
+                        textSize = 14f
+                        setTypeface(typeface, if (isBest) Typeface.BOLD else Typeface.NORMAL)
+                    }
+                )
+                row.addView(
+                    TextView(this).apply {
+                        text = String.format(
+                            Locale.US,
+                            "距离 %.0fm  ·  均速 %.1f km/h  ·  最高 %.1f km/h  ·  %d 点",
+                            l.distanceM, l.avgKmh, l.maxKmh, l.samples,
+                        )
+                        setTextColor(0xFFA9C4BE.toInt())
+                        textSize = 12f
+                    }
+                )
+                if (!l.deleted) {
+                    val del = button("删除这一圈") { confirmDeleteLap(s, l.lap) }
+                    del.layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(4) }
+                    row.addView(del)
+                }
+                content.addView(row)
+            }
         } else {
             for ((index, t) in s.lapTimes.withIndex()) {
                 val lap = index + 1
                 val deleted = (s.deletedLapMask and (1 shl (lap - 1))) != 0
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(6), 0, dp(6))
-                }
-                row.addView(
-                    TextView(this).apply {
-                        text = "第 $lap 圈   ${formatLap(t)}${if (deleted) "  (已删除)" else ""}"
-                        setTextColor(if (deleted) 0xFF8A9A9A.toInt() else 0xFFF0F6F4.toInt())
-                        textSize = 14f
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    }
-                )
-                if (!deleted) {
-                    row.addView(
-                        button("删除") { confirmDeleteLap(s, lap) }
-                    )
-                }
-                content.addView(row)
+                content.addView(meta("第 $lap 圈   ${formatLap(t)}${if (deleted) "  (已删除)" else ""}"))
             }
         }
         val scroll = ScrollView(this).apply { addView(content) }
@@ -321,37 +355,90 @@ class RaceActivity : AppCompatActivity() {
             .create()
     }
 
-    private fun renameTrack(t: RaceTrack) {
-        val input = EditText(this).apply {
+    private fun editTrack(t: RaceTrack) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        fun addLabel(text: String) {
+            box.addView(TextView(this).apply {
+                this.text = text
+                setTextColor(0xFFA9C4BE.toInt())
+                textSize = 12f
+                setPadding(0, dp(8), 0, dp(2))
+            })
+        }
+        addLabel("赛道名称（最多 15 个字符）")
+        val etName = EditText(this).apply {
             setText(t.name)
-            filters = arrayOf(InputFilter.LengthFilter(7))
+            filters = arrayOf(InputFilter.LengthFilter(15))
             setSelection(text.length)
         }
-        AlertDialog.Builder(this)
-            .setTitle("赛道改名")
-            .setMessage("最多 7 个字符；会写回 ESP 外置 Flash。")
-            .setView(input)
+        box.addView(etName)
+        addLabel("起始线位置（0–100%）")
+        val etStart = EditText(this).apply {
+            setText(String.format(Locale.US, "%.1f", t.startF * 100.0))
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        box.addView(etStart)
+        addLabel("赛道宽度 / 起始线长度（1–50 米）")
+        val etWidth = EditText(this).apply {
+            setText(String.format(Locale.US, "%.1f", t.widthM))
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        box.addView(etWidth)
+        val cbReverse = CheckBox(this).apply {
+            text = "反向起点方向（CCW）"
+            isChecked = t.reverse
+        }
+        box.addView(cbReverse)
+        box.addView(TextView(this).apply {
+            text = "保存后会写入 ESP，并立即用于下一场计圈。"
+            setTextColor(0xFF6D817D.toInt())
+            textSize = 11f
+            setPadding(0, dp(8), 0, 0)
+        })
+        val scroll = ScrollView(this).apply { addView(box) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("编辑赛道")
+            .setView(scroll)
             .setNegativeButton("取消", null)
-            .setPositiveButton("保存") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isEmpty()) {
-                    toast("名称不能为空")
-                    return@setPositiveButton
+            .setPositiveButton("保存", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = etName.text.toString().trim()
+                val startPct = etStart.text.toString().trim().toDoubleOrNull()
+                val width = etWidth.text.toString().trim().toDoubleOrNull()
+                if (name.isEmpty() || startPct == null || width == null) {
+                    toast("请填写名称、起点和宽度")
+                    return@setOnClickListener
+                }
+                if (startPct !in 0.0..100.0 || width !in 1.0..50.0) {
+                    toast("起点需 0–100%，宽度 1–50m")
+                    return@setOnClickListener
                 }
                 val b = base()
-                status("正在保存赛道名…")
+                status("正在保存赛道设置…")
                 worker.execute {
-                    runCatching { RaceApi.renameTrack(b, t.id, name) }
-                        .onSuccess {
-                            main.post {
-                                toast("已改名")
-                                loadAll()
-                            }
+                    runCatching {
+                        RaceApi.updateTrack(
+                            b, t.id, name, startPct / 100.0,
+                            cbReverse.isChecked, width,
+                        )
+                    }.onSuccess {
+                        main.post {
+                            dialog.dismiss()
+                            toast("赛道设置已保存")
+                            loadAll()
                         }
-                        .onFailure { e -> main.post { fail("改名失败：${e.message}") } }
+                    }.onFailure { e -> main.post { fail("保存失败：${e.message}") } }
                 }
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun confirmDeleteTrack(t: RaceTrack) {

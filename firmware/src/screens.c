@@ -1261,7 +1261,7 @@ static void render_rec_preview(void) {
         s_map_ready = true;
     }
     map_begin(&s_map);
-    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_track_ribbon(&s_map, g.sessionTrack.widthM > 0 ? g.sessionTrack.widthM : TRACK_WIDTH_M, PAL.line2);
     map_centerline(&s_map, PAL.dim, 3);
     pt_t sp = track_point_at(&g.sessionTrack, 0);
     pt_t st = track_tangent_at(&g.sessionTrack, 0);
@@ -1297,7 +1297,7 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
     }
     map_begin(&s_map);
     if (recorded) {
-        map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+        map_track_ribbon(&s_map, e->track && e->track->widthM > 0 ? e->track->widthM : TRACK_WIDTH_M, PAL.line2);
         map_centerline(&s_map, PAL.dim, 3);
     } else {
         map_fit_engine(&s_map, e, 0.28f);
@@ -1563,7 +1563,7 @@ static void render_section(void) {
     if (g.sessionTrack.N <= 0) { title_c("SECTION", 6); hint_c("NO ACTIVE TRACK", 100); return; }
     if (!s_map_ready) { map_init(&s_map, 0, 0, 176, 226); map_set_track(&s_map, &g.sessionTrack); s_map_ready = true; }
     map_begin(&s_map);
-    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_track_ribbon(&s_map, g.sessionTrack.widthM > 0 ? g.sessionTrack.widthM : TRACK_WIDTH_M, PAL.line2);
     map_centerline(&s_map, PAL.dim, 3);
     map_start_line(&s_map, 0, PAL.white);
     for (int i = 0; i < g.sec_n; i++) map_tick(&s_map, g.sec_sections[i], PAL.orange, 6);
@@ -1651,7 +1651,7 @@ static void render_track_start(void) {
     if (!t) return;
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
-    map_track_ribbon(&s_map, TRACK_WIDTH_M, PAL.line2);
+    map_track_ribbon(&s_map, t->widthM > 0 ? t->widthM : TRACK_WIDTH_M, PAL.line2);
     map_centerline(&s_map, PAL.dim, 4);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
@@ -2991,7 +2991,7 @@ void screens_update(float dt) {
             g.rec_last_lap = lap_time;
             if (g.rec_laps == 1 || lap_time < g.rec_best_lap) g.rec_best_lap = lap_time;
             g.rec_delta = g.rec_last_lap - g.rec_best_lap;
-            g.rec_flash = 0.48f;
+            g.rec_flash = 2.0f;
             g.rec_n = 0; g.rec_dist = 0;
             if (app_rec_reserve(1)) g.rec_pts[g.rec_n++] = (pt_t){mx, my};
             g.rec_last = (pt_t){mx, my};
@@ -3042,7 +3042,7 @@ void screens_update(float dt) {
             }
             if (e->lap_event) {
                 e->lap_event = false;
-                g.rec_flash = 0.48f;
+                g.rec_flash = 2.0f;
             }
         }
         break;
@@ -3081,7 +3081,7 @@ static void rec_make_log(void) {
     }
     histrec_t *r = &g.log[g.nlog++];
     memset(r, 0, sizeof(*r));
-    strncpy(r->trackName, g.sessionTrack.name, sizeof(r->trackName) - 1);
+    snprintf(r->trackName, sizeof(r->trackName), "%s", g.sessionTrack.name);
     strcpy(r->date, "NEW");
     r->mode = 0;
     r->vehicle = g.sessionTrack.vehicle;

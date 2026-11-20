@@ -19,6 +19,8 @@
 #include "tstore.h"
 #include "race_store.h"
 #include "gfx.h"
+#include "geo.h"
+#include <math.h>
 
 static const char *TAG = "netcfg";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -507,10 +509,19 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
     for (int k = 0; k < nslots && n < 23000; k++) {
         int i = slots[k];
         if (!tstore_load(i, t)) continue;
+        float sf = 0;
+        if (t->geo && t->nscale > 1e-9f) {
+            geo_ref_t r = { t->glat0, t->glon0 };
+            float mx, my, sdist, ddist;
+            geo_meters(&r, t->line_lat, t->line_lon, &mx, &my);
+            pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+            if (track_project(t, q, &sdist, &ddist)) sf = sdist / (float)t->N;
+        }
         n += snprintf(b + n, 24000 - n,
-            "%s{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,\"sections\":%d}",
+            "%s{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,"
+            "\"sections\":%d,\"width\":%.1f,\"start_f\":%.4f,\"reverse\":%d}",
             first ? "" : ",", i, t->name, t->geo ? 1 : 0,
-            (double)t->lengthM, t->nsec);
+            (double)t->lengthM, t->nsec, (double)t->widthM, (double)sf, t->reverse ? 1 : 0);
         first = false;
     }
     free(t);
@@ -531,8 +542,17 @@ static int query_int(httpd_req_t *req, const char *name, int defv) {
     return defv;
 }
 
+static double query_double(httpd_req_t *req, const char *name, double defv) {
+    char q[256] = {0}, v[32];
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
+        httpd_query_key_value(q, name, v, sizeof v) == ESP_OK) {
+        return strtod(v, NULL);
+    }
+    return defv;
+}
+
 static bool query_str(httpd_req_t *req, const char *name, char *out, int cap) {
-    char q[128] = {0};
+    char q[256] = {0};
     if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK) return false;
     if (httpd_query_key_value(q, name, out, cap) != ESP_OK) return false;
     urldecode(out);
@@ -542,17 +562,49 @@ static bool query_str(httpd_req_t *req, const char *name, char *out, int cap) {
 static esp_err_t h_api_track(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
     if (req->method == HTTP_POST) {
-        char name[16] = {0};
-        if (id < 0 || !query_str(req, "name", name, sizeof name) || !name[0]) {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "id/name required");
+        char name[64] = {0};
+        bool has_name = query_str(req, "name", name, sizeof name) && name[0];
+        double start_f = query_double(req, "start_f", -1.0);
+        double width = query_double(req, "width", -1.0);
+        int reverse = query_int(req, "reverse", -1);
+        if (id < 0 || (!has_name && start_f < 0 && width < 0 && reverse < 0)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "id and a field required");
             return ESP_FAIL;
         }
         track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
         bool ok = tstore_load(id, t);
+        int old_reverse = t ? t->reverse : 0;
+        bool heading_updated = false;
         if (ok) {
-            strncpy(t->name, name, sizeof(t->name) - 1);
-            t->name[sizeof(t->name) - 1] = 0;
+            if (has_name) {
+                snprintf(t->name, sizeof(t->name), "%s", name);
+            }
+            if (reverse >= 0) t->reverse = reverse ? 1 : 0;
+            if (width > 0) {
+                if (width < 1.0) width = 1.0;
+                if (width > 50.0) width = 50.0;
+                t->widthM = (float)width;
+            }
+            if (start_f >= 0 && t->geo && t->nscale > 1e-9f) {
+                start_f = fmod(start_f, 1.0);
+                if (start_f < 0) start_f += 1.0;
+                pt_t q = track_point_at(t, (float)start_f);
+                pt_t a = track_point_at(t, (float)start_f - 0.004f);
+                pt_t b = track_point_at(t, (float)start_f + 0.004f);
+                geo_ref_t r = { t->glat0, t->glon0 };
+                double lat, lon;
+                geo_from_meters(&r, (q.x - t->nox) / t->nscale, (q.y - t->noy) / t->nscale, &lat, &lon);
+                t->line_lat = lat;
+                t->line_lon = lon;
+                t->line_hdg = atan2f(b.y - a.y, b.x - a.x);
+                heading_updated = true;
+            }
+            if (heading_updated) {
+                if (t->reverse) t->line_hdg += (float)M_PI;
+            } else if (reverse >= 0 && old_reverse != t->reverse) {
+                t->line_hdg += (float)M_PI;
+            }
             ok = tstore_save(id, t);
         }
         free(t);
@@ -573,10 +625,20 @@ static esp_err_t h_api_track(httpd_req_t *req) {
     }
     char *b = (char *)malloc(16000);
     if (!b) { free(t); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    float start_f = 0;
+    if (t->geo && t->nscale > 1e-9f) {
+        geo_ref_t r = { t->glat0, t->glon0 };
+        float mx, my, sdist, ddist;
+        geo_meters(&r, t->line_lat, t->line_lon, &mx, &my);
+        pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+        if (track_project(t, q, &sdist, &ddist)) start_f = sdist / (float)t->N;
+    }
     int n = snprintf(b, 16000,
         "{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"length_m\":%.1f,"
+        "\"width\":%.1f,\"start_f\":%.4f,\"reverse\":%d,"
         "\"start\":{\"lat\":%.7f,\"lon\":%.7f,\"hdg\":%.3f},"
         "\"sections\":[", id, t->name, t->geo ? 1 : 0, (double)t->lengthM,
+        (double)t->widthM, (double)start_f, t->reverse ? 1 : 0,
         t->line_lat, t->line_lon, (double)t->line_hdg);
     for (int i = 0; i < t->nsec && n < 15200; i++)
         n += snprintf(b + n, 16000 - n, "%s%.5f", i ? "," : "", (double)t->sections[i]);
@@ -644,6 +706,55 @@ static esp_err_t h_api_session_lap_delete(httpd_req_t *req) {
     bool ok = id >= 0 && lap > 0 && race_store_delete_lap(id, lap);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t h_api_session_laps(httpd_req_t *req) {
+    int id = query_int(req, "id", -1);
+    race_hdr_t h;
+    if (id < 0 || !race_store_info(id, &h)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
+        return ESP_FAIL;
+    }
+    uint32_t cnt[RACE_LAPS] = {0};
+    double dist[RACE_LAPS] = {0};
+    double sum_kmh[RACE_LAPS] = {0};
+    float max_kmh[RACE_LAPS] = {0};
+    double prev_lat = 0, prev_lon = 0;
+    int prev_lap = -1;
+    for (uint32_t i = 0; i < h.sample_count; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(id, (int)i, &sm)) break;
+        if (sm.lap < 1 || sm.lap > RACE_LAPS) continue;
+        int lap = sm.lap - 1;
+        if (!(sm.flags & 1)) continue;
+        double lat = sm.lat_e7 / 1e7, lon = sm.lon_e7 / 1e7;
+        float kmh = sm.speed10 / 10.0f;
+        cnt[lap]++;
+        sum_kmh[lap] += kmh;
+        if (kmh > max_kmh[lap]) max_kmh[lap] = kmh;
+        if (prev_lap == lap) {
+            double dlat = (lat - prev_lat) * 111320.0;
+            double dlon = (lon - prev_lon) * 111320.0 * cos(lat * M_PI / 180.0);
+            dist[lap] += sqrt(dlat * dlat + dlon * dlon);
+        }
+        prev_lat = lat; prev_lon = lon; prev_lap = lap;
+    }
+    char b[4096];
+    int n = snprintf(b, sizeof b, "{\"slot\":%d,\"laps\":[", id);
+    bool first = true;
+    for (int i = 0; i < h.lap_count && i < RACE_LAPS; i++) {
+        bool deleted = (h.lap_deleted_mask & (1u << i)) != 0;
+        double avg = cnt[i] ? sum_kmh[i] / cnt[i] : 0.0;
+        n += snprintf(b + n, sizeof(b) - n,
+            "%s{\"lap\":%d,\"time\":%.3f,\"samples\":%lu,\"distance_m\":%.1f,"
+            "\"avg_kmh\":%.1f,\"max_kmh\":%.1f,\"deleted\":%d}",
+            first ? "" : ",", i + 1, (double)h.lap_time[i],
+            (unsigned long)cnt[i], dist[i], avg, (double)max_kmh[i], deleted ? 1 : 0);
+        first = false;
+    }
+    n += snprintf(b + n, sizeof(b) - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, b, n);
 }
 
 static esp_err_t h_api_session_file(httpd_req_t *req) {
@@ -802,6 +913,7 @@ static void start_httpd(void) {
     httpd_uri_t u18 = { .uri = "/api/session/lap", .method = HTTP_DELETE, .handler = h_api_session_lap_delete };
     httpd_uri_t u19 = { .uri = "/api/session/file", .method = HTTP_GET, .handler = h_api_session_file };
     httpd_uri_t u20 = { .uri = "/api/track", .method = HTTP_POST, .handler = h_api_track };
+    httpd_uri_t u21 = { .uri = "/api/session/laps", .method = HTTP_GET, .handler = h_api_session_laps };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -822,6 +934,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u18);
     httpd_register_uri_handler(s_httpd, &u19);
     httpd_register_uri_handler(s_httpd, &u20);
+    httpd_register_uri_handler(s_httpd, &u21);
 }
 
 void netcfg_start_ap(void) {

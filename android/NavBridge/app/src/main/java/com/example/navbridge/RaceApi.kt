@@ -9,6 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 data class RaceTrack(
     val id: Int,
@@ -16,6 +17,19 @@ data class RaceTrack(
     val geo: Boolean,
     val lengthM: Double,
     val sections: Int,
+    val widthM: Double = 5.0,
+    val startF: Double = 0.0,
+    val reverse: Boolean = false,
+)
+
+data class LapDetail(
+    val lap: Int,
+    val time: Double,
+    val samples: Long,
+    val distanceM: Double,
+    val avgKmh: Double,
+    val maxKmh: Double,
+    val deleted: Boolean,
 )
 
 data class RaceSession(
@@ -70,6 +84,9 @@ object RaceApi {
                 geo = o.optInt("geo", 0) != 0,
                 lengthM = o.optDouble("m", 0.0),
                 sections = o.optInt("sections", 0),
+                widthM = o.optDouble("width", 5.0),
+                startF = o.optDouble("start_f", 0.0),
+                reverse = o.optInt("reverse", 0) != 0,
             )
         }
         return out
@@ -88,6 +105,16 @@ object RaceApi {
         return parseSession(o)
     }
 
+    fun updateTrack(
+        base: String, id: Int, name: String,
+        startF: Double, reverse: Boolean, widthM: Double,
+    ) {
+        val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
+        val sf = String.format(Locale.US, "%.5f", startF)
+        val w = String.format(Locale.US, "%.2f", widthM)
+        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&width=$w")
+    }
+
     fun renameTrack(base: String, id: Int, name: String) {
         val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
         post(base, "/api/track?id=$id&name=$encoded")
@@ -103,6 +130,25 @@ object RaceApi {
 
     fun deleteLap(base: String, slot: Int, lap: Int) {
         delete(base, "/api/session/lap?id=$slot&lap=$lap")
+    }
+
+    fun sessionLaps(base: String, slot: Int): List<LapDetail> {
+        val root = JSONObject(get(base, "/api/session/laps?id=$slot").toString(StandardCharsets.UTF_8))
+        val arr = root.optJSONArray("laps") ?: JSONArray()
+        val out = ArrayList<LapDetail>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            out += LapDetail(
+                lap = o.optInt("lap"),
+                time = o.optDouble("time", 0.0),
+                samples = o.optLong("samples", 0),
+                distanceM = o.optDouble("distance_m", 0.0),
+                avgKmh = o.optDouble("avg_kmh", 0.0),
+                maxKmh = o.optDouble("max_kmh", 0.0),
+                deleted = o.optInt("deleted", 0) != 0,
+            )
+        }
+        return out
     }
 
     fun sessionCsv(base: String, slot: Int): ByteArray =

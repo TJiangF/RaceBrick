@@ -167,6 +167,7 @@ void track_build_def(track_t *t, int idx) {
     t->N = TRK_N;
     t->lapTarget = 9.5f;
     t->lengthM = 180;
+    t->widthM = TRACK_WIDTH_M;
     t->maxSpeed = 90;
     switch (idx) {
     case 0: ctrl = DEF_A; m = (int)(sizeof(DEF_A) / sizeof(pt_t)); strcpy(t->name, "A"); t->vehicle = 0; t->best = 11.842f; break;
@@ -185,6 +186,7 @@ void track_build_from_points(track_t *t, const pt_t *pts, int n, const char *nam
     t->N = TRK_N;
     t->lapTarget = 9.5f;
     t->lengthM = 180;
+    t->widthM = TRACK_WIDTH_M;
     t->maxSpeed = 90;
     t->vehicle = vehicle;
     t->hasBest = false;
@@ -199,6 +201,7 @@ void track_build_geo(track_t *t, const pt_t *mpts, int n, double lat0, double lo
     memset(t, 0, sizeof(*t));
     t->N = TRK_N;
     t->lapTarget = 30.0f;
+    t->widthM = TRACK_WIDTH_M;
     t->vehicle = vehicle;
     t->hasBest = false;
     strncpy(t->name, name, sizeof(t->name) - 1);
