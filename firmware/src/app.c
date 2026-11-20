@@ -730,19 +730,6 @@ void app_init(void) {
         nvs_flash_init();
     }
     settings_load();
-    {
-        nvs_handle_t h;
-        if (nvs_open("rb", NVS_READWRITE, &h) == ESP_OK) {
-            int32_t merged = 0;
-            if (nvs_get_i32(h, "logmerged", &merged) != ESP_OK || merged != 1) {
-                log_store_clear();
-                nvs_set_i32(h, "logmerged", 1);
-                nvs_commit(h);
-                ESP_LOGI("app", "cleared legacy Race Log summaries; raw sessions are now Race Log");
-            }
-            nvs_close(h);
-        }
-    }
     btmap_set_color_tuning(g.media_near_black, g.media_black_pct);
     theme_set_style(g.ui_style);
     theme_set(g.theme_light);
@@ -823,7 +810,26 @@ void app_init(void) {
             }
         }
     }
-    if (g.log) g.nlog = log_store_load(g.log, HISTORY_RECORDS);
+    if (g.log) {
+        nvs_handle_t nh;
+        int32_t merged = 0;
+        bool clear_logs = false;
+        if (nvs_open("rb", NVS_READWRITE, &nh) == ESP_OK) {
+            if (nvs_get_i32(nh, "logmerged2", &merged) != ESP_OK || merged != 1) {
+                clear_logs = true;
+                nvs_set_i32(nh, "logmerged2", 1);
+                nvs_commit(nh);
+            }
+            nvs_close(nh);
+        }
+        if (clear_logs) {
+            log_store_clear();
+            g.nlog = 0;
+            ESP_LOGI("app", "cleared legacy Race Log summaries; raw sessions are now Race Log");
+        } else {
+            g.nlog = log_store_load(g.log, HISTORY_RECORDS);
+        }
+    }
     nav_start();
     nav_set_mode(g.nav_mode, g.nav_sat);
     nav_set_zoom_level(g.nav_zoom);

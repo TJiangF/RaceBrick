@@ -9,6 +9,8 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <sys/time.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -654,8 +656,35 @@ void gps_restart(void) {
     ESP_LOGI(TAG, "GNSS restart (cold) sent on %s", s_st.source == 1 ? "I2C" : "UART");
 }
 
+static bool s_time_set;
+static int64_t utc_days_epoch(int y, int m, int d) {
+    /* Howard Hinnant's civil-date conversion, valid for modern dates. */
+    y -= m <= 2;
+    int era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (unsigned)((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1);
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return (int64_t)(era * 146097 + (int)doe - 719468) * 86400;
+}
+
+static void note_system_time(void) {
+    if (s_time_set) return;
+    if (s_st.year < 2024 || s_st.year > 2100 ||
+        s_st.month < 1 || s_st.month > 12 ||
+        s_st.day < 1 || s_st.day > 31) return;
+    int64_t epoch = utc_days_epoch(s_st.year, s_st.month, s_st.day) +
+                    (int64_t)s_st.utc_h * 3600 + (int64_t)s_st.utc_m * 60 + s_st.utc_s;
+    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+    if (settimeofday(&tv, NULL) == 0) {
+        s_time_set = true;
+        ESP_LOGI(TAG, "system UTC set from GNSS: %04d-%02d-%02d %02d:%02d:%02d",
+                 s_st.year, s_st.month, s_st.day, s_st.utc_h, s_st.utc_m, s_st.utc_s);
+    }
+}
+
 void gps_poll(void) {
     if (!s_st.inited) return;
+    note_system_time();
     int64_t now = esp_timer_get_time();
     if (now - s_last_poll_us > 2000000) {
         s_last_poll_us = now;
