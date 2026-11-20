@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -19,7 +20,7 @@
 
 static const char *TAG = "nav";
 
-#define NAV_URL        "http://47.100.182.210:2020/api/v1/nav"
+#define NAV_URL        "https://racebrick.tfworks.cn/api/v1/nav"
 #define NAV_SIZE_M     400        /* base ground side length (m), divided by zoom */
 #define NAV_BODY_MAX   (96 * 1024)   /* 320x240 pal16 worst case fits */
 #define NAV_HTTP_TIMEOUT_MS 8000
@@ -157,6 +158,7 @@ static bool http_client_ready(void) {
         .keep_alive_idle = 15,
         .keep_alive_interval = 5,
         .keep_alive_count = 3,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .user_data = &s_rx,
         .event_handler = http_event,
     };
