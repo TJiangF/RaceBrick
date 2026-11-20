@@ -140,6 +140,26 @@ void lcd_set_gap(int x, int y) {
     esp_lcd_panel_set_gap(s_panel, x, y);
 }
 
+void lcd_flush_rect(const uint16_t *fb, int x, int y, int w, int h) {
+    if (!fb || w <= 0 || h <= 0) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > LCD_W) w = LCD_W - x;
+    if (y + h > LCD_H) h = LCD_H - y;
+    if (w <= 0 || h <= 0) return;
+    if (!s_bounce) { lcd_flush(fb); return; }
+    for (int yy = 0; yy < h; yy += BOUNCE_LINES) {
+        int n = (h - yy) < BOUNCE_LINES ? (h - yy) : BOUNCE_LINES;
+        for (int r = 0; r < n; r++) {
+            memcpy(s_bounce + (size_t)r * w,
+                   fb + (size_t)(y + yy + r) * LCD_W + x,
+                   (size_t)w * sizeof(uint16_t));
+        }
+        esp_lcd_panel_draw_bitmap(s_panel, x, y + yy, x + w, y + yy + n, s_bounce);
+        xSemaphoreTake(s_flush_done, portMAX_DELAY);
+    }
+}
+
 void lcd_flush(const uint16_t *fb) {
     if (!s_bounce) {   /* fallback (may not work with a PSRAM framebuffer) */
         esp_lcd_panel_draw_bitmap(s_panel, 0, 0, LCD_W, LCD_H, fb);

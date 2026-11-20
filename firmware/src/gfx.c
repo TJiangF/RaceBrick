@@ -1,4 +1,5 @@
 #include "gfx.h"
+#include "font_cn_data.h"
 #include "config.h"
 #include "font5x7.h"
 #include "font_f1.h"
@@ -91,6 +92,14 @@ void gfx_clear(uint16_t c) {
 void gfx_pixel(int x, int y, uint16_t c) {
     x = (int)lroundf(x * s_scale) + s_dx;
     y = (int)lroundf((y + s_dy) * s_scale);
+    if (x < s_cx0 || x >= s_cx1 || y < s_cy0 || y >= s_cy1) return;
+    s_fb[y * LCD_W + x] = c;
+}
+
+/* Chinese glyphs are already sized per style (16px for F1 titles/lyrics,
+ * 12px otherwise); do not apply the numeric UI scale or text overlaps its
+ * neighbour and appears clipped/hollow. */
+static void gfx_pixel_raw(int x, int y, uint16_t c) {
     if (x < s_cx0 || x >= s_cx1 || y < s_cy0 || y >= s_cy1) return;
     s_fb[y * LCD_W + x] = c;
 }
@@ -291,4 +300,97 @@ void gfx_text_center(int cx, int y, const char *s, uint16_t c, int scale) {
 }
 void gfx_text_right(int rx, int y, const char *s, uint16_t c, int scale) {
     gfx_text(rx - gfx_text_w(s, scale), y, s, c, scale);
+}
+
+/* ---- UTF-8 Chinese fallback ---- */
+static int utf8_next(const char **sp, uint32_t *cp) {
+    const unsigned char *p = (const unsigned char *)*sp;
+    if (!*p) return 0;
+    int n = 1;
+    uint32_t v;
+    if (p[0] < 0x80) { v = p[0]; }
+    else if ((p[0] & 0xE0) == 0xC0) { n = 2; v = p[0] & 0x1F; }
+    else if ((p[0] & 0xF0) == 0xE0) { n = 3; v = p[0] & 0x0F; }
+    else if ((p[0] & 0xF8) == 0xF0) { n = 4; v = p[0] & 0x07; }
+    else { *sp += 1; *cp = 0xFFFD; return 1; }
+    for (int i = 1; i < n; i++) {
+        if ((p[i] & 0xC0) != 0x80) { *sp += 1; *cp = 0xFFFD; return 1; }
+        v = (v << 6) | (p[i] & 0x3F);
+    }
+    *sp += n;
+    *cp = v;
+    return n;
+}
+
+static int cn_lookup(uint32_t cp) {
+    int lo = 0, hi = CN_GLYPH_COUNT - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (CN_CODEPOINTS[mid] == cp) return mid;
+        if (CN_CODEPOINTS[mid] < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return -1;
+}
+
+typedef struct { const uint8_t *bits; int box; } cn_font_t;
+
+static cn_font_t cn_font_for(int scale) {
+    if (gfx_font_is_f1()) {
+        if (scale >= 2) return (cn_font_t){ &CN_NOTO16[0][0], 16 };
+        return (cn_font_t){ &CN_NOTO12[0][0], 12 };
+    }
+    if (scale >= 2) return (cn_font_t){ &CN_FUSION16[0][0], 16 };
+    return (cn_font_t){ &CN_FUSION12[0][0], 12 };
+}
+
+int gfx_text_i18n_w(const char *s, int scale) {
+    int w = 0;
+    while (s && *s) {
+        uint32_t cp = 0;
+        utf8_next(&s, &cp);
+        if (cp < 0x80) {
+            char tmp[2] = { (char)cp, 0 };
+            w += gfx_text_w(tmp, scale);
+        } else {
+            int idx = cn_lookup(cp);
+            if (idx >= 0) {
+                cn_font_t f = cn_font_for(scale);
+                w += f.box;
+            } else {
+                w += gfx_text_w("?", scale);
+            }
+        }
+    }
+    return w;
+}
+
+void gfx_text_i18n(int x, int y, const char *s, uint16_t c, int scale) {
+    int cx = x;
+    while (s && *s) {
+        uint32_t cp = 0;
+        utf8_next(&s, &cp);
+        if (cp < 0x80) {
+            char tmp[2] = { (char)cp, 0 };
+            gfx_text(cx, y, tmp, c, scale);
+            cx += gfx_text_w(tmp, scale);
+            continue;
+        }
+        int idx = cn_lookup(cp);
+        if (idx < 0) {
+            gfx_text(cx, y, "?", c, scale);
+            cx += gfx_text_w("?", scale);
+            continue;
+        }
+        cn_font_t f = cn_font_for(scale);
+        int stride = (f.box * f.box + 7) / 8;
+        const uint8_t *g = f.bits + (size_t)idx * stride;
+        for (int py = 0; py < f.box; py++)
+            for (int px = 0; px < f.box; px++) {
+                int bit = py * f.box + px;
+                if (g[bit >> 3] & (0x80 >> (bit & 7)))
+                    gfx_pixel_raw(cx + px, y + py, c);
+            }
+        cx += f.box;
+    }
 }

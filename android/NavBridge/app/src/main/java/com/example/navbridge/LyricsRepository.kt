@@ -1,6 +1,5 @@
 package com.example.navbridge
 
-import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -10,37 +9,92 @@ import java.net.URLEncoder
  *  not expose lyrics, so this uses LRCLIB and falls back to plain lyrics. */
 object LyricsRepository {
     data class Line(val timeMs: Long, val text: String)
+    data class Result(val lines: List<Line>, val source: String)
 
     private const val BASE = "https://lrclib.net/api"
+    private const val NETEASE = "https://music.163.com/api"
 
-    fun fetch(title: String, artist: String, album: String, durationMs: Long): List<Line> {
-        if (title.isBlank()) return emptyList()
+    /* mode: 0=AUTO, 1=LRCLIB exact, 2=NetEase, 3=notification, 4=title */
+    fun fetch(title: String, artist: String, album: String, durationMs: Long,
+              mode: Int = 0): Result {
+        if (title.isBlank() || mode == 3 || mode == 4) {
+            return Result(emptyList(), "NONE")
+        }
         val enc = { s: String -> URLEncoder.encode(s, "UTF-8") }
         val duration = if (durationMs > 0) durationMs / 1000 else 0
-        val get = "$BASE/get?track_name=${enc(title)}&artist_name=${enc(artist)}" +
-            "&album_name=${enc(album)}&duration=$duration"
-        parseJson(http(get))?.let { if (it.isNotEmpty()) return it }
-
-        val search = "$BASE/search?q=${enc("$artist $title")}"
-        val arr = http(search)?.let { runCatching { JSONArray(it) }.getOrNull() }
-        if (arr != null) {
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
-                parseObject(obj)?.let { if (it.isNotEmpty()) return it }
-            }
+        if (mode == 0 || mode == 1) {
+            val get = "$BASE/get?track_name=${enc(title)}&artist_name=${enc(artist)}" +
+                "&album_name=${enc(album)}&duration=$duration"
+            parseJson(http(get))?.let { if (it.isNotEmpty()) return Result(it, "LRC-G") }
         }
-        return emptyList()
+        if (mode == 1) return Result(emptyList(), "NONE")
+
+        // LRCLIB has a much smaller Chinese catalogue (e.g. 7-11 的爱恋 is
+        // absent), so fall back to NetEase Cloud Music's public search/lyric
+        // endpoints. This is only a plain GET, no account/cookie required.
+        val netease = fetchNetease(title, artist, duration)
+        if (netease.isNotEmpty()) return Result(netease, "NE")
+        return Result(emptyList(), "NONE")
     }
 
-    private fun http(url: String): String? {
+    private fun norm(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
+
+    private fun fetchNetease(title: String, artist: String, durationS: Long): List<Line> {
+        val enc = { s: String -> URLEncoder.encode(s, "UTF-8") }
+        val q = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
+        val searchUrl = "$NETEASE/search/get/web?s=${enc(q)}&type=1&offset=0&total=true&limit=10"
+        val text = http(searchUrl, "https://music.163.com/") ?: return emptyList()
+        val root = runCatching { JSONObject(text) }.getOrNull() ?: return emptyList()
+        val songs = root.optJSONObject("result")?.optJSONArray("songs") ?: return emptyList()
+        val wantTitle = norm(title)
+        val wantArtist = norm(artist)
+        var bestId = 0L
+        var bestScore = -1
+        for (i in 0 until songs.length()) {
+            val song = songs.optJSONObject(i) ?: continue
+            val name = song.optString("name")
+            var score = if (norm(name) == wantTitle) 4 else 0
+            val artists = song.optJSONArray("artists")
+            if (artists != null && wantArtist.isNotEmpty()) {
+                for (j in 0 until artists.length()) {
+                    val a = norm(artists.optJSONObject(j)?.optString("name").orEmpty())
+                    if (a.isNotEmpty() && (a.contains(wantArtist) || wantArtist.contains(a))) {
+                        score += 3
+                        break
+                    }
+                }
+            }
+            if (durationS > 0) {
+                val d = song.optLong("duration") / 1000
+                if (d > 0) {
+                    val diff = if (d > durationS) d - durationS else durationS - d
+                    if (diff <= 3) score += 2 else if (diff > 15) score -= 2
+                }
+            }
+            if (score > bestScore) {
+                bestScore = score
+                bestId = song.optLong("id")
+            }
+        }
+        if (bestId <= 0L) return emptyList()
+        val lyricUrl = "$NETEASE/song/lyric?id=$bestId&lv=1&kv=1&tv=-1"
+        val lyricText = http(lyricUrl, "https://music.163.com/") ?: return emptyList()
+        val lyricRoot = runCatching { JSONObject(lyricText) }.getOrNull() ?: return emptyList()
+        val lrc = lyricRoot.optJSONObject("lrc")?.optString("lyric").orEmpty()
+        if (lrc.isBlank() || lrc == "null") return emptyList()
+        return parseLrc(lrc)
+    }
+
+    private fun http(url: String, referer: String? = null): String? {
         var c: HttpURLConnection? = null
         return runCatching {
             c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 4500
                 readTimeout = 4500
                 requestMethod = "GET"
-                setRequestProperty("User-Agent", "RaceBrick/0.9.13 (Android)")
+                setRequestProperty("User-Agent", "RaceBrick/0.9.30 (Android)")
                 setRequestProperty("Accept", "application/json")
+                if (referer != null) setRequestProperty("Referer", referer)
             }
             if (c!!.responseCode !in 200..299) return null
             c!!.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

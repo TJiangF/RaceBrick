@@ -34,6 +34,7 @@ class BleClient(
     private val onStatus: (String) -> Unit,
     private val onReady: () -> Unit,
     private val onLine: (String) -> Unit,
+    private val onSessionChanged: (Boolean) -> Unit = {},
 ) {
     companion object {
         val SERVICE: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
@@ -153,6 +154,7 @@ class BleClient(
                 writing = false
                 synchronized(lock) { control.clear(); bulk.clear() }
                 onStatus("设备已断开")
+                onSessionChanged(false)
                 runCatching { g.close() }
                 if (gatt === g) gatt = null
             }
@@ -242,6 +244,7 @@ class BleClient(
                 if (!verified) {
                     verified = true
                     onStatus("设备验证通过")
+                    onSessionChanged(true)
                     // 默认原版配色、开小地图、白天
                     send("#t,0,1")
                     send("#m,1")
@@ -255,6 +258,7 @@ class BleClient(
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        onSessionChanged(false)
         handler.removeCallbacks(heartbeat)
         stopScan()
         writing = false

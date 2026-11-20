@@ -10,7 +10,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
+import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -19,6 +21,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -35,6 +38,13 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var mainScroll: View
+    private lateinit var connectGate: View
+    private lateinit var floatingStatus: TextView
+    private lateinit var btnGateConnect: Button
+    private lateinit var tvGateStatus: TextView
+    private var sessionActive = false
 
     private lateinit var tvStatus: TextView
     private lateinit var tvLog: TextView
@@ -73,12 +83,40 @@ class MainActivity : AppCompatActivity() {
     private var lastMediaPositionMs: Long = -1L
     private var lastAlbumKey: String? = null
     private var lastArtIdentity: String = ""
-    private var lastArtLogKey: String = ""
+    private var lastArtSentIdentity: String = ""
+    private var lastArtSrcSig: String = ""
+    private var lastArtSkipSig: String = ""
+    private var artTxSeq: Int = 0
+    private var artHoldUntil: Long = 0L
+    private var lastNotifLyric: String = ""
+    private var coverRefreshToken: Int = 0
+    private var coverRefreshAttempts: Int = 0
+    private var coverRefreshPendingToken: Int = -1
+    private val coverRefreshTimeout = Runnable {
+        val token = coverRefreshPendingToken
+        if (token < 0) return@Runnable
+        if (coverRefreshAttempts < 5) {
+            log("封面刷新超时，重试")
+            startCoverRefreshAttempt()
+        } else {
+            coverRefreshPendingToken = -1
+            log("封面刷新失败：设备未确认")
+        }
+    }
+    // System/player title channel is the default lyric source. Set this to
+    // true only when you deliberately want LRCLIB/NetEase network lookup.
+    private val onlineLyricsEnabled = true
     private var lyricLines: List<LyricsRepository.Line> = emptyList()
+    private var systemLyric: String = ""
+    private var systemLyricSent: String = ""
     private var lyricKey: String = ""
+    private var lyricMode: Int = 0
+    private val lyricModeNames = arrayOf("AUTO", "LRCLIB", "NETEASE", "NOTIF", "TITLE")
+    private var lyricSource: String = "NONE"
+    private var lastLyricSourceSent: String = ""
     private var lyricWindowKey: String = ""
     private var lyricCleared = true
-    private val lyricCache = HashMap<String, List<LyricsRepository.Line>>()
+    private val lyricCache = HashMap<String, LyricsRepository.Result>()
     private var mediaPrompted = false
     private var deviceKmh = -1
     private var deviceGpsAt = 0L
@@ -194,6 +232,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        mainScroll = findViewById(R.id.mainScroll)
+        connectGate = findViewById(R.id.connectGate)
+        floatingStatus = findViewById(R.id.floatingStatus)
+        btnGateConnect = findViewById(R.id.btnGateConnect)
+        tvGateStatus = findViewById(R.id.tvGateStatus)
         tvStatus = findViewById(R.id.tvStatus)
         tvLog = findViewById(R.id.tvLog)
         etKeyword = findViewById(R.id.etKeyword)
@@ -215,9 +258,16 @@ class MainActivity : AppCompatActivity() {
 
         ble = BleClient(
             this,
-            onStatus = { msg -> runOnUiThread { status(msg); log(msg) } },
+            onStatus = { msg -> runOnUiThread {
+                status(msg); log(msg)
+                if (!sessionActive) tvGateStatus.text = msg
+            } },
+            onSessionChanged = { active ->
+                runOnUiThread { setSessionActive(active) }
+            },
             onReady = {
                 runOnUiThread {
+                    setSessionActive(true)
                     MediaKeepAliveService.start(this)
                     log("RaceBrick 通过验证，开始同步")
                     lastSentGen = -1L
@@ -229,8 +279,15 @@ class MainActivity : AppCompatActivity() {
                     lastMediaPositionMs = -1L
                     lastAlbumKey = null
                     lastArtIdentity = ""
+                    lastArtSentIdentity = ""
+                    lastArtSrcSig = ""
+                    lastArtSkipSig = ""
                     lyricKey = ""
+                    lyricSource = "NONE"
+                    lastLyricSourceSent = ""
                     lyricLines = emptyList()
+                    systemLyric = ""
+                    systemLyricSent = ""
                     lyricWindowKey = ""
                     lyricCleared = true
                     sendMediaState()
@@ -240,6 +297,18 @@ class MainActivity : AppCompatActivity() {
                     sendLyricWindow()
                     sendPosition()
                     sendLedProgress()
+                    // If the player had not published its MediaSession yet at
+                    // the instant BLE verified, retry once after it settles.
+                    main.postDelayed({
+                        if (ble.verified && stableTitle.isBlank()) {
+                            mediaIdentity = ""
+                            sendMediaMetadata()
+                            sendLyricWindow()
+                        }
+                    }, 1200)
+                    main.postDelayed({
+                        if (ble.verified) forceCoverRefresh()
+                    }, 900)
                     if (!sendFrames) {
                         lastRaster?.let { sendRasterBytes(it) }
                         lastRoute?.let { sendRouteBytes(it) }
@@ -254,6 +323,7 @@ class MainActivity : AppCompatActivity() {
                         line.startsWith("#G,") -> handleDeviceGps(line)
                         line.startsWith("#Z,") -> handleDeviceZoom(line)
                         line.startsWith("#W,") -> wifiSetup?.onLine(line)
+                        line.startsWith("#R,COVER,") -> handleCoverRefreshAck(line)
                         else -> log("← $line")
                     }
                 }
@@ -341,10 +411,12 @@ class MainActivity : AppCompatActivity() {
             searchHandler.postDelayed(runnable, 350)
         }
 
-        findViewById<Button>(R.id.btnConnect).setOnClickListener {
+        btnGateConnect.setOnClickListener {
             MediaKeepAliveService.start(this)
+            tvGateStatus.text = "正在搜索 RaceBrick…"
             ble.connect()
         }
+        floatingStatus.setOnClickListener { showDeviceMenu() }
         findViewById<Button>(R.id.btnStart).setOnClickListener { startNavigation(false) }
         findViewById<Button>(R.id.btnSimulate).setOnClickListener { startNavigation(true) }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopNavigation() }
@@ -432,6 +504,75 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("start", false)) {
             main.postDelayed({ startNavigation(true) }, 2200)
         }
+    }
+
+    private fun setSessionActive(active: Boolean) {
+        sessionActive = active
+        mainScroll.visibility = if (active) View.VISIBLE else View.GONE
+        connectGate.visibility = if (active) View.GONE else View.VISIBLE
+        floatingStatus.visibility = if (active) View.VISIBLE else View.GONE
+        if (!active) {
+            tvGateStatus.text = "未连接 RaceBrick"
+        }
+    }
+
+    private fun showDeviceMenu() {
+        if (!sessionActive) return
+        AlertDialog.Builder(this)
+            .setTitle("RaceBrick 设备")
+            .setItems(arrayOf("断开连接", "重新连接")) { _, which ->
+                when (which) {
+                    0 -> {
+                        log("主动断开 RaceBrick")
+                        ble.disconnect()
+                        setSessionActive(false)
+                        tvGateStatus.text = "设备已断开"
+                    }
+                    1 -> {
+                        log("重新连接 RaceBrick…")
+                        ble.disconnect()
+                        setSessionActive(false)
+                        tvGateStatus.text = "正在重新连接…"
+                        main.postDelayed({
+                            MediaKeepAliveService.start(this)
+                            ble.connect()
+                        }, 700)
+                    }
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun forceCoverRefresh() {
+        if (!ble.verified) return
+        coverRefreshAttempts = 0
+        startCoverRefreshAttempt()
+    }
+
+    private fun startCoverRefreshAttempt() {
+        if (!ble.verified) return
+        coverRefreshAttempts++
+        val token = ++coverRefreshToken
+        coverRefreshPendingToken = token
+        log("封面刷新请求 #$coverRefreshAttempts token=$token")
+        ble.send("#CR,$token")
+        // Force the normal metadata path to resend the current bitmap.
+        lastArtSentIdentity = ""
+        artHoldUntil = 0L
+        sendMediaMetadata()
+        main.removeCallbacks(coverRefreshTimeout)
+        main.postDelayed(coverRefreshTimeout, 2000)
+    }
+
+    private fun handleCoverRefreshAck(line: String) {
+        val p = line.split(',')
+        if (p.size < 4 || p[0] != "#R" || p[1] != "COVER") return
+        val token = p[2].toIntOrNull() ?: return
+        if (token != coverRefreshPendingToken) return
+        coverRefreshPendingToken = -1
+        main.removeCallbacks(coverRefreshTimeout)
+        log("封面刷新完成：设备已确认 token=$token")
     }
 
     private fun requestPermissions() {
@@ -1152,14 +1293,33 @@ class MainActivity : AppCompatActivity() {
         ble.send("M,STATE,${if (playing) 1 else 0}")
     }
 
+    private fun normalizeMediaMeta(m: MediaControl.Meta): MediaControl.Meta {
+        var title = m.title.trim()
+        var artist = m.artist.trim()
+        // Some players expose artist as "Title - Artist" (and sometimes repeat
+        // the title), which breaks both the display and lyrics lookup.
+        if (title.isNotEmpty() && artist.startsWith(title)) {
+            artist = artist.substring(title.length).trim()
+                .trimStart('-', '–', '—', ':', '：').trim()
+            if (artist.contains(" - ")) artist = artist.substringAfterLast(" - ").trim()
+        }
+        if (artist.isNotEmpty() && title.endsWith(" - $artist")) {
+            title = title.removeSuffix(" - $artist").trim()
+        }
+        return m.copy(title = title, artist = artist)
+    }
+
     private fun sendMediaMetadata() {
         if (!::ble.isInitialized || !ble.verified) return
-        val m = MediaControl.metadata(this)
+        val raw = MediaControl.metadata(this)
+        val m = raw?.let { normalizeMediaMeta(it) }
         if (m == null) {
             if (lastMediaMeta != "") {
                 lastMediaMeta = ""
                 mediaIdentity = ""
                 stableTitle = ""
+                systemLyric = ""
+                systemLyricSent = ""
                 ble.send("M,TITLE,")
                 ble.send("M,ARTIST,")
                 ble.send("M,ALBUM,")
@@ -1177,7 +1337,10 @@ class MainActivity : AppCompatActivity() {
         // Do not use the title as a lyric update trigger. Some music apps put
         // the current lyric line into the title field; identity uses the
         // stable artist/album/duration tuple instead.
-        val identity = "${m.artist}\u0001${m.album}"
+        // Duration disambiguates different tracks by the same artist/album.
+        // The raw title can be replaced by a lyric line by some players, so it
+        // is not used as the primary track identity here.
+        val identity = "${m.artist}\u0001${m.album}\u0001${m.durationMs}"
         val trackChanged = identity != mediaIdentity ||
             (positionReset && m.title.isNotBlank() && m.title != stableTitle)
         if (trackChanged) {
@@ -1185,6 +1348,11 @@ class MainActivity : AppCompatActivity() {
             stableTitle = m.title
             lastRawTitle = m.title
             lastMediaMeta = identity
+            systemLyric = ""
+            systemLyricSent = ""
+            lastNotifLyric = MediaNotificationArt.lyric
+            artHoldUntil = SystemClock.elapsedRealtime() + 450L
+            log("曲目变化：$stableTitle / ${m.artist} / ${m.album}")
             val title = stableTitle.ifBlank { m.artist }
             ble.send("M,TITLE,${Uri.encode(title)}")
             ble.send("M,ARTIST,${Uri.encode(m.artist)}")
@@ -1195,38 +1363,74 @@ class MainActivity : AppCompatActivity() {
             // title. Keep the first title as the song name and use later title
             // changes as a lyric fallback when no LRC is available.
             lastRawTitle = m.title
-            if (lyricLines.isEmpty() && m.title.isNotBlank() && m.title != stableTitle) {
-                ble.send("M,LYRIC,CLR")
-                ble.send("M,LYRIC,0,${Uri.encode(m.title)}")
-                ble.send("M,LYRICPOS,0")
-                lyricCleared = false
-                lyricWindowKey = ""
+            if ((lyricMode == 0 || lyricMode == 4) &&
+                lyricLines.isEmpty() && m.title.isNotBlank() && m.title != stableTitle) {
+                systemLyric = m.title
+                lyricSource = "TITL"
+                sendLyricSource(true)
                 log("歌词回退：标题通道")
             }
         }
+        val notifLine = MediaNotificationArt.lyric.trim()
+        if (notifLine.isNotEmpty() && notifLine != lastNotifLyric) {
+            lastNotifLyric = notifLine
+            log("通知歌词候选：$notifLine")
+            if ((lyricMode == 0 || lyricMode == 3) &&
+                lyricLines.isEmpty() && notifLine.length > 1 &&
+                !notifLine.equals(m.title, true) &&
+                !notifLine.equals(m.artist, true) &&
+                !notifLine.equals(m.album, true)) {
+                systemLyric = notifLine
+                lyricSource = "NOTI"
+                sendLyricSource(true)
+                log("歌词来源：通知文本")
+            }
+        }
+        sendLyricSource()
         lastMediaPositionMs = pos
         val art = MediaControl.albumArt(this)
+        val artSig = if (art == null) "null"
+                     else "${art.width}x${art.height}#${bitmapSampleHash(art)}"
+        if (artSig != lastArtSrcSig) {
+            lastArtSrcSig = artSig
+            log("封面源：$artSig")
+        }
         val trackArtIdentity = "$mediaIdentity|$stableTitle"
+        if (trackChanged) {
+            // Old notification/metadata can survive a skip for a moment.
+            // Clear the old cover immediately and give the player a short
+            // settle window before latching the new bitmap.
+            lastArtIdentity = trackArtIdentity
+            ble.send("M,ART,0")
+            log("封面清除：切歌")
+        }
+        val nowMs = SystemClock.elapsedRealtime()
         if (art != null) {
-            val artKey = "${art.width}x${art.height}:$trackArtIdentity"
-            if (artKey != lastAlbumKey) {
-                lastAlbumKey = artKey
-                lastArtIdentity = trackArtIdentity
-                sendAlbumArt(art)
+            // Some players expose the cover through two sources (metadata and
+            // the MediaStyle notification) that can alternate with slightly
+            // different bytes. Send at most one cover per track so the device
+            // does not blink between variants. A reconnect resets this below.
+            if (nowMs >= artHoldUntil && trackArtIdentity != lastArtSentIdentity) {
+                if (sendAlbumArt(art)) {
+                    lastAlbumKey = "${art.width}x${art.height}:$trackArtIdentity"
+                    lastArtIdentity = trackArtIdentity
+                    lastArtSentIdentity = trackArtIdentity
+                    artTxSeq++
+                    log("封面发送 #$artTxSeq：$artSig")
+                } else {
+                    log("封面发送失败：等待 MTU/连接，稍后重试")
+                }
+            } else if (nowMs >= artHoldUntil && artSig != lastArtSkipSig) {
+                lastArtSkipSig = artSig
+                log("封面保持：同曲已有封面，跳过 $artSig")
             }
         } else if (trackArtIdentity != lastArtIdentity) {
             // Only clear when the track changed. A transient null from the
             // MediaSession must not erase a cover that was already shown.
             lastArtIdentity = trackArtIdentity
             lastAlbumKey = "none"
+            log("封面清除：当前曲目没有封面")
             ble.send("M,ART,0")
-        }
-        val logKey = if (art == null) "none:$trackArtIdentity" else
-            "${art.width}x${art.height}:$trackArtIdentity"
-        if (logKey != lastArtLogKey) {
-            lastArtLogKey = logKey
-            log(if (art == null) "封面：系统没有提供 Bitmap" else
-                "封面：已获取 ${art.width}x${art.height}，正在发送")
         }
     }
 
@@ -1235,12 +1439,35 @@ class MainActivity : AppCompatActivity() {
         if (key == lyricKey) return
         lyricKey = key
         lyricLines = emptyList()
+        lyricSource = "WAIT"
         lyricWindowKey = ""
         if (!lyricCleared) { ble.send("M,LYRIC,CLR"); lyricCleared = true }
-        if (m == null || m.title.isBlank()) return
+        if (m == null || m.title.isBlank()) {
+            lyricSource = "NONE"
+            sendLyricSource()
+            return
+        }
+        if (!onlineLyricsEnabled) {
+            lyricSource = "OFF"
+            log("歌词：系统标题通道（不联网）")
+            return
+        }
         val cached = lyricCache[key]
         if (cached != null) {
-            lyricLines = cached
+            lyricLines = cached.lines
+            lyricSource = cached.source
+            return
+        }
+        if (lyricMode == 3) {
+            lyricSource = "NOTI"
+            lastNotifLyric = ""
+            sendLyricSource(true)
+            return
+        }
+        if (lyricMode == 4) {
+            lyricSource = "TITL"
+            lastRawTitle = stableTitle
+            sendLyricSource(true)
             return
         }
         val title = m.title
@@ -1250,21 +1477,75 @@ class MainActivity : AppCompatActivity() {
                        else MediaControl.progress(this)?.durationMs ?: 0L
         log("歌词请求：$title / $artist")
         lyricWorker.execute {
-            val lines = LyricsRepository.fetch(title, artist, album, duration)
+            val result = LyricsRepository.fetch(title, artist, album, duration, lyricMode)
             runOnUiThread {
                 if (lyricKey == key) {
-                    lyricCache[key] = lines
-                    lyricLines = lines
+                    lyricCache[key] = result
+                    lyricLines = result.lines
                     lyricWindowKey = ""
-                    log(if (lines.isEmpty()) "歌词：未找到" else "歌词：${lines.size} 行")
+                    if (result.lines.isNotEmpty()) {
+                        systemLyric = ""
+                        systemLyricSent = ""
+                        lyricSource = result.source
+                    } else if (systemLyric.isEmpty()) {
+                        lyricSource = "NONE"
+                    }
+                    sendLyricSource(true)
+                    log(if (result.lines.isEmpty()) "歌词：LRCLIB/网易云均未找到 / ${result.source}" else "歌词：${result.lines.size} 行 / ${result.source}")
                 }
             }
         }
     }
 
+    private fun cycleLyricMode() {
+        lyricMode = (lyricMode + 1) % lyricModeNames.size
+        lyricCache.clear()
+        lyricKey = ""
+        lyricLines = emptyList()
+        lyricWindowKey = ""
+        systemLyric = ""
+        systemLyricSent = ""
+        lastNotifLyric = ""
+        lastRawTitle = stableTitle
+        lyricSource = "WAIT"
+        if (!lyricCleared) { ble.send("M,LYRIC,CLR"); lyricCleared = true }
+        sendLyricSource(true)
+        log("歌词模式：${lyricModeNames[lyricMode]}")
+        val raw = MediaControl.metadata(this)
+        val m = raw?.let { normalizeMediaMeta(it) }
+        if (m == null) {
+            lyricSource = "NONE"
+            sendLyricSource(true)
+            return
+        }
+        loadLyrics(m.copy(title = stableTitle.ifBlank { m.title }))
+        sendLyricWindow()
+    }
+
+    private fun sendLyricSource(force: Boolean = false) {
+        if (!::ble.isInitialized || !ble.verified) return
+        val code = lyricSource.ifBlank { "NONE" }
+        if (force || code != lastLyricSourceSent) {
+            lastLyricSourceSent = code
+            ble.send("M,LYRICSRC,$code")
+        }
+    }
+
     private fun sendLyricWindow() {
         if (!::ble.isInitialized || !ble.verified) return
+        sendLyricSource(true)
         if (lyricLines.isEmpty()) {
+            if (systemLyric.isNotEmpty()) {
+                if (systemLyric != systemLyricSent) {
+                    ble.send("M,LYRIC,CLR")
+                    ble.send("M,LYRIC,0,${Uri.encode(systemLyric)}")
+                    ble.send("M,LYRICPOS,0")
+                    systemLyricSent = systemLyric
+                    lyricCleared = false
+                }
+                return
+            }
+            systemLyricSent = ""
             if (!lyricCleared) {
                 ble.send("M,LYRIC,CLR")
                 lyricCleared = true
@@ -1294,8 +1575,24 @@ class MainActivity : AppCompatActivity() {
         lyricCleared = false
     }
 
-    private fun sendAlbumArt(bitmap: Bitmap) {
-        if (!::ble.isInitialized || !ble.verified) return
+    private fun bitmapSampleHash(bitmap: Bitmap): String {
+        var h = 17L
+        val stepX = (bitmap.width / 8).coerceAtLeast(1)
+        val stepY = (bitmap.height / 8).coerceAtLeast(1)
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                h = (h * 31 + bitmap.getPixel(x, y)) and 0xffffffffL
+                x += stepX
+            }
+            y += stepY
+        }
+        return java.lang.Long.toHexString(h)
+    }
+
+    private fun sendAlbumArt(bitmap: Bitmap): Boolean {
+        if (!::ble.isInitialized || !ble.verified) return false
         val w = 96
         val h = 96
         val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
@@ -1312,11 +1609,21 @@ class MainActivity : AppCompatActivity() {
             out[i * 2 + 1] = ((v shr 8) and 0xFF).toByte()
         }
         if (scaled !== bitmap) scaled.recycle()
-        ble.sendBulk(BleClient.TYPE_ALBUM, 1, out)
+        var txHash = 2166136261L
+        for (v in out) {
+            txHash = (txHash xor (v.toLong() and 0xff)) * 16777619L
+            txHash = txHash and 0xffffffffL
+        }
+        log("封面TX：96x96 ${out.size}B hash=${java.lang.Long.toHexString(txHash)}")
+        return ble.sendBulk(BleClient.TYPE_ALBUM, 1, out)
     }
 
     private fun handleMediaCommand(line: String) {
         val cmd = line.removePrefix("M,").trim()
+        if (cmd == "LYRICSRC") {
+            cycleLyricMode()
+            return
+        }
         val ok = when (cmd) {
             "TOGGLE" -> MediaControl.toggle(this)
             "NEXT" -> MediaControl.next(this)

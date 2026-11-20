@@ -140,7 +140,41 @@ void app_main(void) {
         app_update(dt);
         if (!g_ui_freeze) {
             app_render();
-            lcd_flush(gfx_fb());
+            static bool cover_hold_flushed;
+            static scid_t last_cur = SC_COUNT;
+            static uint32_t last_art_seq = 0xFFFFFFFFu;
+            static bool media_full = true;
+            static bool last_media_live;
+            bool cover_hold = (g.cur == SC_COVER_TEST);
+            bool media_live = (g.cur == SC_MEDIA && g.entered);
+            if (cover_hold) {
+                if (!cover_hold_flushed) {
+                    lcd_flush(gfx_fb());
+                    cover_hold_flushed = true;
+                }
+            } else {
+                cover_hold_flushed = false;
+                bool screen_changed = (g.cur != last_cur);
+                bool media_entered = media_live && !last_media_live;
+                uint32_t art_seq = btmap_album_art_seq();
+                if (!media_live || screen_changed || media_entered || g.overlay_active ||
+                    media_full || art_seq != last_art_seq) {
+                    lcd_flush(gfx_fb());
+                    media_full = false;
+                    last_art_seq = art_seq;
+                } else {
+                    /* The media cover is static between tracks. Rewriting its
+                     * GRAM area every frame causes visible shimmer/flicker on
+                     * this panel, so keep those pixels untouched and refresh
+                     * only the surrounding UI. */
+                    lcd_flush_rect(gfx_fb(), 0, 0, LCD_W, 10);
+                    lcd_flush_rect(gfx_fb(), 0, 106, LCD_W, LCD_H - 106);
+                    lcd_flush_rect(gfx_fb(), 0, 10, 14, 96);
+                    lcd_flush_rect(gfx_fb(), 110, 10, LCD_W - 110, 96);
+                }
+            }
+            last_cur = g.cur;
+            last_media_live = media_live;
         }
 
         int64_t spent = esp_timer_get_time() - now;

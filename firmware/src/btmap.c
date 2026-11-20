@@ -60,12 +60,18 @@ static uint8_t s_own_addr_type;
 
 static uint16_t *s_front, *s_back;
 static uint8_t *s_wire;
-static uint16_t *s_album_px;
+static uint16_t *volatile s_album_px;
+static uint16_t *s_album_spare;
+static uint16_t *s_album_third;
+static uint32_t s_album_hash;
 static volatile bool s_album_ready;
 static volatile uint32_t s_album_seq;
 static uint16_t s_album_accent;
 static uint32_t s_album_accent_seq;
 static bool s_album_accent_valid;
+static bool s_album_black_dominant;
+static int s_near_black = 40;
+static int s_black_majority = 50;
 static volatile int s_album_w, s_album_h;
 static SemaphoreHandle_t s_lock;
 static volatile bool s_have;
@@ -81,6 +87,7 @@ static volatile int s_media_volmax = 0;
 static char s_media_title[64];
 static char s_media_artist[64];
 static char s_media_album[64];
+static char s_media_lyric_src[16] = "NONE";
 static char s_media_lyrics[5][160];
 static int s_media_lyric_active;
 static bool s_media_lyrics_valid;
@@ -88,6 +95,8 @@ static volatile int s_nav_remain = -1;
 static volatile int s_nav_total = 0;
 static volatile bool s_ready_pending;
 static volatile bool s_k_pending;
+static bool s_cover_refresh_pending;
+static int s_cover_refresh_token;
 static volatile int s_k_id;
 static int64_t s_last_gps_us;
 
@@ -210,6 +219,12 @@ static bool decode_frame(const uint8_t *d, int n) {
     return true;
 }
 
+static uint32_t art_hash(const uint8_t *p, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+
 static void reset_rx(void) {
     s_rx_id = -1;
     s_rx_type = -1;
@@ -253,14 +268,43 @@ static void handle_bulk(const uint8_t *b, int len) {
     if (s_rx_got == s_rx_parts) {
         if (type == BT_TYPE_FRAME) {
             decode_frame(s_wire, (int)total);
-        } else if (s_album_px) {
-            memcpy(s_album_px, s_wire, (size_t)total);
+        } else if (s_album_px && s_album_spare && s_album_third) {
+            /* The phone can resend the same cover; ignore duplicates. For a
+             * new cover, decode into the spare buffer and swap pointers so the
+             * renderer never sees a half-written image (visible flicker). */
+            uint32_t h = art_hash(s_wire, (size_t)total);
+            bool was_ready = s_album_ready;
+            if (h != s_album_hash) {
+                memcpy(s_album_spare, s_wire, (size_t)total);
+                uint16_t *old = s_album_px;
+                s_album_px = s_album_spare;
+                s_album_spare = s_album_third;
+                s_album_third = old;
+                s_album_hash = h;
+                s_album_seq++;
+                s_album_accent_valid = false;
+                ESP_LOGI(TAG, "album art updated (%u bytes) hash=%08lx seq=%lu",
+                         (unsigned)total, (unsigned long)h, (unsigned long)s_album_seq);
+            } else {
+                if (!was_ready) {
+                    s_album_seq++;
+                    s_album_accent_valid = false;
+                    ESP_LOGI(TAG, "album art restored duplicate hash=%08lx seq=%lu",
+                             (unsigned long)h, (unsigned long)s_album_seq);
+                } else {
+                    ESP_LOGI(TAG, "album art duplicate hash=%08lx", (unsigned long)h);
+                }
+            }
             s_album_w = BT_ALBUM_W;
             s_album_h = BT_ALBUM_H;
-            s_album_seq++;
-            s_album_accent_valid = false;
             s_album_ready = true;
-            ESP_LOGI(TAG, "album art updated (%u bytes)", (unsigned)total);
+            if (s_cover_refresh_pending) {
+                char ack[32];
+                snprintf(ack, sizeof ack, "#R,COVER,%d,1", s_cover_refresh_token);
+                send_line(ack);
+                s_cover_refresh_pending = false;
+                ESP_LOGI(TAG, "cover refresh ack token=%d", s_cover_refresh_token);
+            }
         }
         reset_rx();
     }
@@ -398,11 +442,23 @@ static void handle_write(const uint8_t *b, int len) {
         return;
     }
     if (len >= 4 && memcmp(b, "#GB?", 4) == 0) s_ready_pending = true;
+    else if (len >= 4 && memcmp(b, "#CR,", 4) == 0) {
+        char t[16];
+        int n = len < (int)sizeof t - 1 ? len : (int)sizeof t - 1;
+        memcpy(t, b, n); t[n] = 0;
+        int token = atoi(t + 4);
+        if (token > 0) {
+            s_cover_refresh_token = token;
+            s_cover_refresh_pending = true;
+            ESP_LOGI(TAG, "cover refresh request token=%d", token);
+        }
+    }
     else if (len >= 8 && memcmp(b, "M,TITLE,", 8) == 0) {
         char tmp[96], dec[80];
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 8, dec, sizeof dec);
+        if (strcmp(s_media_title, dec) != 0) ESP_LOGI(TAG, "media title: %s", dec);
         snprintf(s_media_title, sizeof s_media_title, "%s", dec);
     }
     else if (len >= 9 && memcmp(b, "M,ARTIST,", 9) == 0) {
@@ -410,6 +466,7 @@ static void handle_write(const uint8_t *b, int len) {
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 9, dec, sizeof dec);
+        if (strcmp(s_media_artist, dec) != 0) ESP_LOGI(TAG, "media artist: %s", dec);
         snprintf(s_media_artist, sizeof s_media_artist, "%s", dec);
     }
     else if (len >= 8 && memcmp(b, "M,ALBUM,", 8) == 0) {
@@ -417,10 +474,21 @@ static void handle_write(const uint8_t *b, int len) {
         int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
         memcpy(tmp, b, n); tmp[n] = 0;
         pct_decode(tmp + 8, dec, sizeof dec);
+        if (strcmp(s_media_album, dec) != 0) ESP_LOGI(TAG, "media album: %s", dec);
         snprintf(s_media_album, sizeof s_media_album, "%s", dec);
     }
+    else if (len >= 11 && memcmp(b, "M,LYRICSRC,", 11) == 0) {
+        char tmp[24];
+        int n = len < (int)sizeof tmp - 1 ? len : (int)sizeof tmp - 1;
+        memcpy(tmp, b, n); tmp[n] = 0;
+        snprintf(s_media_lyric_src, sizeof s_media_lyric_src, "%s", tmp + 11);
+    }
     else if (len >= 7 && memcmp(b, "M,ART,", 6) == 0 && b[6] == '0') {
-        s_album_ready = false;
+        if (s_album_ready) {
+            s_album_ready = false;
+            s_album_seq++;
+            ESP_LOGI(TAG, "album art cleared by phone seq=%lu", (unsigned long)s_album_seq);
+        }
     }
     else if (len >= 11 && memcmp(b, "M,LYRIC,CLR", 11) == 0) {
         memset(s_media_lyrics, 0, sizeof(s_media_lyrics));
@@ -567,6 +635,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_ready_pending = false;
         s_k_pending = false;
+        s_cover_refresh_pending = false;
         s_nav_remain = -1;
         s_nav_total = 0;
         s_media_playing = false;
@@ -577,6 +646,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         s_media_title[0] = 0;
         s_media_artist[0] = 0;
         s_media_album[0] = 0;
+        snprintf(s_media_lyric_src, sizeof s_media_lyric_src, "NONE");
         memset(s_media_lyrics, 0, sizeof(s_media_lyrics));
         s_media_lyrics_valid = false;
         s_album_ready = false;
@@ -660,8 +730,13 @@ void btmap_start(void) {
     s_wire = heap_caps_malloc(BT_FRAME_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_album_px = heap_caps_malloc((size_t)BT_ALBUM_W * BT_ALBUM_H * 2,
                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_album_spare = heap_caps_malloc((size_t)BT_ALBUM_W * BT_ALBUM_H * 2,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_album_third = heap_caps_malloc((size_t)BT_ALBUM_W * BT_ALBUM_H * 2,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s_lock = xSemaphoreCreateMutex();
-    if (!s_front || !s_back || !s_wire || !s_album_px || !s_lock) {
+    if (!s_front || !s_back || !s_wire || !s_album_px || !s_album_spare ||
+        !s_album_third || !s_lock) {
         ESP_LOGE(TAG, "alloc failed");
         return;
     }
@@ -740,47 +815,103 @@ bool btmap_media_progress(int *pos_ms, int *dur_ms) {
 const char *btmap_media_title(void) { return s_media_title; }
 const char *btmap_media_artist(void) { return s_media_artist; }
 const char *btmap_media_album(void) { return s_media_album; }
+const char *btmap_media_lyric_src(void) { return s_media_lyric_src; }
 const uint16_t *btmap_album_art(int *w, int *h) {
     if (!s_album_ready) return NULL;
     if (w) *w = s_album_w;
     if (h) *h = s_album_h;
-    return s_album_px;
+    return (const uint16_t *)s_album_px;
 }
 uint32_t btmap_album_art_seq(void) { return s_album_seq; }
+
+/* Quantise every non-black cover pixel into 16 fixed colour families. This
+ * makes light green and dark green both count as "green" instead of producing
+ * dozens of near-identical 4-bit RGB bins. */
+enum {
+    C_BLACK = 0, C_RED, C_ORANGE, C_BROWN, C_YELLOW, C_LIME, C_GREEN,
+    C_TEAL, C_CYAN, C_AZURE, C_BLUE, C_VIOLET, C_MAGENTA, C_PINK,
+    C_GRAY, C_WHITE, C_COUNT
+};
+static const uint8_t s_pal16[C_COUNT][3] = {
+    {0, 0, 0}, {224, 48, 48}, {244, 132, 32}, {150, 92, 48},
+    {240, 220, 40}, {150, 210, 50}, {44, 190, 88}, {20, 184, 144},
+    {32, 204, 218}, {44, 152, 236}, {54, 84, 232}, {118, 64, 224},
+    {210, 56, 210}, {238, 92, 152}, {132, 132, 132}, {240, 240, 240},
+};
+
+static int classify16(int r, int g, int b) {
+    int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    int d = mx - mn;
+    if (mx < s_near_black) return C_BLACK;
+    if (d < 26) return mx > 205 ? C_WHITE : C_GRAY;
+    float h;
+    if (mx == r) h = 60.0f * (g - b) / d;
+    else if (mx == g) h = 120.0f + 60.0f * (b - r) / d;
+    else h = 240.0f + 60.0f * (r - g) / d;
+    if (h < 0) h += 360.0f;
+    if (h < 15 || h >= 345) return C_RED;
+    if (h < 45) return (mx < 140 && d < 120) ? C_BROWN : C_ORANGE;
+    if (h < 70) return C_YELLOW;
+    if (h < 100) return C_LIME;
+    if (h < 165) return C_GREEN;
+    if (h < 190) return C_TEAL;
+    if (h < 205) return C_CYAN;
+    if (h < 225) return C_AZURE;
+    if (h < 260) return C_BLUE;
+    if (h < 290) return C_VIOLET;
+    if (h < 320) return C_MAGENTA;
+    return C_PINK;
+}
+
+void btmap_set_color_tuning(int near_black, int black_pct) {
+    if (near_black < 0) near_black = 0;
+    if (near_black > 100) near_black = 100;
+    if (black_pct < 0) black_pct = 0;
+    if (black_pct > 100) black_pct = 100;
+    s_near_black = near_black;
+    s_black_majority = black_pct;
+    s_album_accent_valid = false;
+}
 
 uint16_t btmap_album_accent565(void) {
     if (!s_album_ready || !s_album_px) return 0;
     if (s_album_accent_valid && s_album_accent_seq == s_album_seq) return s_album_accent;
-    uint32_t cnt[64] = {0}, sr[64] = {0}, sg[64] = {0}, sb[64] = {0};
+
+    uint32_t cnt[C_COUNT] = {0};
+    uint32_t total = (uint32_t)BT_ALBUM_W * BT_ALBUM_H;
     for (int y = 0; y < BT_ALBUM_H; y++) {
         for (int x = 0; x < BT_ALBUM_W; x++) {
             uint16_t c = s_album_px[y * BT_ALBUM_W + x];
             int r = ((c >> 11) & 31) * 255 / 31;
             int g = ((c >> 5) & 63) * 255 / 63;
             int b = (c & 31) * 255 / 31;
-            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-            int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
-            int wgt = 1 + (mx - mn) * 3 / 255;
-            int bin = ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
-            cnt[bin] += (uint32_t)wgt;
-            sr[bin] += (uint32_t)r * wgt;
-            sg[bin] += (uint32_t)g * wgt;
-            sb[bin] += (uint32_t)b * wgt;
+            cnt[classify16(r, g, b)]++;
         }
     }
-    int best = 0;
-    for (int i = 1; i < 64; i++) if (cnt[i] > cnt[best]) best = i;
-    if (cnt[best]) {
-        int r = (int)(sr[best] / cnt[best]);
-        int g = (int)(sg[best] / cnt[best]);
-        int b = (int)(sb[best] / cnt[best]);
-        s_album_accent = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
-    } else {
+
+    s_album_black_dominant =
+        (cnt[C_BLACK] * 100u > total * (uint32_t)s_black_majority);
+    if (s_album_black_dominant) {
         s_album_accent = 0;
+    } else {
+        int best = C_RED;
+        for (int i = C_RED; i < C_COUNT; i++) {
+            if (cnt[i] > cnt[best]) best = i;
+        }
+        const uint8_t *pc = s_pal16[best];
+        s_album_accent = (uint16_t)(((pc[0] & 0xF8) << 8) |
+                                    ((pc[1] & 0xFC) << 3) | (pc[2] >> 3));
     }
     s_album_accent_seq = s_album_seq;
     s_album_accent_valid = true;
     return s_album_accent;
+}
+
+bool btmap_album_black_dominant(void) {
+    if (!s_album_ready || !s_album_accent_valid) return false;
+    if (s_album_accent_seq != s_album_seq) return false;
+    return s_album_black_dominant;
 }
 bool btmap_media_lyrics(int *active, char lines[5][160]) {
     if (!s_media_lyrics_valid) return false;

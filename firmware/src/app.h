@@ -12,7 +12,7 @@ typedef enum {
     SC_IMU_CALIB, SC_HOME, SC_RACE_MENU, SC_NAV_MENU, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT, SC_MOUNT_SELECT,
     SC_NEW_TRACK_MARK_START, SC_REC_LAP_SELECT, SC_REC_PREVIEW, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
     SC_VEHICLE_SELECT, SC_TRACK_NAMING, SC_TRACK_LIST, SC_HISTORY, SC_HISTORY_DETAIL,
-    SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_BTN_DEBUG, SC_FLASH, SC_TRACK_START, SC_PERF, SC_WIFI_SETUP, SC_NAV, SC_PHONE, SC_MEDIA, SC_CONFIRM, SC_COUNT
+    SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_BTN_DEBUG, SC_FLASH, SC_TRACK_START, SC_PERF, SC_WIFI_SETUP, SC_NAV, SC_PHONE, SC_MEDIA, SC_CONFIRM, SC_COVER_TEST, SC_COLOR_TUNE, SC_COUNT
 } scid_t;
 
 typedef void (*action_fn)(void);
@@ -79,6 +79,8 @@ typedef struct {
     bool set_edit; int set_edit_old;   /* Settings value editing (left/right) */
     int set_sound_vol; bool set_snd_confirm, set_snd_calib, set_snd_fix;
     int gps_rate_hz;           /* GPS output rate: 1 / 5 / 10 / 25 Hz */
+    int media_black_pct;       /* black-majority threshold, 0..100 */
+    int media_near_black;      /* near-black luma cutoff, 0..100 */
     int nav_mode;              /* nav style: 0=road 1=satellite 2=blend */
     int nav_sat;               /* blend satellite opacity 0..100 */
     int nav_zoom;              /* zoom level index (2 = 1x, last = country) */

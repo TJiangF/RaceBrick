@@ -453,7 +453,10 @@ static bool ledfx_media_progress(void) {
     bool playing = btmap_media_playing();
     uint16_t accent = btmap_album_accent565();
     uint8_t ar = 0, ag = 255, ab = 255;
-    if (accent) {
+    if (btmap_album_black_dominant()) {
+        /* Mostly-black cover: use white LEDs. */
+        ar = ag = ab = 255;
+    } else if (accent) {
         ar = (uint8_t)(((accent >> 11) & 31) * 255 / 31);
         ag = (uint8_t)(((accent >> 5) & 63) * 255 / 63);
         ab = (uint8_t)((accent & 31) * 255 / 31);
@@ -639,6 +642,12 @@ static void settings_load(void) {
     if (nvs_get_i32(h, "sndcal", &v) == ESP_OK) g.set_snd_calib = v ? 1 : 0;
     if (nvs_get_i32(h, "sndfix", &v) == ESP_OK) g.set_snd_fix = v ? 1 : 0;
     if (nvs_get_i32(h, "gpshz", &v) == ESP_OK) g.gps_rate_hz = v;
+    if (nvs_get_i32(h, "mblack", &v) == ESP_OK) g.media_black_pct = v;
+    if (nvs_get_i32(h, "mnear", &v) == ESP_OK) g.media_near_black = v;
+    if (g.media_black_pct < 0) g.media_black_pct = 0;
+    if (g.media_black_pct > 100) g.media_black_pct = 100;
+    if (g.media_near_black < 0) g.media_near_black = 0;
+    if (g.media_near_black > 100) g.media_near_black = 100;
     if (nvs_get_i32(h, "navmode", &v) == ESP_OK) g.nav_mode = v;
     if (nvs_get_i32(h, "navsat", &v) == ESP_OK) g.nav_sat = v;
     if (nvs_get_i32(h, "navzidx", &v) == ESP_OK) g.nav_zoom = v;
@@ -670,6 +679,8 @@ void app_save_settings(void) {
     nvs_set_i32(h, "sndcal", g.set_snd_calib);
     nvs_set_i32(h, "sndfix", g.set_snd_fix);
     nvs_set_i32(h, "gpshz", g.gps_rate_hz);
+    nvs_set_i32(h, "mblack", g.media_black_pct);
+    nvs_set_i32(h, "mnear", g.media_near_black);
     nvs_set_i32(h, "navmode", g.nav_mode);
     nvs_set_i32(h, "navsat", g.nav_sat);
     nvs_set_i32(h, "navzidx", g.nav_zoom);
@@ -695,6 +706,8 @@ void app_init(void) {
     g.set_bt = 1;
     g.set_snd_confirm = true; g.set_snd_calib = true; g.set_snd_fix = true;
     g.gps_rate_hz = 10;
+    g.media_black_pct = 50;
+    g.media_near_black = 40;
     g.nav_mode = 0;
     g.nav_sat = 60;
     g.nav_zoom = NAV_ZOOM_DEFAULT;
@@ -711,6 +724,7 @@ void app_init(void) {
         nvs_flash_init();
     }
     settings_load();
+    btmap_set_color_tuning(g.media_near_black, g.media_black_pct);
     theme_set_style(g.ui_style);
     theme_set(g.theme_light);
     gfx_set_font(g.ui_style);

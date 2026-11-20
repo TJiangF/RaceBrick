@@ -42,3 +42,7 @@ void gfx_text(int x, int y, const char *s, uint16_t c, int scale);
 int  gfx_text_w(const char *s, int scale);
 void gfx_text_center(int cx, int y, const char *s, uint16_t c, int scale);
 void gfx_text_right(int rx, int y, const char *s, uint16_t c, int scale);
+/* UTF-8 text: ASCII keeps the active F1/pixel font; Chinese uses Noto Sans
+ * CJK Black for F1 and Fusion Pixel 12px for the pixel UI. */
+void gfx_text_i18n(int x, int y, const char *s, uint16_t c, int scale);
+int  gfx_text_i18n_w(const char *s, int scale);

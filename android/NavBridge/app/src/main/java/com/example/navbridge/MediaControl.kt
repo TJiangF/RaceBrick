@@ -63,9 +63,21 @@ object MediaControl {
     fun albumArt(context: Context): android.graphics.Bitmap? {
         val c = controller(context)
         val m = c?.metadata
-        return m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+        val direct = m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: m?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: MediaNotificationArt.bitmap
+        if (direct != null) return direct
+        // The notification bitmap can still belong to the previous track for
+        // a moment after a skip. Only use it when its notification title
+        // matches the current MediaSession title.
+        val meta = metadata(context)
+        val note = MediaNotificationArt
+        val mt = meta?.title?.trim().orEmpty()
+        val nt = note.title.trim()
+        if (note.bitmap != null && mt.isNotEmpty() && nt.isNotEmpty() &&
+            (nt.contains(mt, true) || mt.contains(nt, true))) {
+            return note.bitmap
+        }
+        return null
     }
 
     fun progress(context: Context): Progress? {

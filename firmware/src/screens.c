@@ -725,7 +725,7 @@ static void render_track_edit(void) {
 
 /* ================= SETTINGS ================= */
 static const char *settings_key(int i) {
-    static const char *k[15] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE", "BTN DEBUG", "FLASH MAP"};
+    static const char *k[17] = {"BRIGHTNESS", "LED COLOR", "LED BRIGHT", "THEME", "WIFI SETUP", "BLUETOOTH", "SOUND", "GPS RATE", "LAUNCH G", "IMU DEBUG", "GPS DEBUG", "CHINA MAP", "UI STYLE", "BTN DEBUG", "FLASH MAP", "COVER TEST", "MEDIA COLOR"};
     return k[i];
 }
 static void settings_val(int i, char *out) {
@@ -747,7 +747,7 @@ static void render_settings(void) {
     title_c("SETTINGS", 2);
     const int K = 6, h = 32;
     int start, end;
-    windowed(15, g.sel, K, &start, &end);
+    windowed(17, g.sel, K, &start, &end);
     int y = 20;
     for (int i = start; i < end; i++) {
         bool on = g.entered && i == g.sel;
@@ -760,7 +760,7 @@ static void render_settings(void) {
     }
     /* scroll indicators */
     if (start > 0) gfx_text(CW - 10, 4, "^", PAL.dim, 1);
-    if (end < 15) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
+    if (end < 17) gfx_text(CW - 10, 20 + K * h - 14, "v", PAL.dim, 1);
     hint_c("UP/DN SELECT - L/R ADJUST - PUSH ACTION", HINT_Y);
 }
 
@@ -2073,6 +2073,16 @@ static int media_char_w(int scale) {
     return w > 0 ? w : (scale ? 6 * scale : 6);
 }
 
+static int media_utf8_len(const char *s) {
+    const unsigned char *p = (const unsigned char *)s;
+    if (!p[0]) return 0;
+    if (p[0] < 0x80) return 1;
+    if ((p[0] & 0xE0) == 0xC0) return 2;
+    if ((p[0] & 0xF0) == 0xE0) return 3;
+    if ((p[0] & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
 /* Draw a line-oriented word/character wrapped text. Returns line count. */
 static int media_wrap(const char *s, int x, int y, int w, int scale,
                       int max_lines, int line_h, uint16_t col) {
@@ -2081,20 +2091,22 @@ static int media_wrap(const char *s, int x, int y, int w, int scale,
     char buf[256];
     while (*s && lines < max_lines) {
         int n = 0, last_space = -1;
-        while (s[n] && n < (int)sizeof(buf) - 1) {
-            buf[n] = s[n];
-            buf[n + 1] = 0;
-            if (gfx_text_w(buf, scale) > w - 2) break;
-            n++;
+        while (s[n]) {
+            int l = media_utf8_len(s + n);
+            if (n + l >= (int)sizeof(buf) - 1) break;
+            memcpy(buf, s, (size_t)(n + l));
+            buf[n + l] = 0;
+            if (gfx_text_i18n_w(buf, scale) > w - 2) break;
+            n += l;
             if (s[n - 1] == ' ') last_space = n;
         }
-        if (n == 0) n = 1;                 /* never get stuck on a wide glyph */
+        if (n == 0) n = media_utf8_len(s);
         int take = n;
         if (s[n] && last_space > 0) take = last_space;
         if (take <= 0) take = n;
         memcpy(buf, s, (size_t)take);
         buf[take] = 0;
-        gfx_text(x, y + lines * line_h, buf, col, scale);
+        gfx_text_i18n(x, y + lines * line_h, buf, col, scale);
         s += take;
         while (*s == ' ') s++;
         lines++;
@@ -2104,70 +2116,45 @@ static int media_wrap(const char *s, int x, int y, int w, int scale,
 
 static void media_scroll_text(const char *s, int x, int y, int w, int scale, uint16_t col) {
     if (!s || !*s) return;
-    int tw = gfx_text_w(s, scale);
-    if (tw <= w) { gfx_text(x, y, s, col, scale); return; }
+    int tw = gfx_text_i18n_w(s, scale);
+    if (tw <= w) { gfx_text_i18n(x, y, s, col, scale); return; }
     gfx_set_clip(x, y, w, scale >= 2 ? 18 : (scale == 1 ? 13 : 9));
     int span = tw + 26;
     int off = (int)(g.now * 0.024f) % span;
-    gfx_text(x - off, y, s, col, scale);
-    gfx_text(x - off + span, y, s, col, scale);
+    gfx_text_i18n(x - off, y, s, col, scale);
+    gfx_text_i18n(x - off + span, y, s, col, scale);
     gfx_set_clip(0, 0, CW, CH);
 }
 
 static uint16_t media_bg_color(void) {
-    static uint16_t cached;
-    static uint32_t cached_seq;
-    static uint16_t cached_stage;
-    static bool cached_valid;
     int iw = 0, ih = 0;
     const uint16_t *art = btmap_album_art(&iw, &ih);
-    if (!art || iw <= 0 || ih <= 0) {
-        /* Keep the last album tint if the phone briefly loses cover metadata. */
-        if (cached_valid && cached_stage == PAL.stage) return cached;
+    if (!art || iw <= 0 || ih <= 0) return PAL.stage;
+
+    /* Use the same accent value as the progress/volume bars. Compute it
+     * directly every frame instead of keeping a second cache that could go
+     * stale when the track metadata changes. */
+    uint16_t accent = btmap_album_accent565();
+    bool dark = btmap_album_black_dominant();
+    if (dark || !accent) {
+        static uint32_t logged_dark_seq = 0xFFFFFFFFu;
+        uint32_t seq = btmap_album_art_seq();
+        if (seq != logged_dark_seq) {
+            logged_dark_seq = seq;
+            ESP_LOGI("media", "bg seq=%lu accent=%04x dark=%d -> stage",
+                     (unsigned long)seq, accent, dark);
+        }
         return PAL.stage;
     }
+    uint16_t out = blend565(accent, PAL.stage, 102);                  /* 40% accent */
+    static uint32_t logged_seq = 0xFFFFFFFFu;
     uint32_t seq = btmap_album_art_seq();
-    if (seq == cached_seq && PAL.stage == cached_stage) return cached;
-
-    /* Dominant colour with saturation weighting; this keeps an orange cover
-     * orange instead of averaging it into a muddy brown. */
-    uint32_t cnt[64] = {0}, sr[64] = {0}, sg[64] = {0}, sb[64] = {0};
-    for (int y = 0; y < ih; y++) {
-        for (int x = 0; x < iw; x++) {
-            uint16_t c = art[y * iw + x];
-            int r = ((c >> 11) & 31) * 255 / 31;
-            int g = ((c >> 5) & 63) * 255 / 63;
-            int b = (c & 31) * 255 / 31;
-            int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
-            int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
-            int wgt = 1 + (mx - mn) * 3 / 255;  /* 1..4 */
-            int bin = ((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6);
-            cnt[bin] += (uint32_t)wgt;
-            sr[bin] += (uint32_t)r * wgt;
-            sg[bin] += (uint32_t)g * wgt;
-            sb[bin] += (uint32_t)b * wgt;
-        }
+    if (seq != logged_seq) {
+        logged_seq = seq;
+        ESP_LOGI("media", "bg seq=%lu accent=%04x out=%04x dark=0",
+                 (unsigned long)seq, accent, out);
     }
-    int best = 0;
-    for (int i = 1; i < 64; i++) if (cnt[i] > cnt[best]) best = i;
-    uint16_t accent = PAL.stage;
-    if (cnt[best]) {
-        int r = (int)(sr[best] / cnt[best]);
-        int g = (int)(sg[best] / cnt[best]);
-        int b = (int)(sb[best] / cnt[best]);
-        accent = RGB565(r, g, b);
-    }
-    /* "Lighten" and "transparency" are separate effects:
-     * - lighten: mix the accent toward white (raises luminance)
-     * - transparency: mix the result into the theme background
-     * The previous 10% overlay plus heavy whitening was almost invisible.
-     * Use a pastel accent at about 35% opacity for a visible but readable tint. */
-    accent = blend565(accent, RGB565(255, 255, 255), 96);   /* 37.5% white */
-    cached = blend565(accent, PAL.stage, 90);               /* 35% accent */
-    cached_seq = seq;
-    cached_stage = PAL.stage;
-    cached_valid = true;
-    return cached;
+    return out;
 }
 
 static void media_glass_box(int x, int y, int w, int h, bool pressed) {
@@ -2199,12 +2186,25 @@ static void render_media(void) {
 
     gfx_fill(0, 0, CW, CH, media_bg_color());
     bool playing = btmap_media_playing();
+    uint16_t accent = btmap_album_accent565();
+    uint16_t bar_col = accent ? accent :
+        (btmap_album_black_dominant() ? PAL.white : PAL.cyan);
 
     /* Original-size cover, top-left. */
     int ax = 14, ay = 10, aw = 96, ah = 96;
     int iw = 0, ih = 0;
     const uint16_t *art = btmap_album_art(&iw, &ih);
-    if (art && iw == aw && ih == ah) {
+    bool art_ok = art && iw == aw && ih == ah;
+    static bool dbg_art_ok;
+    static uint32_t dbg_art_seq = 0xFFFFFFFFu;
+    uint32_t art_seq = btmap_album_art_seq();
+    if (art_ok != dbg_art_ok || (art_ok && art_seq != dbg_art_seq)) {
+        dbg_art_ok = art_ok;
+        dbg_art_seq = art_seq;
+        ESP_LOGI("media", "cover draw ok=%d seq=%lu art=%p %dx%d",
+                 art_ok, (unsigned long)art_seq, (const void *)art, iw, ih);
+    }
+    if (art_ok) {
         gfx_blit(ax, ay, art, iw, ih, iw);
     } else {
         gfx_fill(ax, ay, aw, ah, PAL.panel);
@@ -2216,6 +2216,25 @@ static void render_media(void) {
     }
     gfx_rect(ax, ay, aw, ah, PAL.line2);
 
+    /* Temporary cover diagnostics: source and actual framebuffer checksums. */
+    static int64_t cover_dbg_us;
+    int64_t cover_now = esp_timer_get_time();
+    if (cover_now - cover_dbg_us > 1000000LL) {
+        cover_dbg_us = cover_now;
+        uint32_t src_h = 2166136261u, scr_h = 2166136261u;
+        if (art_ok) {
+            const uint8_t *sp = (const uint8_t *)art;
+            for (int i = 0; i < aw * ah * 2; i++) src_h = (src_h ^ sp[i]) * 16777619u;
+            const uint16_t *fb = gfx_fb();
+            for (int y = 0; y < ah; y++) {
+                const uint8_t *rp = (const uint8_t *)(fb + (size_t)(ay + y) * LCD_W + ax);
+                for (int i = 0; i < aw * 2; i++) scr_h = (scr_h ^ rp[i]) * 16777619u;
+            }
+        }
+        ESP_LOGI("media", "cover dbg ok=%d seq=%lu src=%08lx scr=%08lx",
+                 art_ok, (unsigned long)art_seq, (unsigned long)src_h, (unsigned long)scr_h);
+    }
+
     /* Metadata stays in the current column, enlarged; long values scroll. */
     int rx = 124, rw = 166;
     const char *title = btmap_media_title();
@@ -2224,16 +2243,22 @@ static void render_media(void) {
     media_scroll_text(title[0] ? title : "NO TRACK", rx, 28, rw, 2, PAL.white);
     media_scroll_text(artist[0] ? artist : "UNKNOWN ARTIST", rx, 52, rw, 1, PAL.text2);
     media_scroll_text(album, rx, 70, rw, 1, PAL.dim);
+    const char *lyr_src = btmap_media_lyric_src();
+    snprintf(b, sizeof b, "LYR:%s", (lyr_src && lyr_src[0]) ? lyr_src : "--");
+    gfx_text(rx, 84, b, PAL.dim, 0);
 
     /* Volume rail, right, above lyrics. */
     int vol = -1, vmax = 0;
     if (btmap_media_volume(&vol, &vmax)) {
-        int vx = CW - 18, vy = 14, vh = 92;
+        int pct = (vol * 100 + vmax / 2) / vmax;
+        if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
+        int vx = CW - 18, vy = 30, vh = 70;
         gfx_fill(vx, vy, 7, vh, PAL.surface2);
-        gfx_fill(vx, vy + vh - (vh * vol) / vmax, 7, (vh * vol) / vmax, PAL.cyan);
+        gfx_fill(vx, vy + vh - (vh * pct) / 100, 7, (vh * pct) / 100, bar_col);
         gfx_rect(vx, vy, 7, vh, PAL.line);
-        snprintf(b, sizeof b, "%d", vol);
-        gfx_text_right(CW - 14, 110, b, PAL.cyan, 0);
+        snprintf(b, sizeof b, "%d", pct);
+        gfx_text_right(CW - 14, 104, b, bar_col, 0);
     }
 
     /* Current and next lyric, full width, wrapped without truncation. The
@@ -2259,7 +2284,7 @@ static void render_media(void) {
         media_clock(tb, sizeof tb, dur);
         gfx_text_right(CW - 14, 184, tb, PAL.dim, 0);
         gfx_fill(10, 196, CW - 20, 5, PAL.surface2);
-        gfx_fill(10, 196, ((CW - 20) * pos) / dur, 5, PAL.cyan);
+        gfx_fill(10, 196, ((CW - 20) * pos) / dur, 5, bar_col);
         gfx_rect(10, 196, CW - 20, 5, PAL.line);
     }
 
@@ -2549,6 +2574,101 @@ static void render_imu_calib(void) {
     gfx_text(rx, 210, "KEEP DEVICE STILL - BACK SKIP", PAL.dim, 0);
 }
 
+/* ================= STATIC COVER TEST ================= */
+#define COVER_TEST_W 96
+static uint16_t *s_cover_test_buf;
+static bool s_cover_test_placeholder;
+
+static void cover_test_capture(void) {
+    if (!s_cover_test_buf) {
+        s_cover_test_buf = (uint16_t *)heap_caps_malloc(
+            COVER_TEST_W * COVER_TEST_W * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+    if (!s_cover_test_buf) return;
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (art && iw == COVER_TEST_W && ih == COVER_TEST_W) {
+        memcpy(s_cover_test_buf, art, COVER_TEST_W * COVER_TEST_W * 2);
+        s_cover_test_placeholder = false;
+        ESP_LOGI("media", "cover test captured seq=%lu", (unsigned long)btmap_album_art_seq());
+    } else {
+        static const uint16_t cols[8] = {
+            RGB565(255,255,255), RGB565(255,255,0), RGB565(0,255,255),
+            RGB565(0,255,0), RGB565(255,0,255), RGB565(255,0,0),
+            RGB565(0,0,255), RGB565(0,0,0)
+        };
+        for (int y = 0; y < COVER_TEST_W; y++)
+            for (int x = 0; x < COVER_TEST_W; x++)
+                s_cover_test_buf[y * COVER_TEST_W + x] = cols[(x * 8) / COVER_TEST_W];
+        s_cover_test_placeholder = true;
+        ESP_LOGI("media", "cover test captured placeholder");
+    }
+}
+
+static void render_cover_test(void) {
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    if (!s_cover_test_buf) {
+        gfx_text_center(CW / 2, 80, "NO BUFFER", PAL.red, 1);
+        return;
+    }
+    const int size = 192, x0 = (CW - size) / 2, y0 = 4;
+    uint16_t *fb = gfx_fb();
+    for (int y = 0; y < size; y++) {
+        const uint16_t *src = s_cover_test_buf + (y * COVER_TEST_W / size) * COVER_TEST_W;
+        uint16_t *dst = fb + (size_t)(y0 + y) * LCD_W + x0;
+        for (int x = 0; x < size; x++) dst[x] = src[x * COVER_TEST_W / size];
+    }
+    gfx_rect(x0 - 1, y0 - 1, size + 2, size + 2, PAL.white);
+    gfx_text(4, 4, "COVER", PAL.cyan, 0);
+    gfx_text(4, 16, "HOLD", PAL.cyan, 0);
+    gfx_text(4, 90, s_cover_test_placeholder ? "NO ART" : "STATIC", PAL.dim, 0);
+    gfx_text(4, 190, "BACK", PAL.dim, 0);
+}
+
+/* ================= MEDIA COLOUR TUNING ================= */
+static void render_color_tune(void) {
+    char b[48];
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    title_c("MEDIA COLOR", 2);
+
+    int iw = 0, ih = 0;
+    const uint16_t *art = btmap_album_art(&iw, &ih);
+    if (art && iw == 96 && ih == 96) {
+        gfx_blit(10, 32, art, iw, ih, iw);
+    } else {
+        gfx_fill(10, 32, 96, 96, PAL.panel);
+        gfx_text_center(58, 74, "NO ART", PAL.dim, 0);
+    }
+    gfx_rect(10, 32, 96, 96, PAL.line2);
+
+    static const char *keys[2] = {"BLACK%", "NEAR BLK"};
+    int vals[2] = {g.media_black_pct, g.media_near_black};
+    const int rx = 116, rw = 194, rh = 28;
+    for (int i = 0; i < 2; i++) {
+        int y = 32 + i * 36;
+        bool on = i == g.sel;
+        panel_box(rx, y, rw, rh, on, false);
+        gfx_text(rx + 8, y + 9, keys[i], PAL.text, 1);
+        if (i == 1) snprintf(b, sizeof b, "%d", vals[i]);
+        else snprintf(b, sizeof b, "%d%%", vals[i]);
+        gfx_text_right(rx + rw - 8, y + 9, b, on ? PAL.yellow : PAL.cyan, 1);
+    }
+
+    uint16_t accent = btmap_album_accent565();
+    uint16_t bar = accent ? accent :
+        (btmap_album_black_dominant() ? PAL.white : PAL.cyan);
+    gfx_fill(10, 140, 96, 34, media_bg_color());
+    gfx_rect(10, 140, 96, 34, PAL.line2);
+    gfx_text(14, 147, "BG 40%", PAL.white, 0);
+    gfx_fill(rx, 140, rw, 12, bar);
+    gfx_rect(rx, 140, rw, 12, PAL.line2);
+    snprintf(b, sizeof b, "ACCENT %04X", accent);
+    gfx_text(rx, 158, b, PAL.dim, 0);
+    gfx_text(rx, 172, btmap_album_black_dominant() ? "BLACK DOMINANT" : "COLOUR DOMINANT",
+             btmap_album_black_dominant() ? PAL.white : PAL.dim, 0);
+    hint_c("UP/DN SELECT - L/R ADJUST - PUSH SAVE - BACK", HINT_Y);
+}
+
 /* ================= dispatch ================= */
 void screens_render(void) {
     switch (g.cur) {
@@ -2581,6 +2701,8 @@ void screens_render(void) {
     case SC_LOCATION: render_location(); break;
     case SC_SOUND: render_sound(); break;
     case SC_FLASH: render_flash(); break;
+    case SC_COVER_TEST: render_cover_test(); break;
+    case SC_COLOR_TUNE: render_color_tune(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
     case SC_TRACK_START: render_track_start(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
@@ -2681,6 +2803,8 @@ void screens_enter(scid_t id) {
     case SC_GPS_DEBUG: gps_begin(); g.dbg_page = 0; break;
     case SC_BTN_DEBUG: break;
     case SC_FLASH: break;
+    case SC_COVER_TEST: cover_test_capture(); break;
+    case SC_COLOR_TUNE: g.sel = 0; break;
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
@@ -3122,6 +3246,13 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_MEDIA:
+        if (g.entered && ev->type == EV_LONG &&
+            (ev->button == BTN_PUSH || ev->button == BTN_OK)) {
+            if (!btmap_subscribed()) { app_toast("NO BT LINK"); return; }
+            btmap_media_cmd("LYRICSRC");
+            app_toast("LYRIC SOURCE");
+            return;
+        }
         if (!g.entered) {
             if (lr) { app_go_home(lr); return; }
             if (ev->type != EV_PRESS) return;
@@ -3353,7 +3484,7 @@ void screens_handle(const event_t *ev) {
                 g.settings_sel = g.sel;
                 return;
             }
-            if (d) { g.sel = (g.sel + d + 15) % 15; g.settings_sel = g.sel; return; }
+            if (d) { g.sel = (g.sel + d + 17) % 17; g.settings_sel = g.sel; return; }
             if (ev->type != EV_PRESS) return;
             if (ev->button == BTN_PUSH) {
                 g.settings_sel = g.sel;
@@ -3387,6 +3518,8 @@ void screens_handle(const event_t *ev) {
                 }
                 else if (g.sel == 13) app_go(SC_BTN_DEBUG, 1);
                 else if (g.sel == 14) app_go(SC_FLASH, 1);
+                else if (g.sel == 15) { cover_test_capture(); app_go(SC_COVER_TEST, 1); }
+                else if (g.sel == 16) app_go(SC_COLOR_TUNE, 1);
                 if (g.sel <= 5 || g.sel == 7 || g.sel == 12) app_save_settings();
             } else if (ev->button == BTN_BACK) app_back();
         }
@@ -3678,6 +3811,36 @@ void screens_handle(const event_t *ev) {
         if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
         break;
 
+    case SC_COVER_TEST:
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
+        break;
+
+    case SC_COLOR_TUNE:
+        if (d) { g.sel = (g.sel + d + 2) % 2; return; }
+        if ((ev->type == EV_PRESS || ev->type == EV_REPEAT) &&
+            (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
+            int step = ev->button == BTN_RIGHT ? 5 : -5;
+            if (g.sel == 0) {
+                g.media_black_pct += step;
+                if (g.media_black_pct < 0) g.media_black_pct = 0;
+                if (g.media_black_pct > 100) g.media_black_pct = 100;
+            } else {
+                g.media_near_black += step;
+                if (g.media_near_black < 0) g.media_near_black = 0;
+                if (g.media_near_black > 100) g.media_near_black = 100;
+            }
+            btmap_set_color_tuning(g.media_near_black, g.media_black_pct);
+            return;
+        }
+        if (ev->type == EV_PRESS && ev->button == BTN_PUSH) {
+            app_save_settings();
+            app_toast("COLOR SAVED");
+        } else if (ev->type == EV_PRESS && ev->button == BTN_BACK) {
+            app_save_settings();
+            app_back();
+        }
+        break;
+
     case SC_BTN_DEBUG:
         if (ev->type == EV_PRESS && ev->button == BTN_BACK) app_back();
         break;
@@ -3834,6 +3997,8 @@ void screens_chrome(void) {
     case SC_TRACK_EDIT: snprintf(g.status, sizeof g.status, g.entered ? "TRACK EDIT - EDITING" : "TRACK EDIT - PUSH TO EDIT"); break;
     case SC_SETTINGS: snprintf(g.status, sizeof g.status, g.entered ? "SETTINGS - ADJUST" : "SETTINGS - PUSH TO ENTER"); break;
     case SC_FLASH: snprintf(g.status, sizeof g.status, "FLASH MAP"); break;
+    case SC_COVER_TEST: snprintf(g.status, sizeof g.status, "STATIC COVER TEST"); break;
+    case SC_COLOR_TUNE: snprintf(g.status, sizeof g.status, "MEDIA COLOR TUNING"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
     case SC_MOUNT_SELECT: snprintf(g.status, sizeof g.status, g.sel == 0 ? "MOUNT - FIXED (TRUST IMU)" : "MOUNT - NOT FIXED (TRUST GPS)"); break;
     case SC_REC_LAP_SELECT:
