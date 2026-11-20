@@ -141,6 +141,12 @@ object RaceApi {
         )
     }
 
+    fun renameLogs(base: String, from: String, to: String) {
+        val a = URLEncoder.encode(from, StandardCharsets.UTF_8.name())
+        val b = URLEncoder.encode(to, StandardCharsets.UTF_8.name())
+        post(base, "/api/log/rename?from=$a&to=$b")
+    }
+
     fun logDetail(base: String, index: Int): RaceLogDetail {
         val o = JSONObject(get(base, "/api/log?id=$index").toString(StandardCharsets.UTF_8))
         val times = ArrayList<Double>()

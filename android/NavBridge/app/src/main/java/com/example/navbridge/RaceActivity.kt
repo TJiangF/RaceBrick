@@ -304,10 +304,11 @@ class RaceActivity : AppCompatActivity() {
     private fun renderLogs() {
         llList.removeAllViews()
         val filter = logFilterName
-        val visible = if (filter == null) logs else logs.filter { it.trackName == filter }
+        val matching = if (filter == null) logs else logs.filter { it.trackName == filter }
+        val visible = if (matching.isEmpty()) logs else matching
         if (filter != null) {
             llList.addView(TextView(this).apply {
-                text = "筛选：$filter"
+                text = if (matching.isEmpty()) "未找到「$filter」同名 Race Log，显示全部" else "筛选：$filter"
                 setTextColor(0xFFF2B95C.toInt())
                 textSize = 13f
                 setPadding(dp(4), 0, dp(4), dp(8))
@@ -330,10 +331,38 @@ class RaceActivity : AppCompatActivity() {
             card.addView(
                 row(
                     button("圈速详情") { showLogDetail(l) },
+                    button("关联到赛道") { associateLog(l) },
                 )
             )
             llList.addView(card)
         }
+    }
+
+    private fun associateLog(l: RaceLogEntry) {
+        if (tracks.isEmpty()) {
+            toast("没有可关联的赛道")
+            return
+        }
+        val names = tracks.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("把 Race Log 关联到赛道")
+            .setItems(names) { _, which ->
+                val target = tracks[which].name
+                if (target == l.trackName) return@setItems
+                val b = base()
+                worker.execute {
+                    runCatching { RaceApi.renameLogs(b, l.trackName, target) }
+                        .onSuccess {
+                            main.post {
+                                toast("Race Log 已关联到 $target")
+                                loadAll()
+                            }
+                        }
+                        .onFailure { e -> main.post { fail("关联失败：${e.message}") } }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun showLogDetail(l: RaceLogEntry) {

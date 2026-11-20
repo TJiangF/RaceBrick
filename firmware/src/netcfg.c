@@ -730,6 +730,20 @@ static esp_err_t h_api_log(httpd_req_t *req) {
     return rr;
 }
 
+static esp_err_t h_api_log_rename(httpd_req_t *req) {
+    char from[24] = {0}, to[48] = {0};
+    if (!query_str(req, "from", from, sizeof from) ||
+        !query_str(req, "to", to, sizeof to) || !from[0] || !to[0]) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "from/to required");
+        return ESP_FAIL;
+    }
+    int n = log_store_rename(from, to);
+    char b[40];
+    snprintf(b, sizeof b, "{\"ok\":1,\"changed\":%d}", n);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, b, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t h_api_sessions(httpd_req_t *req) {
     char b[4096];
     int n = snprintf(b, sizeof b, "{\"count\":%d,\"sessions\":[", race_store_count());
@@ -992,6 +1006,7 @@ static void start_httpd(void) {
     httpd_uri_t u21 = { .uri = "/api/session/laps", .method = HTTP_GET, .handler = h_api_session_laps };
     httpd_uri_t u22 = { .uri = "/api/logs", .method = HTTP_GET, .handler = h_api_logs };
     httpd_uri_t u23 = { .uri = "/api/log", .method = HTTP_GET, .handler = h_api_log };
+    httpd_uri_t u24 = { .uri = "/api/log/rename", .method = HTTP_POST, .handler = h_api_log_rename };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1015,6 +1030,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u21);
     httpd_register_uri_handler(s_httpd, &u22);
     httpd_register_uri_handler(s_httpd, &u23);
+    httpd_register_uri_handler(s_httpd, &u24);
 }
 
 void netcfg_start_ap(void) {
