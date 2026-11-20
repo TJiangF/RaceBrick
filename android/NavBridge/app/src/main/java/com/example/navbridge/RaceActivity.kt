@@ -242,7 +242,10 @@ class RaceActivity : AppCompatActivity() {
     private fun renderSessions() {
         llList.removeAllViews()
         val filter = filterTrack
-        val visible = if (filter == null) sessions else sessions.filter { it.trackSlot == filter }
+        val trackName = tracks.firstOrNull { it.id == filter }?.name
+        val visible = if (filter == null) sessions else sessions.filter {
+            it.trackSlot == filter || (trackName != null && it.trackName == trackName)
+        }
         if (filter != null) {
             val header = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -261,6 +264,11 @@ class RaceActivity : AppCompatActivity() {
                 button("显示全部") {
                     filterTrack = null
                     renderSessions()
+                }
+            )
+            header.addView(
+                button("清空 Log", danger = true) {
+                    deleteTrackLogs(filter, visible)
                 }
             )
             llList.addView(header)
@@ -739,6 +747,32 @@ class RaceActivity : AppCompatActivity() {
                         }
                     }
                     .onFailure { e -> main.post { fail("删除失败：${e.message}") } }
+            }
+        }
+    }
+
+    private fun deleteTrackLogs(trackSlot: Int, list: List<RaceSession>) {
+        if (list.isEmpty()) {
+            toast("没有可删除的记录")
+            return
+        }
+        confirm("清空该赛道 Race Log", "删除 ${list.size} 条记录？此操作不可恢复。") {
+            val b = base()
+            worker.execute {
+                val failed = ArrayList<String>()
+                for (s in list) {
+                    runCatching { RaceApi.deleteSession(b, s.slot) }
+                        .onFailure { failed += "${s.id}: ${it.message}" }
+                }
+                main.post {
+                    if (failed.isEmpty()) {
+                        toast("已清空 ${list.size} 条 Race Log")
+                        loadAll()
+                    } else {
+                        fail("部分删除失败：${failed.first()}")
+                        loadAll()
+                    }
+                }
             }
         }
     }

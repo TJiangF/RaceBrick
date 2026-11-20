@@ -609,12 +609,6 @@ void app_render(void) {
     gfx_set_clip(0, CONTENT_Y, LCD_W, CONTENT_H);
     screens_render();
 
-    if (g.rec_flash > 0) {
-        float elapsed = 2.0f - g.rec_flash;
-        if (fmodf(elapsed, 0.40f) < 0.20f)
-            gfx_fill(0, 0, LCD_W, LCD_H, PAL.yellow);
-    }
-
     if (g.overlay_active) render_overlay();
 
     gfx_reset_view();
