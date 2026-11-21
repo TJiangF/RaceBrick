@@ -847,6 +847,73 @@ static esp_err_t h_api_session_laps(httpd_req_t *req) {
     return httpd_resp_send(req, b, n);
 }
 
+static esp_err_t h_api_session_traces(httpd_req_t *req) {
+    int id = query_int(req, "id", -1);
+    race_hdr_t h;
+    if (id < 0 || !race_store_info(id, &h)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
+        return ESP_FAIL;
+    }
+    track_t *tr = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    bool have_tr = tr && h.track_slot < TSTORE_EXT_SLOTS && tstore_load(h.track_slot, tr) && tr->geo;
+    double lat0 = 0, lon0 = 0;
+    bool first_geo = true;
+    uint32_t cnt[RACE_LAPS] = {0};
+    int step[RACE_LAPS];
+    for (uint32_t i = 0; i < h.sample_count; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(id, (int)i, &sm)) break;
+        if (sm.lap < 1 || sm.lap > h.lap_count) continue;
+        if (!(sm.flags & 1)) continue;
+        if (first_geo) { lat0 = sm.lat_e7 / 1e7; lon0 = sm.lon_e7 / 1e7; first_geo = false; }
+        cnt[sm.lap - 1]++;
+    }
+    for (int i = 0; i < RACE_LAPS; i++) step[i] = cnt[i] > 96 ? (int)((cnt[i] + 95) / 96) : 1;
+    char *b = (char *)heap_caps_malloc(32768, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b) { free(tr); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int n = snprintf(b, 32768, "{\"slot\":%d,\"laps\":[", id);
+    bool first_lap = true;
+    int cur_lap = -1;
+    bool first_point = true;
+    int seen[RACE_LAPS] = {0};
+    for (uint32_t i = 0; i < h.sample_count && n < 28000; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(id, (int)i, &sm)) break;
+        if (sm.lap < 1 || sm.lap > h.lap_count) continue;
+        if (!(sm.flags & 1)) continue;
+        if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
+        int li = sm.lap - 1;
+        if ((seen[li]++ % step[li]) != 0) continue;
+        double lat = sm.lat_e7 / 1e7, lon = sm.lon_e7 / 1e7;
+        float x, y;
+        if (have_tr) {
+            pt_t q = track_geo_to_norm(tr, lat, lon);
+            x = q.x; y = q.y;
+        } else {
+            x = (float)((lon - lon0) * 111320.0 * cos(lat0 * M_PI / 180.0));
+            y = (float)((lat - lat0) * 111320.0);
+        }
+        if (sm.lap != cur_lap) {
+            if (cur_lap >= 0) n += snprintf(b + n, 32768 - n, "]}");
+            if (!first_lap) n += snprintf(b + n, 32768 - n, ",");
+            n += snprintf(b + n, 32768 - n, "{\"lap\":%d,\"points\":[", sm.lap);
+            cur_lap = sm.lap;
+            first_lap = false;
+            first_point = true;
+        }
+        n += snprintf(b + n, 32768 - n, "%s%.5f,%.5f", first_point ? "" : ",",
+                      (double)x, (double)y);
+        first_point = false;
+    }
+    if (cur_lap >= 0) n += snprintf(b + n, 32768 - n, "]}");
+    if (!first_lap) n += snprintf(b + n, 32768 - n, "]}");
+    n += snprintf(b + n, 32768 - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t rr = httpd_resp_send(req, b, n);
+    free(b); free(tr);
+    return rr;
+}
+
 static esp_err_t h_api_session_file(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
     race_hdr_t h;
@@ -865,7 +932,8 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
     for (uint32_t i = 0; i < h.sample_count; i++) {
         race_sample_t sm;
         if (!race_store_read_sample(id, (int)i, &sm)) break;
-        if (sm.lap > 0 && (h.lap_deleted_mask & (1u << (sm.lap - 1)))) continue;
+        if (sm.lap == 0 || sm.lap > h.lap_count) continue;
+        if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
         n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
                      (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
                      sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
@@ -1007,6 +1075,7 @@ static void start_httpd(void) {
     httpd_uri_t u22 = { .uri = "/api/logs", .method = HTTP_GET, .handler = h_api_logs };
     httpd_uri_t u23 = { .uri = "/api/log", .method = HTTP_GET, .handler = h_api_log };
     httpd_uri_t u24 = { .uri = "/api/log/rename", .method = HTTP_POST, .handler = h_api_log_rename };
+    httpd_uri_t u25 = { .uri = "/api/session/traces", .method = HTTP_GET, .handler = h_api_session_traces };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1031,6 +1100,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u22);
     httpd_register_uri_handler(s_httpd, &u23);
     httpd_register_uri_handler(s_httpd, &u24);
+    httpd_register_uri_handler(s_httpd, &u25);
 }
 
 void netcfg_start_ap(void) {

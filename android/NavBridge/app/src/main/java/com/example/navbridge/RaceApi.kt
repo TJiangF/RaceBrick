@@ -262,6 +262,27 @@ object RaceApi {
         return out
     }
 
+    fun sessionTraces(base: String, slot: Int): Map<Int, List<android.graphics.PointF>> {
+        val root = JSONObject(get(base, "/api/session/traces?id=$slot").toString(StandardCharsets.UTF_8))
+        val arr = root.optJSONArray("laps") ?: JSONArray()
+        val out = LinkedHashMap<Int, List<android.graphics.PointF>>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val lap = o.optInt("lap")
+            val pts = ArrayList<android.graphics.PointF>()
+            val pa = o.optJSONArray("points")
+            if (pa != null) {
+                var j = 0
+                while (j + 1 < pa.length()) {
+                    pts += android.graphics.PointF(pa.optDouble(j).toFloat(), pa.optDouble(j + 1).toFloat())
+                    j += 2
+                }
+            }
+            if (pts.size >= 2) out[lap] = pts
+        }
+        return out
+    }
+
     fun sessionCsv(base: String, slot: Int): ByteArray =
         get(base, "/api/session/file?id=$slot")
 

@@ -46,6 +46,7 @@ class RaceActivity : AppCompatActivity() {
     private var tracks: List<RaceTrack> = emptyList()
     private var sessions: List<RaceSession> = emptyList()
     private var logs: List<RaceLogEntry> = emptyList()
+    private val traceCache = HashMap<Int, Map<Int, List<android.graphics.PointF>>>()
     private var filterTrack: Int? = null
     private var logFilterName: String? = null
     private var showingSessions = false
@@ -182,13 +183,21 @@ class RaceActivity : AppCompatActivity() {
                 val t = RaceApi.tracks(b)
                 val s = RaceApi.sessions(b)
                 val l = runCatching { RaceApi.logs(b) }.getOrElse { emptyList() }
-                Triple(t, s, l)
-            }.onSuccess { (t, s, l) ->
+                val tc = HashMap<Int, Map<Int, List<android.graphics.PointF>>>()
+                for (session in s) {
+                    runCatching { RaceApi.sessionTraces(b, session.slot) }
+                        .onSuccess { if (it.isNotEmpty()) tc[session.slot] = it }
+                }
+                Triple(t, s, Triple(l, tc, Unit))
+            }.onSuccess { (t, s, extra) ->
                 main.post {
                     if (gen != generation) return@post
+                    val (l, tc, _) = extra
                     tracks = t
                     sessions = s
                     logs = l
+                    traceCache.clear()
+                    traceCache.putAll(tc)
                     status("赛道 ${t.size} 条，Race Log ${s.size} 条")
                     when {
                         showingLogs -> renderLogs()
@@ -291,6 +300,21 @@ class RaceActivity : AppCompatActivity() {
                         "${s.laps} 圈  ·  ${s.samples} 点"
                 )
             )
+            val preview = traceCache[s.slot]
+            if (preview != null && preview.isNotEmpty()) {
+                card.addView(TrackMapView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(130),
+                    ).apply { topMargin = dp(8) }
+                    val cols = intArrayOf(
+                        0xFF66E0D2.toInt(), 0xFFFFB74D.toInt(), 0xFF8B5CF6.toInt(),
+                        0xFF5ED6A3.toInt(), 0xFFFF6B9A.toInt(), 0xFF42A5F5.toInt(),
+                    )
+                    setLayers(preview.entries.sortedBy { it.key }.mapIndexed { i, e ->
+                        TrackMapView.Layer(e.value, cols[i % cols.size], "L${e.key}")
+                    })
+                })
+            }
             if (s.deletedLapMask != 0) {
                 card.addView(meta("已删除圈：${deletedLaps(s)}", warning = true))
             }
@@ -424,8 +448,9 @@ class RaceActivity : AppCompatActivity() {
             runCatching {
                 val s = RaceApi.session(b, summary.slot)
                 val laps = runCatching { RaceApi.sessionLaps(b, summary.slot) }.getOrElse { emptyList() }
-                val csv = runCatching { RaceApi.sessionCsv(b, summary.slot) }.getOrNull()
-                Triple(s, laps, if (csv != null) parseSessionTraces(csv) else emptyMap())
+                val traces = traceCache[summary.slot]
+                    ?: runCatching { RaceApi.sessionTraces(b, summary.slot) }.getOrElse { emptyMap() }
+                Triple(s, laps, traces)
             }.onSuccess { (s, laps, traces) ->
                 main.post { if (!isFinishing) buildDetailDialog(s, laps, traces).show() }
             }.onFailure { e -> main.post { fail("读取详情失败：${e.message}") } }
