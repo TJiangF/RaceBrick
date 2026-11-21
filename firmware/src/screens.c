@@ -1710,7 +1710,7 @@ static void render_history(void) {
         gfx_text_right(310, y + 20, b, PAL.dim, 0);
     }
     if (!g.nlog) hint_c("(NO RECORDS)", 60);
-    gfx_text(182, 196, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
+    gfx_text(182, 196, g.entered ? "PUSH TOGGLE" : "PUSH ENTER", PAL.dim, 1);
     gfx_text(182, HINT_Y, "BACK EXIT", PAL.dim, 1);
 }
 
@@ -1720,6 +1720,7 @@ static pt_t s_hist_prev[8][HIST_PREVIEW_PTS];
 static int s_hist_prev_n[8];
 static int s_hist_prev_laps;
 static int s_hist_prev_rec = -1;
+static uint8_t s_hist_mask;
 
 static void history_build_preview(int rec_idx, histrec_t *r) {
     if (rec_idx == s_hist_prev_rec) return;
@@ -1730,15 +1731,46 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
     race_hdr_t h;
     int slot = -1;
     double best_diff = 1e30;
+    int fallback = -1;
+    double fallback_diff = 1e30;
+    race_hdr_t fallback_h = {0};
+    int name_fallback = -1;
+    double name_fallback_diff = 1e30;
+    race_hdr_t name_fallback_h = {0};
+    int raw_n = 0;
     for (int i = 0; i < RACE_SLOTS; i++) {
         race_hdr_t hh;
         if (!race_store_info(i, &hh)) continue;
-        if (strcmp(hh.track_name, r->trackName) != 0) continue;
-        if (hh.lap_count != r->lapCount) continue;
+        raw_n++;
         double diff = fabs((double)hh.duration_ms / 1000.0 - (double)r->duration);
-        if (diff < best_diff) { best_diff = diff; slot = i; h = hh; }
+        ESP_LOGI("hist", "raw %d '%s' %dL %.1fs diff=%.1fs", i, hh.track_name,
+                 hh.lap_count, (double)hh.duration_ms / 1000.0, diff);
+        if (hh.lap_count == r->lapCount && diff < fallback_diff) {
+            fallback_diff = diff; fallback = i; fallback_h = hh;
+        }
+        if (strcmp(hh.track_name, r->trackName) == 0 && diff < name_fallback_diff) {
+            name_fallback_diff = diff; name_fallback = i; name_fallback_h = hh;
+        }
+        if (strcmp(hh.track_name, r->trackName) == 0 && hh.lap_count == r->lapCount &&
+            diff < best_diff) {
+            best_diff = diff; slot = i; h = hh;
+        }
     }
-    if (slot < 0 || best_diff > 5.0) return;
+    if (slot < 0 && fallback >= 0 && fallback_diff <= 15.0) {
+        slot = fallback; best_diff = fallback_diff; h = fallback_h;
+        ESP_LOGW("hist", "using lap-count match for '%s'", r->trackName);
+    }
+    if (slot < 0 && name_fallback >= 0 && name_fallback_diff <= 30.0) {
+        slot = name_fallback; best_diff = name_fallback_diff; h = name_fallback_h;
+        ESP_LOGW("hist", "using track-name match for '%s' (%dL vs %dL)",
+                 r->trackName, h.lap_count, r->lapCount);
+    }
+    if (slot < 0 || best_diff > 30.0) {
+        ESP_LOGW("hist", "no raw session for log '%s' %dL %.1fs (%d raw)",
+                 r->trackName, r->lapCount, (double)r->duration, raw_n);
+        return;
+    }
+    ESP_LOGI("hist", "preview raw slot=%d diff=%.2fs laps=%d", slot, best_diff, h.lap_count);
     track_t *tr = (track_t *)malloc(sizeof(track_t));
     bool have_tr = tr && tstore_load(h.track_slot, tr) && tr->geo;
     uint32_t cnt[8] = {0};
@@ -1781,13 +1813,19 @@ static void render_history_detail(void) {
             int first = 0;
             while (first < s_hist_prev_laps && s_hist_prev_n[first] < 2) first++;
             if (first >= s_hist_prev_laps) first = 0;
-            map_fit_points(&s_map, s_hist_prev[first], s_hist_prev_n[first], 0.3f);
-            const uint16_t cols[8] = {
-                PAL.cyan, PAL.orange, PAL.purple, PAL.green,
-                PAL.yellow, PAL.text2, PAL.gold, PAL.red
-            };
+            int fit = -1;
             for (int i = 0; i < s_hist_prev_laps; i++)
-                if (s_hist_prev_n[i] >= 2) map_trace(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
+                if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2) { fit = i; break; }
+            if (fit >= 0) {
+                map_fit_points(&s_map, s_hist_prev[fit], s_hist_prev_n[fit], 0.3f);
+                const uint16_t cols[8] = {
+                    PAL.cyan, PAL.orange, PAL.purple, PAL.green,
+                    PAL.yellow, PAL.text2, PAL.gold, PAL.red
+                };
+                for (int i = 0; i < s_hist_prev_laps; i++)
+                    if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2)
+                        map_trace(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
+            }
         } else {
             map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
             map_trace(&s_map, r->trace, r->nTrace, PAL.cyan, 2);
@@ -1813,8 +1851,10 @@ static void render_history_detail(void) {
         if (best) gfx_fill(182, y, 132, 18, PAL.purple);
         else gfx_fill(182, y, 132, 18, PAL.surface);
         if (cur) gfx_rect(182, y, 132, 18, PAL.white);
+        bool shown = (s_hist_mask & (1u << i)) != 0;
+        gfx_fill(182 + 5, y + 5, 8, 8, shown ? PAL.green : PAL.checkboxoff);
         snprintf(b, sizeof b, "L%d", r->lapIndex[i]);
-        gfx_text(188, y + 5, b, best ? PAL.white : PAL.dim, 1);
+        gfx_text(196, y + 5, b, best ? PAL.white : PAL.dim, 1);
         u_fmt_time(b, sizeof b, r->lapTime[i]);
         gfx_text_right(310, y + 5, b, best ? PAL.white : PAL.text2, 1);
     }
@@ -2912,6 +2952,7 @@ void screens_enter(scid_t id) {
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
+        s_hist_mask = 0xFF;
         if (g.hist_rec >= 0 && g.hist_rec < g.nlog) {
             histrec_t *r = &g.log[g.hist_rec];
             if (r->hasBest) for (int i = 0; i < r->lapCount; i++) if (r->lapIndex[i] == r->bestIndex) g.sel = i;
@@ -3932,6 +3973,10 @@ void screens_handle(const event_t *ev) {
         if (d && g.hist_rec >= 0 && g.hist_rec < g.nlog) {
             int n = g.log[g.hist_rec].lapCount;
             if (n) g.sel = (g.sel + d + n) % n;
+            return;
+        }
+        if (ev->type == EV_PRESS && (ev->button == BTN_PUSH || ev->button == BTN_OK)) {
+            s_hist_mask ^= (uint8_t)(1u << g.sel);
             return;
         }
         break;
