@@ -8,6 +8,7 @@
 #include "app.h"
 
 #include "extflash.h"
+#include "race_store.h"
 #include "gps.h"
 #include "battery.h"
 #include "esp_system.h"
@@ -81,6 +82,20 @@ void app_main(void) {
     input_init();
     buzzer_init();
     app_init();
+    {
+        int raw_n = race_store_count();
+        ESP_LOGI("hist", "history records=%d raw sessions=%d", g.nlog, raw_n);
+        for (int i = 0; i < g.nlog; i++)
+            ESP_LOGI("hist", "log %d '%s' %dL %.1fs", i, g.log[i].trackName,
+                     g.log[i].lapCount, (double)g.log[i].duration);
+        for (int i = 0; i < RACE_SLOTS; i++) {
+            race_hdr_t rh;
+            if (race_store_info(i, &rh))
+                ESP_LOGI("hist", "raw %d '%s' %dL %.1fs samples=%u", i,
+                         rh.track_name, rh.lap_count,
+                         (double)rh.duration_ms / 1000.0, rh.sample_count);
+        }
+    }
 #if WIFI_AP_ALWAYS
     netcfg_start_ap();                           /* direct phone <-> ESP AP */
 #else

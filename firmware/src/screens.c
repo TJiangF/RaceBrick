@@ -1710,7 +1710,7 @@ static void render_history(void) {
         gfx_text_right(310, y + 20, b, PAL.dim, 0);
     }
     if (!g.nlog) hint_c("(NO RECORDS)", 60);
-    gfx_text(182, 196, g.entered ? "PUSH TOGGLE" : "PUSH ENTER", PAL.dim, 1);
+    gfx_text(182, 196, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
     gfx_text(182, HINT_Y, "BACK EXIT", PAL.dim, 1);
 }
 
@@ -1720,11 +1720,13 @@ static pt_t s_hist_prev[8][HIST_PREVIEW_PTS];
 static int s_hist_prev_n[8];
 static int s_hist_prev_laps;
 static int s_hist_prev_rec = -1;
+static bool s_hist_prev_raw;
 static uint8_t s_hist_mask;
 
 static void history_build_preview(int rec_idx, histrec_t *r) {
     if (rec_idx == s_hist_prev_rec) return;
     s_hist_prev_rec = rec_idx;
+    s_hist_prev_raw = false;
     s_hist_prev_laps = 0;
     for (int i = 0; i < 8; i++) s_hist_prev_n[i] = 0;
     if (!r) return;
@@ -1800,6 +1802,7 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         s_hist_prev[li][s_hist_prev_n[li]++] = q;
         if (li + 1 > s_hist_prev_laps) s_hist_prev_laps = li + 1;
     }
+    s_hist_prev_raw = s_hist_prev_laps > 0;
     free(tr);
 }
 
@@ -1838,6 +1841,7 @@ static void render_history_detail(void) {
         }
     }
     if (!r) { title_c("RACE", 6); hint_c("NO RECORD", 60); return; }
+    if (!s_hist_prev_raw) gfx_text(182, 142, "NO RAW LAP DATA", PAL.orange, 0);
     snprintf(b, sizeof b, "RACE %s", r->trackName);
     title_c(b, 6);
     u_fmt_time(b, sizeof b, r->duration);
@@ -1853,8 +1857,9 @@ static void render_history_detail(void) {
         if (best) gfx_fill(182, y, 132, 18, PAL.purple);
         else gfx_fill(182, y, 132, 18, PAL.surface);
         if (cur) gfx_rect(182, y, 132, 18, PAL.white);
-        bool shown = (s_hist_mask & (1u << i)) != 0;
-        gfx_fill(182 + 5, y + 5, 8, 8, shown ? PAL.green : PAL.checkboxoff);
+        bool shown = s_hist_prev_raw && (s_hist_mask & (1u << i)) != 0;
+        gfx_fill(182 + 5, y + 5, 8, 8,
+                 s_hist_prev_raw ? (shown ? PAL.green : PAL.checkboxoff) : PAL.line);
         snprintf(b, sizeof b, "L%d", r->lapIndex[i]);
         gfx_text(196, y + 5, b, best ? PAL.white : PAL.dim, 1);
         u_fmt_time(b, sizeof b, r->lapTime[i]);
@@ -2954,6 +2959,7 @@ void screens_enter(scid_t id) {
     case SC_HISTORY: g.sel = 0; g.entered = false; break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
+        s_hist_prev_rec = -1;
         s_hist_mask = 0xFF;
         if (g.hist_rec >= 0 && g.hist_rec < g.nlog) {
             histrec_t *r = &g.log[g.hist_rec];
@@ -3978,6 +3984,7 @@ void screens_handle(const event_t *ev) {
             return;
         }
         if (ev->type == EV_PRESS && (ev->button == BTN_PUSH || ev->button == BTN_OK)) {
+            if (!s_hist_prev_raw) { app_toast("NO RAW TRACE - RE-RACE"); return; }
             s_hist_mask ^= (uint8_t)(1u << g.sel);
             return;
         }
