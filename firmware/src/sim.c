@@ -910,6 +910,9 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         }
         e->start_seen = true;
         e->lapArmed = true;
+        /* The first crossing while starting before the line is the outlap
+         * boundary too; flash the same LED indication. */
+        if (crossed) e->lap_event = true;
         /* If the first fix is already past the line, the car has to complete
          * a partial lap first. That crossing is an outlap, not lap 1. */
         e->outlap_pending = already_ahead && along > 1.0f;
