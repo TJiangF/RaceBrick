@@ -1715,6 +1715,60 @@ static void render_history(void) {
 }
 
 /* ================= HISTORY DETAIL ================= */
+#define HIST_PREVIEW_PTS 64
+static pt_t s_hist_prev[8][HIST_PREVIEW_PTS];
+static int s_hist_prev_n[8];
+static int s_hist_prev_laps;
+static int s_hist_prev_rec = -1;
+
+static void history_build_preview(int rec_idx, histrec_t *r) {
+    if (rec_idx == s_hist_prev_rec) return;
+    s_hist_prev_rec = rec_idx;
+    s_hist_prev_laps = 0;
+    for (int i = 0; i < 8; i++) s_hist_prev_n[i] = 0;
+    if (!r) return;
+    race_hdr_t h;
+    int slot = -1;
+    double best_diff = 1e30;
+    for (int i = 0; i < RACE_SLOTS; i++) {
+        race_hdr_t hh;
+        if (!race_store_info(i, &hh)) continue;
+        if (strcmp(hh.track_name, r->trackName) != 0) continue;
+        if (hh.lap_count != r->lapCount) continue;
+        double diff = fabs((double)hh.duration_ms / 1000.0 - (double)r->duration);
+        if (diff < best_diff) { best_diff = diff; slot = i; h = hh; }
+    }
+    if (slot < 0 || best_diff > 5.0) return;
+    track_t *tr = (track_t *)malloc(sizeof(track_t));
+    bool have_tr = tr && tstore_load(h.track_slot, tr) && tr->geo;
+    uint32_t cnt[8] = {0};
+    for (uint32_t i = 0; i < h.sample_count; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(slot, (int)i, &sm)) break;
+        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count) continue;
+        if (!(sm.flags & 1)) continue;
+        cnt[sm.lap - 1]++;
+    }
+    int seen[8] = {0};
+    for (uint32_t i = 0; i < h.sample_count; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(slot, (int)i, &sm)) break;
+        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count) continue;
+        if (!(sm.flags & 1)) continue;
+        int li = sm.lap - 1;
+        int step = cnt[li] > HIST_PREVIEW_PTS ? (int)((cnt[li] + HIST_PREVIEW_PTS - 1) / HIST_PREVIEW_PTS) : 1;
+        if ((seen[li]++ % step) != 0) continue;
+        if (s_hist_prev_n[li] >= HIST_PREVIEW_PTS) continue;
+        double lat = sm.lat_e7 / 1e7, lon = sm.lon_e7 / 1e7;
+        pt_t q;
+        if (have_tr) q = track_geo_to_norm(tr, lat, lon);
+        else q = (pt_t){ (float)lon, (float)lat };
+        s_hist_prev[li][s_hist_prev_n[li]++] = q;
+        if (li + 1 > s_hist_prev_laps) s_hist_prev_laps = li + 1;
+    }
+    free(tr);
+}
+
 static void render_history_detail(void) {
     char b[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
@@ -1722,10 +1776,22 @@ static void render_history_detail(void) {
     map_init(&s_map, 0, 0, 176, 226);
     map_begin(&s_map);
     if (r) {
-        int sel = g.sel < r->lapCount ? g.sel : 0;
-        (void)sel;
-        map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
-        map_trace(&s_map, r->trace, r->nTrace, PAL.cyan, 2);
+        history_build_preview(g.hist_rec, r);
+        if (s_hist_prev_laps > 0) {
+            int first = 0;
+            while (first < s_hist_prev_laps && s_hist_prev_n[first] < 2) first++;
+            if (first >= s_hist_prev_laps) first = 0;
+            map_fit_points(&s_map, s_hist_prev[first], s_hist_prev_n[first], 0.3f);
+            const uint16_t cols[8] = {
+                PAL.cyan, PAL.orange, PAL.purple, PAL.green,
+                PAL.yellow, PAL.text2, PAL.gold, PAL.red
+            };
+            for (int i = 0; i < s_hist_prev_laps; i++)
+                if (s_hist_prev_n[i] >= 2) map_trace(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
+        } else {
+            map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
+            map_trace(&s_map, r->trace, r->nTrace, PAL.cyan, 2);
+        }
         for (int i = 0; i < r->nsec; i++) {
             int idx = (int)(r->sections[i] * (r->nTrace - 1));
             if (idx >= 0 && idx < r->nTrace) map_marker_at(&s_map, r->trace[idx], PAL.orange, 4, true);
