@@ -70,6 +70,16 @@ bool race_store_begin(int track_slot, const char *track_name, int mode) {
         if (!read_hdr(i, &h)) { slot = i; break; }
     }
     if (slot < 0) {
+        for (int i = 0; i < RACE_SLOTS; i++) {
+            if (!read_hdr(i, &h)) continue;
+            if (h.lap_count == 0 || h.sample_count == 0) {
+                slot = i;
+                ESP_LOGW(TAG, "reclaiming empty session slot %d", slot);
+                break;
+            }
+        }
+    }
+    if (slot < 0) {
         ESP_LOGW(TAG, "no free session slot");
         return false;
     }

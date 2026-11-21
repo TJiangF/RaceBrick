@@ -2910,8 +2910,10 @@ void screens_enter(scid_t id) {
             engine_set_profile(&g.engine, g.race_mount);
             g.engine.logged = false;
             if (g.engine.track) {
-                race_store_begin(g.engine.track->store_slot,
-                                 g.engine.track->name, id == SC_RACING ? 0 : 1);
+                if (!race_store_begin(g.engine.track->store_slot,
+                                      g.engine.track->name,
+                                      id == SC_RACING ? 0 : 1))
+                    app_toast("RACE STORAGE FULL");
             }
         }
         break;
