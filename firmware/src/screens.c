@@ -1765,7 +1765,7 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         ESP_LOGW("hist", "using track-name match for '%s' (%dL vs %dL)",
                  r->trackName, h.lap_count, r->lapCount);
     }
-    if (slot < 0 || best_diff > 30.0) {
+    if (slot < 0) {
         ESP_LOGW("hist", "no raw session for log '%s' %dL %.1fs (%d raw)",
                  r->trackName, r->lapCount, (double)r->duration, raw_n);
         return;
@@ -1777,7 +1777,8 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
     for (uint32_t i = 0; i < h.sample_count; i++) {
         race_sample_t sm;
         if (!race_store_read_sample(slot, (int)i, &sm)) break;
-        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count) continue;
+        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count ||
+            sm.lap > r->lapCount) continue;
         if (!(sm.flags & 1)) continue;
         cnt[sm.lap - 1]++;
     }
@@ -1785,7 +1786,8 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
     for (uint32_t i = 0; i < h.sample_count; i++) {
         race_sample_t sm;
         if (!race_store_read_sample(slot, (int)i, &sm)) break;
-        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count) continue;
+        if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count ||
+            sm.lap > r->lapCount) continue;
         if (!(sm.flags & 1)) continue;
         int li = sm.lap - 1;
         int step = cnt[li] > HIST_PREVIEW_PTS ? (int)((cnt[li] + HIST_PREVIEW_PTS - 1) / HIST_PREVIEW_PTS) : 1;
