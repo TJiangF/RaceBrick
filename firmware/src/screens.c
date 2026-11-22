@@ -40,6 +40,9 @@
 
 static tmap_t s_map;
 static bool   s_map_ready;
+static bool   s_race_back_done;
+#define RACE_BACK_HOLD_MS 2000.0f
+static void race_exit_after_hold(void);
 
 static const char *RACE_PANELS[4] = {"TRACK MODE", "TIME MODE", "G FORCE MODE", "SECTION MODE"};
 
@@ -2906,6 +2909,7 @@ void screens_enter(scid_t id) {
         break;
     case SC_RACING: case SC_RACING_RECORDED:
         g.panel = 0;
+        s_race_back_done = false;
         if (g.engine_valid) {
             engine_set_profile(&g.engine, g.race_mount);
             g.engine.logged = false;
@@ -3125,6 +3129,12 @@ void screens_update(float dt) {
     }
     case SC_RACING:
     case SC_RACING_RECORDED:
+        if (!s_race_back_done && input_is_down(BTN_BACK) &&
+            input_held_ms(BTN_BACK) >= RACE_BACK_HOLD_MS) {
+            s_race_back_done = true;
+            race_exit_after_hold();
+            break;
+        }
         if (g.engine_valid) {
             gps_state_t *gp = gps_get();
             bool gnss_fix = gp->has_pos && gp->fix_type >= 1 && gp->fix_time_valid;
@@ -3260,6 +3270,21 @@ static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
 static void cb_racing_no(void) { app_back(); }
 static void cb_save_race_log_yes(void) { app_record_race(1); app_back(); }
 static void cb_save_race_log_no(void) { g.engine.logged = true; app_back(); }
+
+static void race_exit_after_hold(void) {
+    engine_t *e = &g.engine;
+    e->paused = true;
+    race_store_end(e);
+    if (g.cur == SC_RACING) {
+        app_record_race(0);
+        app_push_confirm("SAVE THIS RECORD\nAS A NEW TRACK?", "YES", "NO",
+                         cb_racing_yes, cb_racing_no);
+    } else {
+        if (e->nLaps == 0) { app_back(); return; }
+        app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+                         cb_save_race_log_yes, cb_save_race_log_no);
+    }
+}
 static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
 static void cb_lapseg_no(void) {
     g.session_nsec = 0;
@@ -3758,27 +3783,7 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_RACING:
-        if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
-            g.panel = (g.panel + (ev->button == BTN_LEFT ? -1 : 1) + 4) % 4;
-            return;
-        }
-        if (ev->button == BTN_BACK && ev->type == EV_LONG) {
-            e->paused = true;
-            race_store_end(e);
-            app_record_race(0);
-            app_push_confirm("SAVE THIS RECORD\nAS A NEW TRACK?", "YES", "NO", cb_racing_yes, cb_racing_no);
-        }
-        break;
-
     case SC_RACING_RECORDED:
-        if (ev->type == EV_PRESS && ev->button == BTN_BACK) {
-            e->paused = true;
-            race_store_end(e);
-            if (e->nLaps == 0) { app_back(); return; }
-            app_push_confirm("KEEP RACE LOG?", "YES", "NO",
-                             cb_save_race_log_yes, cb_save_race_log_no);
-            return;
-        }
         screens_handle_racing_common(ev);
         break;
 
@@ -4130,14 +4135,6 @@ void screens_handle(const event_t *ev) {
 void screens_handle_racing_common(const event_t *ev) {
     if (ev->type == EV_PRESS && (ev->button == BTN_LEFT || ev->button == BTN_RIGHT)) {
         g.panel = (g.panel + (ev->button == BTN_LEFT ? -1 : 1) + 4) % 4;
-        return;
-    }
-    if (ev->button == BTN_BACK && ev->type == EV_LONG) {
-        g.engine.paused = true;
-        race_store_end(&g.engine);
-        if (g.engine.nLaps == 0) { app_back(); return; }
-        app_push_confirm("KEEP RACE LOG?", "YES", "NO",
-                         cb_save_race_log_yes, cb_save_race_log_no);
     }
 }
 

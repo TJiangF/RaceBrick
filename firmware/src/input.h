@@ -34,4 +34,5 @@ void input_press(btn_id_t b);
 void input_release(btn_id_t b);
 bool input_pop(event_t *out);
 bool input_is_down(btn_id_t b);
+float input_held_ms(btn_id_t b);
 void input_debug(btn_debug_t *out);

@@ -157,6 +157,14 @@ bool input_is_down(btn_id_t b) {
     return down;
 }
 
+float input_held_ms(btn_id_t b) {
+    if (b < 0 || b >= BTN_COUNT) return 0;
+    portENTER_CRITICAL(&s_lock);
+    float held = s_btn[b].down ? (s_clock - s_btn[b].t0) : 0;
+    portEXIT_CRITICAL(&s_lock);
+    return held;
+}
+
 void input_debug(btn_debug_t *out) {
     if (!out) return;
     portENTER_CRITICAL(&s_lock);
