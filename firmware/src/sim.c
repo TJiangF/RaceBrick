@@ -959,15 +959,17 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         float gps_step_m = t->lengthM / (float)(GPS_MAX - 2);
         if (trace_step_m < 1.0f) trace_step_m = 1.0f;
         if (gps_step_m < 1.0f) gps_step_m = 1.0f;
+        /* nscale converts metres to normalised track units, so divide by it
+         * to compare a normalised step against a distance threshold. */
         float scale_n = t->nscale > 1e-9f ? t->nscale : 1.0f;
         if (e->nTrace == 0 ||
             hypotf(q.x - e->lapTrace[e->nTrace - 1].x,
-                   q.y - e->lapTrace[e->nTrace - 1].y) * scale_n >= trace_step_m) {
+                   q.y - e->lapTrace[e->nTrace - 1].y) / scale_n >= trace_step_m) {
             if (e->nTrace < TRACE_MAX) e->lapTrace[e->nTrace++] = q;
         }
         if (e->nGps == 0 ||
             hypotf(q.x - e->gpsLapTrace[e->nGps - 1].x,
-                   q.y - e->gpsLapTrace[e->nGps - 1].y) * scale_n >= gps_step_m) {
+                   q.y - e->gpsLapTrace[e->nGps - 1].y) / scale_n >= gps_step_m) {
             if (e->nGps < GPS_MAX) e->gpsLapTrace[e->nGps++] = q;
         }
     }
