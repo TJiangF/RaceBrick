@@ -1716,6 +1716,18 @@ static void render_track_start(void) {
     gfx_text(rx, 208, "BACK CANCEL", PAL.dim, 0);
 }
 
+#define HIST_PREVIEW_PTS 96
+static pt_t s_hdraw[96];
+static void hist_draw96(tmap_t *m, const pt_t *pts, int n, uint16_t color) {
+    if (n <= HIST_PREVIEW_PTS) {
+        map_polyline(m, pts, n, color, 2);
+        return;
+    }
+    for (int i = 0; i < HIST_PREVIEW_PTS; i++)
+        s_hdraw[i] = pts[(int)((long)i * (n - 1) / (HIST_PREVIEW_PTS - 1))];
+    map_polyline(m, s_hdraw, HIST_PREVIEW_PTS, color, 2);
+}
+
 static track_t *find_track_by_name(const char *name) {
     if (!name || !name[0]) return NULL;
     for (int i = 0; i < g.ntracks; i++)
@@ -1734,7 +1746,7 @@ static void render_history(void) {
         map_fit_points(&s_map, rec->trace, rec->nTrace, 0.3f);
     }
     map_begin(&s_map);
-    if (rec) map_trace(&s_map, rec->trace, rec->nTrace, PAL.purple, 2);
+    if (rec) hist_draw96(&s_map, rec->trace, rec->nTrace, PAL.purple);
     title_c("RACE LOG", 6);
     int start, end;
     snprintf(b, sizeof b, "LOG %d/%d", log_store_count(), log_store_capacity());
@@ -1762,7 +1774,6 @@ static void render_history(void) {
 }
 
 /* ================= HISTORY DETAIL ================= */
-#define HIST_PREVIEW_PTS 64
 static pt_t s_hist_prev[8][HIST_PREVIEW_PTS];
 static int s_hist_prev_n[8];
 static int s_hist_prev_laps;
@@ -1880,10 +1891,10 @@ static void render_history_detail(void) {
                 };
                 for (int i = 0; i < s_hist_prev_laps; i++)
                     if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2)
-                        map_trace(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
+                        map_polyline(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
             }
         } else {
-            map_trace(&s_map, r->trace, r->nTrace, PAL.cyan, 2);
+            hist_draw96(&s_map, r->trace, r->nTrace, PAL.cyan);
         }
         for (int i = 0; i < r->nsec; i++) {
             int idx = (int)(r->sections[i] * (r->nTrace - 1));

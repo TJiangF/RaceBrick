@@ -28,6 +28,7 @@ void map_start_checker_width(tmap_t *m, pt_t p, pt_t tangent, float width_m, uin
 void map_start_line_arrow_m(tmap_t *m, pt_t p, pt_t tangent, float width_m, uint16_t color);
 void map_start_arrow_at(tmap_t *m, pt_t p, pt_t tangent, uint16_t color);
 void map_trace(tmap_t *m, const pt_t *pts, int n, uint16_t color, int size);
+void map_polyline(tmap_t *m, const pt_t *pts, int n, uint16_t color, int size);
 void map_trail(tmap_t *m, const engine_t *e);
 void map_start_line(tmap_t *m, float f, uint16_t color);
 void map_tick(tmap_t *m, float f, uint16_t color, int len);

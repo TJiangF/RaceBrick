@@ -312,6 +312,19 @@ void map_trace(tmap_t *m, const pt_t *pts, int n, uint16_t color, int size) {
     }
 }
 
+void map_polyline(tmap_t *m, const pt_t *pts, int n, uint16_t color, int size) {
+    if (n < 2) return;
+    int thick = size > 0 ? size : 2;
+    for (int i = 1; i < n; i++) {
+        pt_t a = map_px(m, pts[i - 1]);
+        pt_t b = map_px(m, pts[i]);
+        int x0 = (int)lroundf(m->vx + a.x), y0 = (int)lroundf(m->vy + a.y);
+        int x1 = (int)lroundf(m->vx + b.x), y1 = (int)lroundf(m->vy + b.y);
+        for (int k = 0; k < thick; k++)
+            gfx_line(x0 + k, y0, x1 + k, y1, color);
+    }
+}
+
 void map_trail(tmap_t *m, const engine_t *e) {
     for (int l = 0; l < e->nLaps; l++)
         map_trace(m, e->laps[l].trace, e->laps[l].nTrace, PAL.histtrace, 2);
