@@ -2,6 +2,7 @@ package com.example.navbridge
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.net.Network
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
@@ -23,7 +24,7 @@ object TrackSatelliteApi {
     private const val GEO_R = 6378137.0
     private val seq = AtomicInteger(1)
 
-    fun load(detail: TrackDetail): TrackSatellite? {
+    fun load(detail: TrackDetail, network: Network? = null): TrackSatellite? {
         val geo = detail.geoRef ?: return null
         val pts = detail.points.firstOrNull()?.points ?: return null
         if (pts.size < 2 || geo.nscale <= 1e-9) return null
@@ -60,7 +61,8 @@ object TrackSatelliteApi {
             .toString()
             .toByteArray(Charsets.UTF_8)
 
-        val conn = java.net.URL(NAV_URL).openConnection() as HttpURLConnection
+        val url = java.net.URL(NAV_URL)
+        val conn = (network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
         try {
             conn.requestMethod = "POST"
             conn.connectTimeout = 5000

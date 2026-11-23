@@ -35,6 +35,19 @@ class WifiDirectConnector(private val context: Context) {
 
     val isConnected: Boolean get() = network != null
 
+    /** A validated internet-capable network other than the ESP SoftAP. */
+    val internetNetwork: Network?
+        get() = cm.allNetworks.firstOrNull { n ->
+            if (n == network) return@firstOrNull false
+            val caps = cm.getNetworkCapabilities(n) ?: return@firstOrNull false
+            val transport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            transport &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+
     /** Bind the WiFi network if the user already joined RaceBrick manually. */
     fun bindCurrentEsp(): Boolean {
         val ssid = runCatching { wifi.connectionInfo.ssid }.getOrNull()
