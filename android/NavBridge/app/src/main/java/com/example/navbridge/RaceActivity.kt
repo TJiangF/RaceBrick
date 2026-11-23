@@ -40,6 +40,7 @@ class RaceActivity : AppCompatActivity() {
     private lateinit var etUrl: EditText
     private lateinit var llList: LinearLayout
     private lateinit var pbLoad: ProgressBar
+    private var busyDialog: AlertDialog? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -202,6 +203,7 @@ class RaceActivity : AppCompatActivity() {
         val b = base()
         val directBound = direct.isConnected
         val internetNetwork = direct.internetNetwork
+        showBusy("正在同步设备数据", "正在读取赛道、Race Log 和原始场次，请稍候…")
         pbLoad.visibility = View.VISIBLE
         pbLoad.progress = 0
         status("正在读取赛道和场次…")
@@ -238,6 +240,7 @@ class RaceActivity : AppCompatActivity() {
                     trackDetailCache.clear()
                     trackDetailCache.putAll(loaded.details)
                     satelliteCache.clear()
+                    hideBusy()
                     pbLoad.progress = 65
                     val geoTracks = loaded.details.values.count { it.geoRef != null }
                     status(
@@ -254,6 +257,7 @@ class RaceActivity : AppCompatActivity() {
             }.onFailure { e ->
                 main.post {
                     if (gen != generation) return@post
+                    hideBusy()
                     pbLoad.visibility = View.GONE
                     fail("连接失败：${e.message}")
                     renderTracks()
@@ -994,17 +998,32 @@ class RaceActivity : AppCompatActivity() {
         confirm("删除赛道", "删除「${t.name}」？赛道几何会被清空，已保存场次不会删除。") {
             val gen = ++generation
             val b = base()
+            showBusy("正在删除赛道", "正在从设备删除「${t.name}」…")
             worker.execute {
                 runCatching { RaceApi.deleteTrack(b, t.id) }
                     .onSuccess {
                         main.post {
                             if (gen != generation) return@post
+                            hideBusy()
+                            tracks = tracks.filterNot { it.id == t.id }
+                            trackDetailCache.remove(t.id)
+                            satelliteCache.remove(t.id)
+                            if (filterTrack == t.id) filterTrack = null
                             toast("已删除赛道")
-                            filterTrack = null
-                            loadAll()
+                            when {
+                                showingLogs -> renderLogs()
+                                showingSessions -> renderSessions()
+                                else -> renderTracks()
+                            }
                         }
                     }
-                    .onFailure { e -> main.post { fail("删除失败：${e.message}") } }
+                    .onFailure { e ->
+                        main.post {
+                            if (gen != generation) return@post
+                            hideBusy()
+                            fail("删除失败：${e.message}")
+                        }
+                    }
             }
         }
     }
@@ -1173,6 +1192,40 @@ class RaceActivity : AppCompatActivity() {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
     }
 
+    private fun showBusy(title: String, message: String) {
+        if (isFinishing) return
+        hideBusy()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(20))
+        }
+        box.addView(TextView(this).apply {
+            text = message
+            setTextColor(0xFFA9C4BE.toInt())
+            textSize = 13f
+        })
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) }
+        })
+        busyDialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(box)
+            .setCancelable(false)
+            .create()
+            .also {
+                it.setCanceledOnTouchOutside(false)
+                it.show()
+            }
+    }
+
+    private fun hideBusy() {
+        busyDialog?.dismiss()
+        busyDialog = null
+    }
+
     private fun confirm(title: String, message: String, action: () -> Unit) {
         AlertDialog.Builder(this)
             .setTitle(title)
@@ -1208,6 +1261,7 @@ class RaceActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         generation++
+        hideBusy()
         direct.disconnect()
         worker.shutdownNow()
         satelliteWorker.shutdownNow()
