@@ -1716,17 +1716,25 @@ static void render_track_start(void) {
     gfx_text(rx, 208, "BACK CANCEL", PAL.dim, 0);
 }
 
+static track_t *find_track_by_name(const char *name) {
+    if (!name || !name[0]) return NULL;
+    for (int i = 0; i < g.ntracks; i++)
+        if (strcmp(g.tracks[i].name, name) == 0) return &g.tracks[i];
+    return NULL;
+}
+
 /* ================= HISTORY ================= */
 static void render_history(void) {
     char b[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
     map_init(&s_map, 0, 0, 176, 226);
-    map_begin(&s_map);
-    if (g.nlog) {
-        histrec_t *rec = &g.log[g.nlog - 1 - g.sel];
+    histrec_t *rec = g.nlog ? &g.log[g.nlog - 1 - g.sel] : NULL;
+    if (rec) {
+        s_map.track = find_track_by_name(rec->trackName);
         map_fit_points(&s_map, rec->trace, rec->nTrace, 0.3f);
-        map_trace(&s_map, rec->trace, rec->nTrace, PAL.purple, 2);
     }
+    map_begin(&s_map);
+    if (rec) map_trace(&s_map, rec->trace, rec->nTrace, PAL.purple, 2);
     title_c("RACE LOG", 6);
     int start, end;
     snprintf(b, sizeof b, "LOG %d/%d", log_store_count(), log_store_capacity());
@@ -1850,18 +1858,22 @@ static void render_history_detail(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     histrec_t *r = (g.hist_rec >= 0 && g.hist_rec < g.nlog) ? &g.log[g.hist_rec] : NULL;
     map_init(&s_map, 0, 0, 176, 226);
-    map_begin(&s_map);
+    int fit = -1;
     if (r) {
+        s_map.track = find_track_by_name(r->trackName);
         history_build_preview(g.hist_rec, r);
         if (s_hist_prev_laps > 0) {
-            int first = 0;
-            while (first < s_hist_prev_laps && s_hist_prev_n[first] < 2) first++;
-            if (first >= s_hist_prev_laps) first = 0;
-            int fit = -1;
             for (int i = 0; i < s_hist_prev_laps; i++)
                 if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2) { fit = i; break; }
+            if (fit >= 0) map_fit_points(&s_map, s_hist_prev[fit], s_hist_prev_n[fit], 0.3f);
+        } else {
+            map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
+        }
+    }
+    map_begin(&s_map);
+    if (r) {
+        if (s_hist_prev_laps > 0) {
             if (fit >= 0) {
-                map_fit_points(&s_map, s_hist_prev[fit], s_hist_prev_n[fit], 0.3f);
                 const uint16_t cols[8] = {
                     PAL.cyan, PAL.orange, PAL.purple, PAL.green,
                     PAL.yellow, PAL.text2, PAL.gold, PAL.red
@@ -1871,7 +1883,6 @@ static void render_history_detail(void) {
                         map_trace(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
             }
         } else {
-            map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
             map_trace(&s_map, r->trace, r->nTrace, PAL.cyan, 2);
         }
         for (int i = 0; i < r->nsec; i++) {
