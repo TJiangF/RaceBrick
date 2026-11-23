@@ -1658,7 +1658,7 @@ static void render_track_list(void) {
         int y = 22 + (i - start) * 44;
         bool cur = i == g.cursor;
         gfx_pxbox(12, y, CW - 24, 40, cur ? PAL.white : PAL.line, 1, PAL.panel);
-        map_draw_thumb(20, y + 6, 36, 28, &g.tracks[i], PAL.dim);
+        map_draw_thumb(20, y + 6, 36, 28, &g.tracks[i], PAL.yellow);
         gfx_text(70, y + 5, g.tracks[i].name, PAL.white, 1);
         gfx_text(70, y + 20, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
     }
@@ -1683,7 +1683,7 @@ static void render_track_start(void) {
     if (!t) return;
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
-    map_centerline(&s_map, PAL.dim, 4);
+    map_centerline(&s_map, PAL.yellow, 4);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
     float h = atan2f(st.y, st.x);
