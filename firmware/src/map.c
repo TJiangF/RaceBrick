@@ -256,27 +256,43 @@ void map_start_line_arrow_m(tmap_t *m, pt_t pworld, pt_t tangent,
     if (len < 1e-5f) return;
     tx /= len; ty /= len;
     float nx = -ty, ny = tx;
-    float half = 10.0f;
-    if (m->track && m->track->nscale > 1e-9f && width_m > 0.0f)
-        half = width_m * m->track->nscale * m->scale * 0.5f;
-    if (half < 7.0f) half = 7.0f;
+
+    float half = 8.0f + width_m * 1.25f;
+    if (half > 64.0f) half = 64.0f;
 
     int cx = (int)lroundf(m->vx + p.x);
     int cy = (int)lroundf(m->vy + p.y);
-    for (int k = -1; k <= 1; k++) {
-        gfx_line((int)lroundf(cx - nx * half + tx * k),
-                 (int)lroundf(cy - ny * half + ty * k),
-                 (int)lroundf(cx + nx * half + tx * k),
-                 (int)lroundf(cy + ny * half + ty * k), color);
-    }
+    int xs[4] = {
+        (int)lroundf(cx - nx * half - tx * 3.0f),
+        (int)lroundf(cx + nx * half - tx * 3.0f),
+        (int)lroundf(cx + nx * half + tx * 3.0f),
+        (int)lroundf(cx - nx * half + tx * 3.0f),
+    };
+    int ys[4] = {
+        (int)lroundf(cy - ny * half - ty * 3.0f),
+        (int)lroundf(cy + ny * half - ty * 3.0f),
+        (int)lroundf(cy + ny * half + ty * 3.0f),
+        (int)lroundf(cy - ny * half + ty * 3.0f),
+    };
+    gfx_poly_fill(xs, ys, 4, color);
 
-    float arrow = 8.0f;
-    float tipx = cx + tx * arrow, tipy = cy + ty * arrow;
-    float bx = cx - tx * arrow * 0.4f, by = cy - ty * arrow * 0.4f;
-    float lx = bx + nx * arrow * 0.7f, ly = by + ny * arrow * 0.7f;
-    float rx = bx - nx * arrow * 0.7f, ry = by - ny * arrow * 0.7f;
-    gfx_line((int)lroundf(tipx), (int)lroundf(tipy), (int)lroundf(lx), (int)lroundf(ly), color);
-    gfx_line((int)lroundf(tipx), (int)lroundf(tipy), (int)lroundf(rx), (int)lroundf(ry), color);
+    int tipx = (int)lroundf(cx + tx * 23.0f);
+    int tipy = (int)lroundf(cy + ty * 23.0f);
+    int bx = (int)lroundf(cx + tx * 4.0f);
+    int by = (int)lroundf(cy + ty * 4.0f);
+    int axs[3] = {
+        tipx,
+        (int)lroundf(bx + nx * 9.0f),
+        (int)lroundf(bx - nx * 9.0f),
+    };
+    int ays[3] = {
+        tipy,
+        (int)lroundf(by + ny * 9.0f),
+        (int)lroundf(by - ny * 9.0f),
+    };
+    gfx_poly_fill(axs, ays, 3, color);
+    gfx_line(axs[0], ays[0], axs[1], ays[1], PAL.white);
+    gfx_line(axs[0], ays[0], axs[2], ays[2], PAL.white);
 }
 
 void map_centerline(tmap_t *m, uint16_t color, int step) {
