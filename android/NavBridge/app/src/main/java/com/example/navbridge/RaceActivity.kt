@@ -106,7 +106,7 @@ class RaceActivity : LocalizedActivity() {
             renderLogs()
         }
 
-        loadAll()
+        status("点击“连接并刷新”读取设备数据")
     }
 
     private fun directWithPermission() {
@@ -735,9 +735,15 @@ class RaceActivity : LocalizedActivity() {
             setPadding(dp(20), dp(8), dp(20), 0)
         }
         content.addView(meta("${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  ${s.samples} 点"))
-        val maxDist = laps.filter { !it.deleted }.maxOfOrNull { it.distanceM } ?: 0.0
-        val complete = laps.filter { !it.deleted && it.time > 0 && (maxDist <= 0.0 || it.distanceM >= maxDist * 0.7) }
-        val best = complete.minByOrNull { it.time }?.lap
+        val usable = laps.filter { !it.deleted && it.time > 0 }
+        val positiveDist = usable.map { it.distanceM }.filter { it > 0.0 }.sorted()
+        val typicalDist = if (positiveDist.isNotEmpty()) positiveDist[(positiveDist.size - 1) / 2] else 0.0
+        val complete = usable.filter {
+            typicalDist <= 0.0 || (it.distanceM >= typicalDist * 0.70 && it.distanceM <= typicalDist * 1.30)
+        }
+        val candidates = (if (complete.isNotEmpty()) complete else usable)
+            .filter { traces.isEmpty() || traces.containsKey(it.lap) }
+        val best = (candidates.ifEmpty { complete.ifEmpty { usable } }).minByOrNull { it.time }?.lap
         if (traces.isNotEmpty()) {
             val map = TrackMapView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -793,7 +799,14 @@ class RaceActivity : LocalizedActivity() {
                     text = "L$lap"
                     textSize = 12f
                     isChecked = true
-                    setTextColor(if (lap == best) 0xFFFFD700.toInt() else 0xFFD7E7E4.toInt())
+                    if (lap == best) {
+                        setTextColor(0xFFE9D5FF.toInt())
+                        setTypeface(typeface, Typeface.BOLD)
+                        setBackgroundColor(0x663B1A66.toInt())
+                        setPadding(dp(6), dp(2), dp(6), dp(2))
+                    } else {
+                        setTextColor(0xFFD7E7E4.toInt())
+                    }
                     setOnCheckedChangeListener { _, checked ->
                         if (checked) selected.add(lap) else selected.remove(lap)
                         refreshMap()
