@@ -95,6 +95,14 @@ void app_main(void) {
                          rh.track_name, rh.lap_count,
                          (double)rh.duration_ms / 1000.0, rh.sample_count);
         }
+        for (int i = 0; i < g.ntracks; i++)
+            ESP_LOGI("trackdump", "%d '%s' geo=%d slot=%d start=%.7f,%.7f "
+                     "origin=%.7f,%.7f nscale=%.9f nox=%.6f noy=%.6f",
+                     i, g.tracks[i].name, g.tracks[i].geo ? 1 : 0,
+                     g.tracks[i].store_slot, g.tracks[i].line_lat,
+                     g.tracks[i].line_lon, g.tracks[i].glat0, g.tracks[i].glon0,
+                     (double)g.tracks[i].nscale, (double)g.tracks[i].nox,
+                     (double)g.tracks[i].noy);
     }
 #if WIFI_AP_ALWAYS
     netcfg_start_ap();                           /* direct phone <-> ESP AP */

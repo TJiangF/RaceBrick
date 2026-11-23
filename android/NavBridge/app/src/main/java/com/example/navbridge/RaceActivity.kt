@@ -43,6 +43,7 @@ class RaceActivity : AppCompatActivity() {
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private val satelliteWorker = Executors.newSingleThreadExecutor()
     private lateinit var direct: WifiDirectConnector
     private var generation = 0
 
@@ -225,26 +226,7 @@ class RaceActivity : AppCompatActivity() {
                     publishLoad(gen, 45 + 20 * (i + 1) / t.size.coerceAtLeast(1),
                         "正在读取赛道几何 ${i + 1}/${t.size}")
                 }
-                val satellites = HashMap<Int, TrackSatellite>()
-                var satelliteError: String? = null
-                val geo = t.filter { details[it.id]?.geoRef != null }
-                if (directBound && internetNetwork == null) {
-                    satelliteError = "直连 ESP 时没有可用的互联网网络"
-                } else {
-                    for ((i, track) in geo.withIndex()) {
-                        val detail = details[track.id] ?: continue
-                        val sat = runCatching {
-                            TrackSatelliteApi.load(detail, internetNetwork)
-                        }.onFailure {
-                            if (satelliteError == null) satelliteError = it.message ?: "卫星图请求失败"
-                        }.getOrNull()
-                        if (sat != null) satellites[track.id] = sat
-                        else if (satelliteError == null) satelliteError = "卫星图解码失败"
-                        publishLoad(gen, 65 + 35 * (i + 1) / geo.size.coerceAtLeast(1),
-                            "正在加载卫星图 ${i + 1}/${geo.size}")
-                    }
-                }
-                LoadedData(t, s, l, tc, details, satellites, satelliteError)
+                LoadedData(t, s, l, tc, details, emptyMap(), null)
             }.onSuccess { loaded ->
                 main.post {
                     if (gen != generation) return@post
@@ -256,20 +238,18 @@ class RaceActivity : AppCompatActivity() {
                     trackDetailCache.clear()
                     trackDetailCache.putAll(loaded.details)
                     satelliteCache.clear()
-                    satelliteCache.putAll(loaded.satellites)
-                    pbLoad.progress = 100
+                    pbLoad.progress = 65
                     val geoTracks = loaded.details.values.count { it.geoRef != null }
                     status(
                         "赛道 ${loaded.tracks.size} 条，Race Log ${loaded.sessions.size} 条，" +
-                            "卫星图 ${loaded.satellites.size}/$geoTracks 张" +
-                            (loaded.satelliteError?.let { "（$it）" } ?: "")
+                            "正在加载卫星图 0/$geoTracks"
                     )
                     when {
                         showingLogs -> renderLogs()
                         showingSessions -> renderSessions()
                         else -> renderTracks()
                     }
-                    main.postDelayed({ if (gen == generation) pbLoad.visibility = View.GONE }, 1200)
+                    loadSatellites(gen, loaded.tracks, loaded.details, directBound, internetNetwork)
                 }
             }.onFailure { e ->
                 main.post {
@@ -289,6 +269,72 @@ class RaceActivity : AppCompatActivity() {
             pbLoad.progress = progress.coerceIn(0, 100)
             status(text)
         }
+    }
+
+    private fun loadSatellites(
+        gen: Int,
+        loadedTracks: List<RaceTrack>,
+        details: Map<Int, TrackDetail>,
+        directBound: Boolean,
+        internetNetwork: android.net.Network?,
+    ) {
+        val geo = loadedTracks.filter { details[it.id]?.geoRef != null }
+        if (geo.isEmpty()) {
+            finishSatelliteLoad(gen, 0, geo.size, "无 GPS 基准赛道")
+            return
+        }
+        if (directBound && internetNetwork == null) {
+            finishSatelliteLoad(gen, 0, geo.size, "直连 ESP 时没有可用的互联网网络")
+            return
+        }
+        satelliteWorker.execute {
+            var loaded = 0
+            var error: String? = null
+            for ((i, track) in geo.withIndex()) {
+                if (gen != generation) return@execute
+                val detail = details[track.id] ?: continue
+                val sat = runCatching {
+                    TrackSatelliteApi.load(detail, internetNetwork)
+                }.onFailure {
+                    if (error == null) error = it.message ?: "卫星图请求失败"
+                }.getOrNull()
+                if (sat == null) {
+                    if (error == null) error = "卫星图解码失败"
+                    break
+                }
+                loaded++
+                main.post {
+                    if (gen == generation) satelliteCache[track.id] = sat
+                }
+                main.post {
+                    if (gen != generation) return@post
+                    pbLoad.visibility = View.VISIBLE
+                    pbLoad.progress = (65 + 35 * loaded / geo.size).coerceIn(65, 99)
+                    status("正在加载卫星图 $loaded/${geo.size}")
+                }
+            }
+            main.post {
+                if (gen != generation) return@post
+                when {
+                    showingLogs -> renderLogs()
+                    showingSessions -> renderSessions()
+                    else -> renderTracks()
+                }
+                finishSatelliteLoad(gen, loaded, geo.size, error)
+            }
+        }
+    }
+
+    private fun finishSatelliteLoad(gen: Int, loaded: Int, total: Int, error: String?) {
+        if (gen != generation) return
+        pbLoad.progress = 100
+        val suffix = when {
+            error != null -> "（$error）"
+            total == 0 -> "（无 GPS 基准赛道）"
+            else -> ""
+        }
+        status("赛道 ${tracks.size} 条，Race Log ${sessions.size} 条，卫星图 $loaded/$total 张$suffix")
+        main.postDelayed({ if (gen == generation) pbLoad.visibility = View.GONE }, 1200)
     }
 
     private fun renderTracks() {
@@ -321,9 +367,13 @@ class RaceActivity : AppCompatActivity() {
                 card.addView(preview)
             }
             if (t.geo && satelliteCache[t.id] == null) {
+                val detail = trackDetailCache[t.id]
                 card.addView(meta(
-                    if (trackDetailCache[t.id]?.geoRef == null) "该赛道没有 GPS 基准，无法生成卫星图"
-                    else "卫星图未加载，点地图或编辑重试",
+                    when {
+                        detail == null -> "赛道详情读取失败，点“编辑”重试"
+                        detail.geoRef == null -> "该赛道缺少 GPS 基准，无法生成卫星图"
+                        else -> "卫星图未加载，点地图或编辑重试"
+                    },
                     warning = true,
                 ))
             }
@@ -1160,6 +1210,7 @@ class RaceActivity : AppCompatActivity() {
         generation++
         direct.disconnect()
         worker.shutdownNow()
+        satelliteWorker.shutdownNow()
         super.onDestroy()
     }
 }
