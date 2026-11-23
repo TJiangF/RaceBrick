@@ -44,6 +44,11 @@ static bool   s_race_back_done;
 #define RACE_BACK_HOLD_MS 2000.0f
 static void race_exit_after_hold(void);
 static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir);
+static int   s_edit_field;
+static float s_edit_width;
+static float s_edit_offset;
+static bool  s_edit_reverse;
+static bool  s_track_edit_from_menu;
 
 static const char *RACE_PANELS[4] = {"TRACK MODE", "TIME MODE", "G FORCE MODE", "SECTION MODE"};
 
@@ -714,17 +719,27 @@ static void render_wifi_setup(void) {
 static void render_track_edit(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("TRACK EDIT", 6);
-    hint_c("EDIT ON PHONE APP", 20);
-    int y = 36;
-    for (int i = 0; i < g.ntracks && i < 4; i++) {
-        bool on = g.entered && i == g.sel;
-        panel_box(12, y, CW - 24, 36, on, false);
-        gfx_text(22, y + 5, g.tracks[i].name, PAL.white, 1);
-        gfx_text(22, y + 20, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
-        y += 40;
+    if (!g.ntracks) {
+        hint_c("(NO TRACKS)", 60);
+        hint_c("BACK EXIT", HINT_Y);
+        return;
     }
-    if (!g.ntracks) hint_c("(NO TRACKS)", 60);
-    hint_c(g.entered ? "PUSH VIEW - BACK EXIT" : "PUSH EDIT - UP/DOWN PAGE", HINT_Y);
+    int start, end;
+    windowed(g.ntracks, g.sel, 4, &start, &end);
+    int y = 30;
+    for (int i = start; i < end; i++) {
+        bool on = i == g.sel;
+        panel_box(12, y, CW - 24, 40, on, false);
+        track_t *t = &g.tracks[i];
+        gfx_text(22, y + 5, t->name, PAL.white, 1);
+        char b[48];
+        snprintf(b, sizeof b, "LINE %.1fm  OFS %+.1fm  %s",
+                 (double)(t->start_width > 0 ? t->start_width : TRACK_WIDTH_M),
+                 (double)t->start_offset, t->reverse ? "CCW" : "CW");
+        gfx_text(22, y + 21, b, PAL.dim, 0);
+        y += 44;
+    }
+    hint_c("UP/DN SELECT - PUSH EDIT - BACK EXIT", HINT_Y);
 }
 
 /* ================= SETTINGS ================= */
@@ -1668,35 +1683,37 @@ static void render_track_start(void) {
     if (!t) return;
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
-    map_track_ribbon(&s_map, t->widthM > 0 ? t->widthM : TRACK_WIDTH_M, PAL.line2);
     map_centerline(&s_map, PAL.dim, 4);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
     float h = atan2f(st.y, st.x);
-    if (t->reverse) h += (float)M_PI;
-    float offn = t->start_offset * t->nscale;
+    if (s_edit_reverse) h += (float)M_PI;
+    float offn = s_edit_offset * (t->nscale > 1e-9f ? t->nscale : 0.0f);
     sp.x += sinf(h) * offn;
     sp.y += -cosf(h) * offn;
     st.x = cosf(h); st.y = sinf(h);
-    map_start_checker_at(&s_map, sp, st, PAL.red);
+    map_start_checker_width(&s_map, sp, st, s_edit_width, PAL.red);
     map_start_arrow_at(&s_map, sp, st, PAL.red);
 
+    const char *names[4] = {"START", "WIDTH", "OFFSET", "DIR"};
+    char vals[4][16];
+    snprintf(vals[0], sizeof vals[0], "%.1f%%", g.start_f * 100.0f);
+    snprintf(vals[1], sizeof vals[1], "%.1fm", (double)s_edit_width);
+    snprintf(vals[2], sizeof vals[2], "%+.1fm", (double)s_edit_offset);
+    snprintf(vals[3], sizeof vals[3], "%s", s_edit_reverse ? "CCW" : "CW");
     int rx = 190;
-    char b[24];
-    gfx_text(rx, 8, "START LINE", PAL.cyan, 1);
-    gfx_text(rx, 28, "UP/DN DIR  L/R MOVE", PAL.dim, 0);
-    u_fmt_f(b, sizeof b, g.start_f * 100.0f, 1);
-    gfx_text(rx, 48, "POS", PAL.dim, 0);
-    gfx_text(rx + 34, 48, b, PAL.white, 0);
-    gfx_text(rx + 78, 48, "%", PAL.dim, 0);
-    u_fmt_f(b, sizeof b, g.start_f * t->lengthM, 0);
-    gfx_text(rx, 64, "OFF", PAL.dim, 0);
-    gfx_text(rx + 34, 64, b, PAL.white, 0);
-    gfx_text(rx + 80, 64, "M", PAL.dim, 0);
-    gfx_text(rx, 88, t->reverse ? "DIR CCW" : "DIR CW",
-             t->reverse ? PAL.orange : PAL.green, 1);
-    gfx_text(rx, 120, "PUSH SAVE", PAL.green, 1);
-    gfx_text(rx, 140, "BACK CANCEL", PAL.dim, 0);
+    for (int i = 0; i < 4; i++) {
+        int y = 30 + i * 30;
+        bool on = i == s_edit_field;
+        panel_box(rx, y, CW - rx - 8, 26, on, false);
+        gfx_text(rx + 7, y + 7, names[i], on ? PAL.white : PAL.text, 1);
+        gfx_text_right(CW - 16, y + 7, vals[i],
+                       i == 3 ? (s_edit_reverse ? PAL.orange : PAL.green) : PAL.cyan, 1);
+    }
+    gfx_text(rx, 158, "UP/DN FIELD", PAL.dim, 0);
+    gfx_text(rx, 172, "L/R ADJUST", PAL.dim, 0);
+    gfx_text(rx, 190, "PUSH SAVE", PAL.green, 1);
+    gfx_text(rx, 208, "BACK CANCEL", PAL.dim, 0);
 }
 
 /* ================= HISTORY ================= */
@@ -2964,6 +2981,15 @@ void screens_enter(scid_t id) {
     case SC_TRACK_START: {
         track_t *t = g.engine.track;
         g.start_f = 0;
+        s_edit_field = 0;
+        s_edit_width = TRACK_WIDTH_M;
+        s_edit_offset = 0;
+        s_edit_reverse = false;
+        if (t) {
+            s_edit_width = t->start_width > 0 ? t->start_width : TRACK_WIDTH_M;
+            s_edit_offset = t->start_offset;
+            s_edit_reverse = t->reverse != 0;
+        }
         if (t && t->geo && t->nscale > 0) {
             geo_ref_t r = { t->glat0, t->glon0 };
             float mx, my;
@@ -3625,17 +3651,13 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_TRACK_EDIT:
-        if (!g.entered) {
-            if (lr) { app_go_home(lr); return; }
-            if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_PUSH) { g.entered = true; }
-            else if (ev->button == BTN_BACK) app_back();
-        } else {
-            if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
-            if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_PUSH) app_toast("EDIT ON PHONE APP");
-            else if (ev->button == BTN_BACK) app_back();
-        }
+        if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH && g.ntracks) {
+            g.engine.track = &g.tracks[g.sel];
+            s_track_edit_from_menu = true;
+            app_go(SC_TRACK_START, 1);
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_SETTINGS:
@@ -3949,42 +3971,60 @@ void screens_handle(const event_t *ev) {
             g.engine_valid = true;
             g.raceTarget = SC_RACING_RECORDED;
             g.raceBack = t->geo ? SC_TRACK_START : SC_TRACK_LIST;
+            s_track_edit_from_menu = false;
             app_go(t->geo ? SC_TRACK_START : SC_MOUNT_SELECT, 1);
         } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_START: {
-        if (d && ev->type == EV_PRESS) {
-            app_push_confirm("SWITCH TRACK DIRECTION?", "YES", "NO",
-                             cb_track_reverse_yes, NULL);
-            return;
-        }
+        if (ev->type == EV_PRESS && ev->button == BTN_BACK) { app_back(); return; }
+        if (d) { s_edit_field = (s_edit_field + d + 4) % 4; return; }
         if (lr) {
-            g.start_f += lr * 0.004f;
-            g.start_f = fmodf(g.start_f + 1.0f, 1.0f);
+            if (s_edit_field == 0) {
+                g.start_f = fmodf(g.start_f + lr * 0.002f + 1.0f, 1.0f);
+            } else if (s_edit_field == 1) {
+                s_edit_width += lr * 0.5f;
+                if (s_edit_width < 1.0f) s_edit_width = 1.0f;
+                if (s_edit_width > 50.0f) s_edit_width = 50.0f;
+            } else if (s_edit_field == 2) {
+                s_edit_offset += lr * 0.5f;
+                if (s_edit_offset < -20.0f) s_edit_offset = -20.0f;
+                if (s_edit_offset > 20.0f) s_edit_offset = 20.0f;
+            } else {
+                s_edit_reverse = !s_edit_reverse;
+            }
             return;
         }
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) {
-            track_t *t = g.engine.track;
-            if (t && t->geo && t->nscale > 0) {
+        if (ev->type != EV_PRESS || ev->button != BTN_PUSH) return;
+        track_t *t = g.engine.track;
+        if (t) {
+            t->start_width = s_edit_width;
+            t->start_offset = s_edit_offset;
+            t->reverse = s_edit_reverse ? 1 : 0;
+            if (t->geo && t->nscale > 0) {
                 pt_t q = track_point_at(t, g.start_f);
-                float mx = (q.x - t->nox) / t->nscale;
-                float my = (q.y - t->noy) / t->nscale;
-                geo_ref_t r = { t->glat0, t->glon0 };
-                double lat, lon;
-                geo_from_meters(&r, mx, my, &lat, &lon);
                 pt_t a = track_point_at(t, g.start_f - 0.004f);
                 pt_t b = track_point_at(t, g.start_f + 0.004f);
+                float h = atan2f(b.y - a.y, b.x - a.x);
+                if (t->reverse) h += (float)M_PI;
+                float offn = t->start_offset * t->nscale;
+                q.x += sinf(h) * offn;
+                q.y += -cosf(h) * offn;
+                geo_ref_t r = { t->glat0, t->glon0 };
+                double lat, lon;
+                geo_from_meters(&r, (q.x - t->nox) / t->nscale,
+                                (q.y - t->noy) / t->nscale, &lat, &lon);
                 t->line_lat = lat;
                 t->line_lon = lon;
-                t->line_hdg = atan2f(b.y - a.y, b.x - a.x);
-                if (t->reverse) t->line_hdg += (float)M_PI;
-                if (t->store_slot >= 0) tstore_save(t->store_slot, t);
-                app_toast("START LINE SAVED");
+                t->line_hdg = h;
             }
-            app_go(SC_MOUNT_SELECT, 1);
-        } else if (ev->button == BTN_BACK) app_back();
+            if (t->store_slot >= 0) tstore_save(t->store_slot, t);
+            for (int j = 0; j < g.ntracks; j++)
+                if (g.tracks[j].store_slot == t->store_slot) g.tracks[j] = *t;
+            app_toast("TRACK SETTINGS SAVED");
+        }
+        if (s_track_edit_from_menu) app_back();
+        else app_go(SC_MOUNT_SELECT, 1);
         break;
     }
 

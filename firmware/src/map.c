@@ -209,6 +209,27 @@ void map_start_checker_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) 
     }
 }
 
+void map_start_checker_width(tmap_t *m, pt_t pworld, pt_t tangent,
+                                float width_m, uint16_t color) {
+    pt_t p = map_px(m, pworld);
+    float tx = tangent.x, ty = -tangent.y;
+    float nx = -ty, ny = tx;
+    float half = 12.0f;
+    if (m->track && m->track->nscale > 1e-9f && width_m > 0.0f)
+        half = width_m * m->track->nscale * m->scale * 0.5f;
+    int hp = (int)lroundf(half);
+    if (hp < 2) hp = 2;
+    const int cell = 4;
+    for (int d = -hp; d < hp; d += cell) {
+        for (int r = 0; r < 2; r++) {
+            int px = (int)(m->vx + p.x + nx * d + tx * r * cell);
+            int py = (int)(m->vy + p.y + ny * d + ty * r * cell);
+            uint16_t c = (((d / cell) + r) & 1) ? color : PAL.white;
+            gfx_fill(px, py, cell, cell, c);
+        }
+    }
+}
+
 void map_start_arrow_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
     pt_t p = map_px(m, pworld);
     float tx = tangent.x, ty = -tangent.y;
