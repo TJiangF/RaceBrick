@@ -888,7 +888,8 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
         /* Fall through: the first fix may already be on/ahead of the line. */
     }
 
-    bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < START_LINE_HALF_M;
+    float half_line_m = (t->widthM > 0 ? t->widthM : START_LINE_WIDTH_M) * 0.5f;
+    bool crossed = e->alongPrev < 0.0f && along >= 0.0f && fabsf(latd) < half_line_m;
     float frac = 0.0f;
     if (crossed && along != e->alongPrev)
         frac = -e->alongPrev / (along - e->alongPrev);
@@ -899,7 +900,7 @@ void engine_update_gnss(engine_t *e, float dt, double lat, double lon,
     uint64_t cross_us = e->prev_fix_us + (uint64_t)(frac * (double)fix_dt_us);
 
     if (!e->start_seen) {
-        bool already_ahead = along >= 0.0f && fabsf(latd) < START_LINE_HALF_M;
+        bool already_ahead = along >= 0.0f && fabsf(latd) < half_line_m;
         if (!crossed && !already_ahead) {
             e->alongPrev = along;
             e->prev_fix_us = fix_us;

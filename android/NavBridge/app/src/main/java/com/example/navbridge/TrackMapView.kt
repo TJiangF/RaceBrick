@@ -64,6 +64,11 @@ class TrackMapView @JvmOverloads constructor(
         strokeWidth = dp(3f)
         strokeCap = Paint.Cap.ROUND
     }
+    private val startLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(3f)
+        strokeCap = Paint.Cap.BUTT
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFD7E7E4.toInt()
         textSize = dp(11f)
@@ -176,14 +181,17 @@ class TrackMapView @JvmOverloads constructor(
                 val p1 = base[(j + 1) % base.size]
                 normLen += kotlin.math.hypot(p1.x - p0.x, p1.y - p0.y)
             }
-            val offsetPx = if (trackLengthM > 0f && normLen > 1e-6f) {
-                startOffsetM * s / (trackLengthM / normLen)
+            val pxPerMeter = if (trackLengthM > 0f && normLen > 1e-6f) {
+                s * normLen / trackLengthM
             } else 0f
+            val offsetPx = startOffsetM * pxPerMeter
             val x = baseX + nx * offsetPx
             val y = baseY + ny * offsetPx
-            val half = dp(16f) + widthM * 1.4f
-            startPaint.color = if (reverse) 0xFFFFB74D.toInt() else 0xFFFF5252.toInt()
-            canvas.drawLine(x - nx * half, y - ny * half, x + nx * half, y + ny * half, startPaint)
+            val half = widthM * pxPerMeter / 2f
+            val startColor = if (reverse) 0xFFFFB74D.toInt() else 0xFFFF5252.toInt()
+            startPaint.color = startColor
+            startLinePaint.color = startColor
+            canvas.drawLine(x - nx * half, y - ny * half, x + nx * half, y + ny * half, startLinePaint)
             val arrow = dp(7f)
             canvas.drawLine(
                 x + tx * arrow, y + ty * arrow,
