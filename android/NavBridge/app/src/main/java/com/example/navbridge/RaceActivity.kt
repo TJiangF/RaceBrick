@@ -35,7 +35,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
-class RaceActivity : AppCompatActivity() {
+class RaceActivity : LocalizedActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var etUrl: EditText
     private lateinit var llList: LinearLayout
@@ -538,8 +538,8 @@ class RaceActivity : AppCompatActivity() {
             return
         }
         val names = tracks.map { it.name }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("把 Race Log 关联到赛道")
+        val d = AlertDialog.Builder(this)
+            .setTitle(Lang.tr("把 Race Log 关联到赛道"))
             .setItems(names) { _, which ->
                 val target = tracks[which].name
                 if (target == l.trackName) return@setItems
@@ -555,8 +555,10 @@ class RaceActivity : AppCompatActivity() {
                         .onFailure { e -> main.post { fail("关联失败：${e.message}") } }
                 }
             }
-            .setNegativeButton("取消", null)
-            .show()
+            .setNegativeButton(Lang.tr("取消"), null)
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
     }
 
     private fun showLogDetail(l: RaceLogEntry) {
@@ -564,7 +566,13 @@ class RaceActivity : AppCompatActivity() {
         status("正在读取 Race Log 轨迹…")
         worker.execute {
             runCatching { RaceApi.logDetail(b, l.index) }
-                .onSuccess { d -> main.post { if (!isFinishing) buildLogDetailDialog(d).show() } }
+                .onSuccess { d -> main.post {
+                    if (!isFinishing) {
+                        val dialog = buildLogDetailDialog(d)
+                        dialog.show()
+                        Lang.localizeDialog(dialog)
+                    }
+                } }
                 .onFailure { e -> main.post { fail("读取 Race Log 失败：${e.message}") } }
         }
     }
@@ -622,7 +630,13 @@ class RaceActivity : AppCompatActivity() {
                     ?: runCatching { RaceApi.sessionTraces(b, summary.slot) }.getOrElse { emptyMap() }
                 Triple(s, laps, traces)
             }.onSuccess { (s, laps, traces) ->
-                main.post { if (!isFinishing) buildDetailDialog(s, laps, traces).show() }
+                main.post {
+                    if (!isFinishing) {
+                        val dialog = buildDetailDialog(s, laps, traces)
+                        dialog.show()
+                        Lang.localizeDialog(dialog)
+                    }
+                }
             }.onFailure { e -> main.post { fail("读取详情失败：${e.message}") } }
         }
     }
@@ -1277,17 +1291,17 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun status(text: String) {
-        tvStatus.text = text
+        tvStatus.text = Lang.tr(text)
         tvStatus.setTextColor(0xFFA9C4BE.toInt())
     }
 
     private fun fail(text: String) {
-        tvStatus.text = text
+        tvStatus.text = Lang.tr(text)
         tvStatus.setTextColor(0xFFFF9B9B.toInt())
     }
 
     private fun toast(text: String) {
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, Lang.tr(text), Toast.LENGTH_SHORT).show()
     }
 
     private fun showBusy(title: String, message: String) {
@@ -1298,7 +1312,7 @@ class RaceActivity : AppCompatActivity() {
             setPadding(dp(20), dp(16), dp(20), dp(20))
         }
         box.addView(TextView(this).apply {
-            text = message
+            text = Lang.tr(message)
             setTextColor(0xFFA9C4BE.toInt())
             textSize = 13f
         })
@@ -1309,13 +1323,14 @@ class RaceActivity : AppCompatActivity() {
             ).apply { topMargin = dp(12) }
         })
         busyDialog = AlertDialog.Builder(this)
-            .setTitle(title)
+            .setTitle(Lang.tr(title))
             .setView(box)
             .setCancelable(false)
             .create()
             .also {
                 it.setCanceledOnTouchOutside(false)
                 it.show()
+                Lang.localizeDialog(it)
             }
     }
 
@@ -1325,12 +1340,14 @@ class RaceActivity : AppCompatActivity() {
     }
 
     private fun confirm(title: String, message: String, action: () -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确认") { _, _ -> action() }
-            .show()
+        val d = AlertDialog.Builder(this)
+            .setTitle(Lang.tr(title))
+            .setMessage(Lang.tr(message))
+            .setNegativeButton(Lang.tr("取消"), null)
+            .setPositiveButton(Lang.tr("确认")) { _, _ -> action() }
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
     }
 
     private fun formatTime(epoch: Long): String {

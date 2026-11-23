@@ -10,12 +10,13 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
-class SettingsActivity : AppCompatActivity() {
+class SettingsActivity : LocalizedActivity() {
     private lateinit var etKey: EditText
     private lateinit var etRaceUrl: EditText
     private lateinit var tvSign: TextView
     private lateinit var tvVersion: TextView
     private lateinit var tvMediaStatus: TextView
+    private lateinit var tvLanguage: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,6 +27,7 @@ class SettingsActivity : AppCompatActivity() {
         tvSign = findViewById(R.id.tvSign)
         tvVersion = findViewById(R.id.tvVersion)
         tvMediaStatus = findViewById(R.id.tvMediaStatus)
+        tvLanguage = findViewById(R.id.tvLanguage)
 
         etKey.setText(Keys.amap(this))
         etRaceUrl.setText(RaceApi.baseUrl(this))
@@ -33,10 +35,22 @@ class SettingsActivity : AppCompatActivity() {
         tvVersion.text = "RaceBrick ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        val btnLanguage = findViewById<Button>(R.id.btnLanguage)
+        fun refreshLanguage() {
+            tvLanguage.text = if (Lang.isEnglish) "当前语言：英文" else "当前语言：中文"
+            btnLanguage.text = if (Lang.isEnglish) "English → 中文" else "中文 → English"
+        }
+        refreshLanguage()
+        btnLanguage.setOnClickListener {
+            Lang.setEnglish(this, !Lang.isEnglish)
+            val i = Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            startActivity(i)
+        }
         findViewById<Button>(R.id.btnSaveRaceUrl).setOnClickListener {
             val saved = RaceApi.saveBaseUrl(this, etRaceUrl.text.toString())
             etRaceUrl.setText(saved)
-            Toast.makeText(this, "设备地址已保存：$saved", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, Lang.tr("设备地址已保存：$saved"), Toast.LENGTH_SHORT).show()
         }
         findViewById<Button>(R.id.btnBackground).setOnClickListener {
             startActivity(Intent(
@@ -47,14 +61,14 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSaveKey).setOnClickListener {
             val key = etKey.text.toString().trim()
             if (key.isEmpty()) {
-                Toast.makeText(this, "Key 不能为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, Lang.tr("Key 不能为空"), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             if (!Keys.save(this, key)) {
-                Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, Lang.tr("保存失败"), Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            Toast.makeText(this, "已保存，正在重启", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, Lang.tr("已保存，正在重启"), Toast.LENGTH_SHORT).show()
             val i = Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)

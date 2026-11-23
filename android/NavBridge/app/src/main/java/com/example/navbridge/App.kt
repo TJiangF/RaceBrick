@@ -21,5 +21,6 @@ class App : Application() {
             ServiceSettings.updatePrivacyAgree(this, true)
         }
         Keys.apply(this)
+        Lang.init(this)
     }
 }

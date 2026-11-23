@@ -107,7 +107,7 @@ class WifiSetupDialog(
             setOnClickListener {
                 val s = ssid.text.toString().trim()
                 if (s.isEmpty()) {
-                    Toast.makeText(activity, "请输入 WiFi 名称", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, Lang.tr("请输入 WiFi 名称"), Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 status.text = "正在请求 ESP 连接 $s …"
@@ -151,6 +151,7 @@ class WifiSetupDialog(
 
     fun show() {
         dialog.show()
+        Lang.localizeDialog(dialog)
         ble.send("#W,STATUS")
         scan()
     }

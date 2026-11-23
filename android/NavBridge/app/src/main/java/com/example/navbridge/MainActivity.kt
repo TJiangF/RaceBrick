@@ -37,7 +37,7 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : LocalizedActivity() {
 
     private lateinit var mainScroll: View
     private lateinit var connectGate: View
@@ -1312,7 +1312,7 @@ class MainActivity : AppCompatActivity() {
         return if (m >= 1000) String.format(Locale.US, "%.1f km", m / 1000.0) else "$m m"
     }
 
-    private fun status(msg: String) { tvStatus.text = msg }
+    private fun status(msg: String) { tvStatus.text = Lang.tr(msg) }
 
     private fun log(msg: String) {
         val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -1321,7 +1321,7 @@ class MainActivity : AppCompatActivity() {
         tvLog.text = logLines.joinToString("\n")
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) = Toast.makeText(this, Lang.tr(msg), Toast.LENGTH_SHORT).show()
 
     override fun onResume() {
         super.onResume()
