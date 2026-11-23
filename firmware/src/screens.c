@@ -1831,6 +1831,19 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         return;
     }
     ESP_LOGI("hist", "preview raw slot=%d diff=%.2fs laps=%d", slot, best_diff, h.lap_count);
+    int64_t l1cut = 0;
+    if (h.lap_count > 0 && h.lap_time[0] > 0.0f) {
+        int64_t last = -1;
+        for (uint32_t i = 0; i < h.sample_count; i++) {
+            race_sample_t sm;
+            if (!race_store_read_sample(slot, (int)i, &sm)) break;
+            if (sm.lap == 1 && (sm.flags & 1)) last = sm.t_ms;
+        }
+        if (last >= 0) {
+            int64_t cut = last - (int64_t)(h.lap_time[0] * 1000.0f);
+            if (cut > 0) l1cut = cut;
+        }
+    }
     track_t *tr = (track_t *)malloc(sizeof(track_t));
     bool have_tr = tr && tstore_load(h.track_slot, tr) && tr->geo;
     uint32_t cnt[8] = {0};
@@ -1840,6 +1853,7 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count ||
             sm.lap > r->lapCount) continue;
         if (!(sm.flags & 1)) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         cnt[sm.lap - 1]++;
     }
     int seen[8] = {0};
@@ -1849,6 +1863,7 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         if (sm.lap < 1 || sm.lap > 8 || sm.lap > h.lap_count ||
             sm.lap > r->lapCount) continue;
         if (!(sm.flags & 1)) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         int li = sm.lap - 1;
         int step = cnt[li] > HIST_PREVIEW_PTS ? (int)((cnt[li] + HIST_PREVIEW_PTS - 1) / HIST_PREVIEW_PTS) : 1;
         if ((seen[li]++ % step) != 0) continue;
@@ -3205,7 +3220,7 @@ void screens_update(float dt) {
         if (g.engine_valid) {
             gps_state_t *gp = gps_get();
             bool gnss_fix = gp->has_pos && gp->fix_type >= 1 && gp->fix_time_valid;
-            if (e->real && gnss_fix) {
+            if (e->real && gnss_fix && e->start_seen && !e->outlap_pending) {
                 race_store_sample(gp->lat, gp->lon, gp->speed_kmh,
                                   e->lap, true, gp->fix_seq, gp->fix_time_us);
             }

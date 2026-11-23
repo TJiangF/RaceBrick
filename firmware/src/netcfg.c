@@ -831,6 +831,19 @@ static esp_err_t h_api_session_lap_delete(httpd_req_t *req) {
     return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
 }
 
+static int64_t session_lap1_cutoff_ms(int id, const race_hdr_t *h) {
+    if (h->lap_count < 1 || h->lap_time[0] <= 0.0f) return 0;
+    int64_t last = -1;
+    for (uint32_t i = 0; i < h->sample_count; i++) {
+        race_sample_t sm;
+        if (!race_store_read_sample(id, (int)i, &sm)) break;
+        if (sm.lap == 1 && (sm.flags & 1)) last = sm.t_ms;
+    }
+    if (last < 0) return 0;
+    int64_t cut = last - (int64_t)(h->lap_time[0] * 1000.0f);
+    return cut > 0 ? cut : 0;
+}
+
 static esp_err_t h_api_session_laps(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
     race_hdr_t h;
@@ -838,6 +851,7 @@ static esp_err_t h_api_session_laps(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
         return ESP_FAIL;
     }
+    int64_t l1cut = session_lap1_cutoff_ms(id, &h);
     uint32_t cnt[RACE_LAPS] = {0};
     double dist[RACE_LAPS] = {0};
     double sum_kmh[RACE_LAPS] = {0};
@@ -848,6 +862,7 @@ static esp_err_t h_api_session_laps(httpd_req_t *req) {
         race_sample_t sm;
         if (!race_store_read_sample(id, (int)i, &sm)) break;
         if (sm.lap < 1 || sm.lap > RACE_LAPS) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         int lap = sm.lap - 1;
         if (!(sm.flags & 1)) continue;
         double lat = sm.lat_e7 / 1e7, lon = sm.lon_e7 / 1e7;
@@ -901,6 +916,7 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
     }
     track_t *tr = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     bool have_tr = tr && h.track_slot < TSTORE_EXT_SLOTS && tstore_load(h.track_slot, tr) && tr->geo;
+    int64_t l1cut = session_lap1_cutoff_ms(id, &h);
     double lat0 = 0, lon0 = 0;
     bool first_geo = true;
     uint32_t cnt[RACE_LAPS] = {0};
@@ -910,6 +926,7 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
         if (!race_store_read_sample(id, (int)i, &sm)) break;
         if (sm.lap < 1 || sm.lap > h.lap_count) continue;
         if (!(sm.flags & 1)) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         if (first_geo) { lat0 = sm.lat_e7 / 1e7; lon0 = sm.lon_e7 / 1e7; first_geo = false; }
         cnt[sm.lap - 1]++;
     }
@@ -929,6 +946,7 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
         if (!race_store_read_sample(id, (int)i, &sm)) break;
         if (sm.lap < 1 || sm.lap > h.lap_count) continue;
         if (!(sm.flags & 1)) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
         int li = sm.lap - 1;
         if ((seen[li]++ % step[li]) != 0) continue;
@@ -974,6 +992,7 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
         return ESP_FAIL;
     }
+    int64_t l1cut = session_lap1_cutoff_ms(id, &h);
     httpd_resp_set_type(req, "text/csv");
     char line[512];
     int n = snprintf(line, sizeof line,
@@ -986,6 +1005,7 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
         race_sample_t sm;
         if (!race_store_read_sample(id, (int)i, &sm)) break;
         if (sm.lap == 0 || sm.lap > h.lap_count) continue;
+        if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
         n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
                      (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
