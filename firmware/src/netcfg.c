@@ -871,6 +871,18 @@ static esp_err_t h_api_session_laps(httpd_req_t *req) {
     return httpd_resp_send(req, b, n);
 }
 
+static int append_lap_arrays(char *b, int n, int cap,
+                             const float *sp, const uint32_t *tm, int cnt) {
+    n += snprintf(b + n, cap - n, "],\"speeds\":[");
+    for (int i = 0; i < cnt && n < cap - 32; i++)
+        n += snprintf(b + n, cap - n, "%s%.1f", i ? "," : "", (double)sp[i]);
+    n += snprintf(b + n, cap - n, "],\"times\":[");
+    for (int i = 0; i < cnt && n < cap - 32; i++)
+        n += snprintf(b + n, cap - n, "%s%lu", i ? "," : "", (unsigned long)tm[i]);
+    n += snprintf(b + n, cap - n, "]}");
+    return n;
+}
+
 static esp_err_t h_api_session_traces(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
     race_hdr_t h;
@@ -900,6 +912,9 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
     int cur_lap = -1;
     bool first_point = true;
     int seen[RACE_LAPS] = {0};
+    float cur_sp[128];
+    uint32_t cur_tm[128];
+    int cur_n = 0;
     for (uint32_t i = 0; i < h.sample_count && n < 28000; i++) {
         race_sample_t sm;
         if (!race_store_read_sample(id, (int)i, &sm)) break;
@@ -918,19 +933,24 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
             y = (float)((lat - lat0) * 111320.0);
         }
         if (sm.lap != cur_lap) {
-            if (cur_lap >= 0) n += snprintf(b + n, 32768 - n, "]}");
+            if (cur_lap >= 0) n = append_lap_arrays(b, n, 32768, cur_sp, cur_tm, cur_n);
             if (!first_lap) n += snprintf(b + n, 32768 - n, ",");
             n += snprintf(b + n, 32768 - n, "{\"lap\":%d,\"points\":[", sm.lap);
             cur_lap = sm.lap;
             first_lap = false;
             first_point = true;
+            cur_n = 0;
         }
         n += snprintf(b + n, 32768 - n, "%s%.5f,%.5f", first_point ? "" : ",",
                       (double)x, (double)y);
         first_point = false;
+        if (cur_n < 128) {
+            cur_sp[cur_n] = sm.speed10 / 10.0f;
+            cur_tm[cur_n] = sm.t_ms;
+            cur_n++;
+        }
     }
-    if (cur_lap >= 0) n += snprintf(b + n, 32768 - n, "]}");
-    if (!first_lap) n += snprintf(b + n, 32768 - n, "]}");
+    if (cur_lap >= 0) n = append_lap_arrays(b, n, 32768, cur_sp, cur_tm, cur_n);
     n += snprintf(b + n, 32768 - n, "]}");
     httpd_resp_set_type(req, "application/json");
     esp_err_t rr = httpd_resp_send(req, b, n);

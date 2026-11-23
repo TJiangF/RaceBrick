@@ -17,7 +17,13 @@ class TrackMapView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
-    data class Layer(val points: List<PointF>, val color: Int, val label: String = "")
+    data class Layer(
+        val points: List<PointF>,
+        val color: Int,
+        val label: String = "",
+        val segmentColors: IntArray? = null,
+    )
+    data class Marker(val point: PointF, val color: Int, val label: String = "")
     data class Satellite(val bitmap: Bitmap, val bounds: RectF)
 
     private val satellitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -26,6 +32,17 @@ class TrackMapView @JvmOverloads constructor(
     }
     private val satelliteRect = RectF()
     private var satellite: Satellite? = null
+    private var marker: Marker? = null
+    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = dp(1.5f)
+        color = 0xFFFFB300.toInt()
+    }
+    private val markerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        textSize = dp(10f)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
     private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.2f)
@@ -74,6 +91,11 @@ class TrackMapView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setMarker(value: Marker?) {
+        marker = value
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), framePaint)
@@ -111,15 +133,24 @@ class TrackMapView @JvmOverloads constructor(
 
         for (layer in layers) {
             if (layer.points.size < 2) continue
-            val path = Path()
-            val first = map(layer.points[0])
-            path.moveTo(first.x, first.y)
-            for (i in 1 until layer.points.size) {
-                val p = map(layer.points[i])
-                path.lineTo(p.x, p.y)
+            if (layer.segmentColors != null) {
+                for (i in 1 until layer.points.size) {
+                    val a = map(layer.points[i - 1])
+                    val b = map(layer.points[i])
+                    pathPaint.color = layer.segmentColors.getOrElse(i - 1) { layer.color }
+                    canvas.drawLine(a.x, a.y, b.x, b.y, pathPaint)
+                }
+            } else {
+                val path = Path()
+                val first = map(layer.points[0])
+                path.moveTo(first.x, first.y)
+                for (i in 1 until layer.points.size) {
+                    val p = map(layer.points[i])
+                    path.lineTo(p.x, p.y)
+                }
+                pathPaint.color = layer.color
+                canvas.drawPath(path, pathPaint)
             }
-            pathPaint.color = layer.color
-            canvas.drawPath(path, pathPaint)
         }
 
         val base = layers.first().points
@@ -166,6 +197,14 @@ class TrackMapView @JvmOverloads constructor(
                 y - ty * arrow * 0.4f - ny * arrow * 0.7f,
                 startPaint,
             )
+        }
+        marker?.let { m ->
+            val p = map(m.point)
+            markerPaint.color = m.color
+            canvas.drawCircle(p.x, p.y, dp(5f), markerPaint)
+            if (m.label.isNotEmpty()) {
+                canvas.drawText(m.label, p.x + dp(8f), p.y - dp(6f), markerTextPaint)
+            }
         }
     }
 

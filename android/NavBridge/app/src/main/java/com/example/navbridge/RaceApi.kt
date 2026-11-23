@@ -71,6 +71,12 @@ data class LapDetail(
     val deleted: Boolean,
 )
 
+data class TraceData(
+    val points: List<android.graphics.PointF>,
+    val speeds: List<Double> = emptyList(),
+    val times: List<Long> = emptyList(),
+)
+
 data class RaceSession(
     val slot: Int,
     val id: Long,
@@ -285,10 +291,10 @@ object RaceApi {
         return out
     }
 
-    fun sessionTraces(base: String, slot: Int): Map<Int, List<android.graphics.PointF>> {
+    fun sessionTraces(base: String, slot: Int): Map<Int, TraceData> {
         val root = JSONObject(get(base, "/api/session/traces?id=$slot").toString(StandardCharsets.UTF_8))
         val arr = root.optJSONArray("laps") ?: JSONArray()
-        val out = LinkedHashMap<Int, List<android.graphics.PointF>>()
+        val out = LinkedHashMap<Int, TraceData>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val lap = o.optInt("lap")
@@ -301,7 +307,13 @@ object RaceApi {
                     j += 2
                 }
             }
-            if (pts.size >= 2) out[lap] = pts
+            val speeds = ArrayList<Double>()
+            val sa = o.optJSONArray("speeds")
+            if (sa != null) for (j in 0 until sa.length()) speeds += sa.optDouble(j, 0.0)
+            val times = ArrayList<Long>()
+            val ta = o.optJSONArray("times")
+            if (ta != null) for (j in 0 until ta.length()) times += ta.optLong(j, 0L)
+            if (pts.size >= 2) out[lap] = TraceData(pts, speeds, times)
         }
         return out
     }

@@ -51,7 +51,7 @@ class RaceActivity : AppCompatActivity() {
     private var tracks: List<RaceTrack> = emptyList()
     private var sessions: List<RaceSession> = emptyList()
     private var logs: List<RaceLogEntry> = emptyList()
-    private val traceCache = HashMap<Int, Map<Int, List<android.graphics.PointF>>>()
+    private val traceCache = HashMap<Int, Map<Int, TraceData>>()
     private val trackDetailCache = HashMap<Int, TrackDetail>()
     private val satelliteCache = HashMap<Int, TrackSatellite>()
     private var filterTrack: Int? = null
@@ -65,7 +65,7 @@ class RaceActivity : AppCompatActivity() {
         val tracks: List<RaceTrack>,
         val sessions: List<RaceSession>,
         val logs: List<RaceLogEntry>,
-        val traces: Map<Int, Map<Int, List<android.graphics.PointF>>>,
+        val traces: Map<Int, Map<Int, TraceData>>,
         val details: Map<Int, TrackDetail>,
         val satellites: Map<Int, TrackSatellite>,
         val satelliteError: String? = null,
@@ -226,7 +226,7 @@ class RaceActivity : AppCompatActivity() {
                 val s = RaceApi.sessions(b)
                 publishLoad(gen, 15, "已读取 ${s.size} 条 Race Log")
                 val l = runCatching { RaceApi.logs(b) }.getOrElse { emptyList() }
-                val tc = HashMap<Int, Map<Int, List<android.graphics.PointF>>>()
+                val tc = HashMap<Int, Map<Int, TraceData>>()
                 for ((i, session) in s.withIndex()) {
                     runCatching { RaceApi.sessionTraces(b, session.slot) }
                         .onSuccess { if (it.isNotEmpty()) tc[session.slot] = it }
@@ -473,7 +473,7 @@ class RaceActivity : AppCompatActivity() {
                         0xFF5ED6A3.toInt(), 0xFFFF6B9A.toInt(), 0xFF42A5F5.toInt(),
                     )
                     setLayers(preview.entries.sortedBy { it.key }.mapIndexed { i, e ->
-                        TrackMapView.Layer(e.value, cols[i % cols.size], "L${e.key}")
+                        TrackMapView.Layer(e.value.points, cols[i % cols.size], "L${e.key}")
                     })
                     trackForSession(s)?.let { styleStartLine(this, it) }
                     satelliteForSession(s)?.let {
@@ -659,15 +659,16 @@ class RaceActivity : AppCompatActivity() {
 
     private fun shapes(
         selected: Set<Int>,
-        traces: Map<Int, List<android.graphics.PointF>>,
+        traces: Map<Int, TraceData>,
         colors: IntArray,
         best: Int?,
     ): List<TrackMapView.Layer> {
         val layers = ArrayList<TrackMapView.Layer>()
         for ((idx, lap) in traces.keys.sorted().withIndex()) {
             if (lap !in selected) continue
+            val data = traces[lap] ?: continue
             layers += TrackMapView.Layer(
-                traces[lap].orEmpty(),
+                data.points,
                 if (lap == best) 0xFFFFD700.toInt() else colors[idx % colors.size],
                 "L$lap",
             )
@@ -675,10 +676,45 @@ class RaceActivity : AppCompatActivity() {
         return layers
     }
 
+    private fun accelerationSegments(data: TraceData): IntArray? {
+        val points = data.points
+        val speeds = data.speeds
+        val times = data.times
+        if (points.size < 2 || speeds.size < 2 || times.size < 2) return null
+        val neutral = 0xFF62727A.toInt()
+        val out = IntArray(points.size - 1) { neutral }
+        val n = minOf(points.size, speeds.size, times.size)
+        for (i in 1 until n) {
+            val dt = (times[i] - times[i - 1]) / 1000.0
+            if (dt <= 0.0) continue
+            val a = (speeds[i] - speeds[i - 1]) / dt
+            out[i - 1] = when {
+                a > 2.0 -> 0xFF00E676.toInt()
+                a > 0.7 -> 0xFF2E7D32.toInt()
+                a < -2.0 -> 0xFFFF1744.toInt()
+                a < -0.7 -> 0xFFB71C1C.toInt()
+                else -> neutral
+            }
+        }
+        return out
+    }
+
+    private fun maxSpeedMarker(data: TraceData): TrackMapView.Marker? {
+        if (data.points.isEmpty() || data.speeds.isEmpty()) return null
+        val n = minOf(data.points.size, data.speeds.size)
+        if (n <= 0) return null
+        var idx = 0
+        for (i in 1 until n) if (data.speeds[i] > data.speeds[idx]) idx = i
+        return TrackMapView.Marker(
+            data.points[idx], 0xFFFFB300.toInt(),
+            String.format(Locale.US, "MAX %.0f km/h", data.speeds[idx]),
+        )
+    }
+
     private fun buildDetailDialog(
         s: RaceSession,
         laps: List<LapDetail>,
-        traces: Map<Int, List<android.graphics.PointF>>,
+        traces: Map<Int, TraceData>,
     ): AlertDialog {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -704,9 +740,32 @@ class RaceActivity : AppCompatActivity() {
                 0xFFFFD700.toInt(), 0xFFFF7043.toInt(),
             )
             val selected = HashSet<Int>()
+            val legend = TextView(this).apply {
+                setTextColor(0xFFA9C4BE.toInt())
+                textSize = 12f
+                setPadding(0, dp(6), 0, 0)
+            }
             fun refreshMap() {
-                val layers = shapes(selected, traces, colors, best)
-                map.setLayers(layers)
+                map.setMarker(null)
+                if (selected.size == 1) {
+                    val lap = selected.first()
+                    val data = traces[lap]
+                    if (data != null) {
+                        val seg = accelerationSegments(data)
+                        val base = if (lap == best) 0xFFFFD700.toInt() else 0xFFE6F5F1.toInt()
+                        map.setLayers(listOf(TrackMapView.Layer(data.points, base, "L$lap", seg)))
+                        val marker = maxSpeedMarker(data)
+                        map.setMarker(marker)
+                        legend.text = if (marker != null) {
+                            "L$lap 单选：绿=加速，红=减速，黄点=最高速 ${String.format(Locale.US, "%.0f", data.speeds.maxOrNull() ?: 0.0)} km/h"
+                        } else {
+                            "L$lap 单选：该圈没有速度数据"
+                        }
+                        return
+                    }
+                }
+                map.setLayers(shapes(selected, traces, colors, best))
+                legend.text = "可勾选单圈或多圈叠加；单选时显示加减速颜色和最高速位置。"
             }
             selected.addAll(traces.keys)
             refreshMap()
@@ -728,7 +787,8 @@ class RaceActivity : AppCompatActivity() {
                 })
             }
             content.addView(HorizontalScrollView(this).apply { addView(checks) })
-            content.addView(meta("可勾选单圈或多圈叠加轨迹。"))
+            content.addView(legend)
+            content.addView(meta("绿=加速  红=减速  黄点=最高速"))
         }
         if (laps.isEmpty() && s.lapTimes.isEmpty()) {
             content.addView(meta("没有有效圈速。"))
