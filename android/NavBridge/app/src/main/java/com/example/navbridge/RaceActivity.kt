@@ -203,7 +203,7 @@ class RaceActivity : AppCompatActivity() {
 
     private fun styleStartLine(map: TrackMapView, t: RaceTrack, detail: TrackDetail? = null) {
         map.startF = t.startF.toFloat()
-        map.widthM = t.widthM.toFloat()
+        map.widthM = (detail?.startWidthM ?: t.startWidthM).toFloat()
         map.trackLengthM = (detail?.lengthM ?: t.lengthM).toFloat()
         map.startOffsetM = (detail?.startOffsetM ?: t.startOffsetM).toFloat()
         map.reverse = t.reverse
@@ -364,7 +364,7 @@ class RaceActivity : AppCompatActivity() {
             card.addView(title(t.name.ifBlank { "赛道 #${t.id}" }))
             card.addView(
                 meta(
-                    "${formatLength(t.lengthM)}  ·  宽 ${String.format(Locale.US, "%.1f", t.widthM)}m  ·  " +
+                    "${formatLength(t.lengthM)}  ·  起始线 ${String.format(Locale.US, "%.1f", t.startWidthM)}m  ·  " +
                         "起点 ${String.format(Locale.US, "%.1f", t.startF * 100)}%  ·  " +
                         (if (t.reverse) "CCW" else "CW") + "  ·  " +
                         if (t.geo) "有 GPS 基准" else "无 GPS 基准"
@@ -888,7 +888,7 @@ class RaceActivity : AppCompatActivity() {
             ).apply { topMargin = dp(6) }
             setLayers(detail.points)
             startF = t.startF.toFloat()
-            widthM = t.widthM.toFloat()
+            widthM = detail.startWidthM.toFloat()
             trackLengthM = detail.lengthM.toFloat()
             startOffsetM = detail.startOffsetM.toFloat()
             reverse = t.reverse
@@ -926,9 +926,9 @@ class RaceActivity : AppCompatActivity() {
         })
         box.addView(sbStart)
 
-        addLabel("赛道宽度 / 起始线长度")
+        addLabel("起始线宽度")
         val tvWidth = TextView(this).apply {
-            text = String.format(Locale.US, "%.1f m", t.widthM)
+            text = String.format(Locale.US, "%.1f m", detail.startWidthM)
             setTextColor(0xFF66E0D2.toInt())
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
@@ -936,7 +936,7 @@ class RaceActivity : AppCompatActivity() {
         box.addView(tvWidth)
         val sbWidth = SeekBar(this).apply {
             max = 490
-            progress = ((t.widthM - 1.0) * 10.0).toInt().coerceIn(0, 490)
+            progress = ((detail.startWidthM - 1.0) * 10.0).toInt().coerceIn(0, 490)
         }
         sbWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -995,7 +995,7 @@ class RaceActivity : AppCompatActivity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = etName.text.toString().trim()
                 val startPct = sbStart.progress / 10.0
-                val width = 1.0 + sbWidth.progress / 10.0
+                val startWidthM = 1.0 + sbWidth.progress / 10.0
                 val offsetM = sbOffset.progress / 10.0 - 20.0
                 if (name.isEmpty()) {
                     toast("请填写名称")
@@ -1007,7 +1007,7 @@ class RaceActivity : AppCompatActivity() {
                     runCatching {
                         RaceApi.updateTrack(
                             b, t.id, name, startPct / 100.0,
-                            swReverse.isChecked, width, offsetM,
+                            swReverse.isChecked, startWidthM, offsetM,
                         )
                         val saved = RaceApi.tracks(b).firstOrNull { it.id == t.id }
                         if (saved == null || saved.name != name) {

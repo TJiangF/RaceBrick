@@ -18,6 +18,7 @@ data class RaceTrack(
     val lengthM: Double,
     val sections: Int,
     val widthM: Double = 5.0,
+    val startWidthM: Double = 5.0,
     val startF: Double = 0.0,
     val startOffsetM: Double = 0.0,
     val reverse: Boolean = false,
@@ -35,6 +36,7 @@ data class TrackDetail(
     val name: String,
     val lengthM: Double,
     val widthM: Double,
+    val startWidthM: Double,
     val startF: Double,
     val startOffsetM: Double,
     val reverse: Boolean,
@@ -130,6 +132,7 @@ object RaceApi {
                 lengthM = o.optDouble("m", 0.0),
                 sections = o.optInt("sections", 0),
                 widthM = o.optDouble("width", 5.0),
+                startWidthM = o.optDouble("start_width", o.optDouble("width", 5.0)),
                 startF = o.optDouble("start_f", 0.0),
                 startOffsetM = o.optDouble("offset", 0.0),
                 reverse = o.optInt("reverse", 0) != 0,
@@ -161,6 +164,7 @@ object RaceApi {
             name = o.optString("name", ""),
             lengthM = o.optDouble("length_m", 0.0),
             widthM = o.optDouble("width", 5.0),
+            startWidthM = o.optDouble("start_width", o.optDouble("width", 5.0)),
             startF = o.optDouble("start_f", 0.0),
             startOffsetM = o.optDouble("start_offset", 0.0),
             reverse = o.optInt("reverse", 0) != 0,
@@ -246,13 +250,13 @@ object RaceApi {
 
     fun updateTrack(
         base: String, id: Int, name: String,
-        startF: Double, reverse: Boolean, widthM: Double, offsetM: Double,
+        startF: Double, reverse: Boolean, startWidthM: Double, offsetM: Double,
     ) {
         val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
         val sf = String.format(Locale.US, "%.5f", startF)
-        val w = String.format(Locale.US, "%.2f", widthM)
+        val sw = String.format(Locale.US, "%.2f", startWidthM)
         val off = String.format(Locale.US, "%.2f", offsetM)
-        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&width=$w&offset=$off")
+        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&start_width=$sw&offset=$off")
     }
 
     fun renameTrack(base: String, id: Int, name: String) {

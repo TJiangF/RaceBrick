@@ -37,6 +37,7 @@ typedef struct {
     double line_lat, line_lon;
     float  line_hdg;
     float  start_offset;        /* start line lateral offset, metres (right +) */
+    float  start_width;         /* start/finish line width, metres */
     int    store_slot;          /* external-flash slot (-1 = not stored); runtime only */
     int    reverse;             /* 0 = CW/forward, 1 = CCW/reverse start direction */
 } track_t;

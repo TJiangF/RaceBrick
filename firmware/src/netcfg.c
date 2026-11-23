@@ -521,10 +521,11 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
         }
         n += snprintf(b + n, 24000 - n,
             "%s{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,"
-            "\"sections\":%d,\"width\":%.1f,\"start_f\":%.4f,\"reverse\":%d,"
-            "\"offset\":%.2f}",
+            "\"sections\":%d,\"width\":%.1f,\"start_width\":%.1f,"
+            "\"start_f\":%.4f,\"reverse\":%d,\"offset\":%.2f}",
             first ? "" : ",", i, t->name, t->geo ? 1 : 0,
-            (double)t->lengthM, t->nsec, (double)t->widthM, (double)sf,
+            (double)t->lengthM, t->nsec, (double)t->widthM,
+            (double)t->start_width, (double)sf,
             t->reverse ? 1 : 0, (double)t->start_offset);
         first = false;
     }
@@ -570,10 +571,12 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         bool has_name = query_str(req, "name", name, sizeof name) && name[0];
         double start_f = query_double(req, "start_f", -1.0);
         double width = query_double(req, "width", -1.0);
+        double start_width = query_double(req, "start_width", -1.0);
         double offset = query_double(req, "offset", NAN);
         bool has_offset = isfinite(offset);
         int reverse = query_int(req, "reverse", -1);
-        if (id < 0 || (!has_name && start_f < 0 && width < 0 && reverse < 0 && !has_offset)) {
+        if (id < 0 || (!has_name && start_f < 0 && width < 0 && start_width < 0 &&
+                       reverse < 0 && !has_offset)) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "id and a field required");
             return ESP_FAIL;
         }
@@ -593,6 +596,11 @@ static esp_err_t h_api_track(httpd_req_t *req) {
                 if (width < 1.0) width = 1.0;
                 if (width > 50.0) width = 50.0;
                 t->widthM = (float)width;
+            }
+            if (start_width > 0) {
+                if (start_width < 1.0) start_width = 1.0;
+                if (start_width > 50.0) start_width = 50.0;
+                t->start_width = (float)start_width;
             }
             if (has_offset) {
                 if (offset < -50.0) offset = -50.0;
@@ -674,13 +682,14 @@ static esp_err_t h_api_track(httpd_req_t *req) {
     }
     int n = snprintf(b, 16000,
         "{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"length_m\":%.1f,"
-        "\"width\":%.1f,\"start_f\":%.4f,\"reverse\":%d,\"start_offset\":%.2f,"
+        "\"width\":%.1f,\"start_width\":%.1f,\"start_f\":%.4f,"
+        "\"reverse\":%d,\"start_offset\":%.2f,"
         "\"start\":{\"lat\":%.7f,\"lon\":%.7f,\"hdg\":%.3f},"
         "\"glat0\":%.7f,\"glon0\":%.7f,\"nscale\":%.9f,"
         "\"nox\":%.6f,\"noy\":%.6f,\"sections\":[",
         id, t->name, t->geo ? 1 : 0, (double)t->lengthM,
-        (double)t->widthM, (double)start_f, t->reverse ? 1 : 0,
-        (double)t->start_offset,
+        (double)t->widthM, (double)t->start_width, (double)start_f,
+        t->reverse ? 1 : 0, (double)t->start_offset,
         t->line_lat, t->line_lon, (double)t->line_hdg,
         t->glat0, t->glon0, (double)t->nscale, (double)t->nox, (double)t->noy);
     for (int i = 0; i < t->nsec && n < 15200; i++)

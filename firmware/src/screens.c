@@ -1301,7 +1301,6 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
     }
     map_begin(&s_map);
     if (recorded) {
-        map_track_ribbon(&s_map, e->track && e->track->widthM > 0 ? e->track->widthM : TRACK_WIDTH_M, PAL.line2);
         map_centerline(&s_map, PAL.dim, 3);
     } else {
         map_fit_engine(&s_map, e, 0.28f);
