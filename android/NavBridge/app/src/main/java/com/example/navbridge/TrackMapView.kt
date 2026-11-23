@@ -1,11 +1,13 @@
 package com.example.navbridge
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.max
@@ -16,7 +18,14 @@ class TrackMapView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
     data class Layer(val points: List<PointF>, val color: Int, val label: String = "")
+    data class Satellite(val bitmap: Bitmap, val bounds: RectF)
 
+    private val satellitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        alpha = 128
+        isFilterBitmap = true
+    }
+    private val satelliteRect = RectF()
+    private var satellite: Satellite? = null
     private val pathPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2.2f)
@@ -58,6 +67,11 @@ class TrackMapView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setSatellite(value: Satellite?) {
+        satellite = value
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), framePaint)
@@ -82,6 +96,16 @@ class TrackMapView @JvmOverloads constructor(
         val oy = (height - (maxY - minY) * s) / 2f
 
         fun map(p: PointF) = PointF(ox + (p.x - minX) * s, height - oy - (p.y - minY) * s)
+
+        satellite?.let { sat ->
+            val a = map(PointF(sat.bounds.left, sat.bounds.top))
+            val b = map(PointF(sat.bounds.right, sat.bounds.bottom))
+            satelliteRect.set(
+                min(a.x, b.x), min(a.y, b.y),
+                max(a.x, b.x), max(a.y, b.y),
+            )
+            canvas.drawBitmap(sat.bitmap, null, satelliteRect, satellitePaint)
+        }
 
         for (layer in layers) {
             if (layer.points.size < 2) continue

@@ -19,6 +19,7 @@
 #include "tstore.h"
 #include "race_store.h"
 #include "log_store.h"
+#include "track_img.h"
 #include "gfx.h"
 #include "geo.h"
 #include <math.h>
@@ -656,9 +657,12 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         "{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"length_m\":%.1f,"
         "\"width\":%.1f,\"start_f\":%.4f,\"reverse\":%d,"
         "\"start\":{\"lat\":%.7f,\"lon\":%.7f,\"hdg\":%.3f},"
-        "\"sections\":[", id, t->name, t->geo ? 1 : 0, (double)t->lengthM,
+        "\"glat0\":%.7f,\"glon0\":%.7f,\"nscale\":%.9f,"
+        "\"nox\":%.6f,\"noy\":%.6f,\"sections\":[",
+        id, t->name, t->geo ? 1 : 0, (double)t->lengthM,
         (double)t->widthM, (double)start_f, t->reverse ? 1 : 0,
-        t->line_lat, t->line_lon, (double)t->line_hdg);
+        t->line_lat, t->line_lon, (double)t->line_hdg,
+        t->glat0, t->glon0, (double)t->nscale, (double)t->nox, (double)t->noy);
     for (int i = 0; i < t->nsec && n < 15200; i++)
         n += snprintf(b + n, 16000 - n, "%s%.5f", i ? "," : "", (double)t->sections[i]);
     n += snprintf(b + n, 16000 - n, "],\"points\":[");
@@ -1045,11 +1049,45 @@ static esp_err_t h_api_fb(httpd_req_t *req) {
     return httpd_resp_send(req, (const char *)gfx_fb(), LCD_W * LCD_H * 2);
 }
 
+static esp_err_t h_api_track_image(httpd_req_t *req) {
+    int id = query_int(req, "id", -1);
+    double x0 = query_double(req, "x0", NAN);
+    double y0 = query_double(req, "y0", NAN);
+    double x1 = query_double(req, "x1", NAN);
+    double y1 = query_double(req, "y1", NAN);
+    int len = req->content_len;
+    if (id < 0 || len <= 6 || len > 127000 ||
+        !isfinite(x0) || !isfinite(y0) || !isfinite(x1) || !isfinite(y1) ||
+        x1 <= x0 || y1 <= y0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid image request");
+        return ESP_FAIL;
+    }
+    uint8_t *buf = (uint8_t *)heap_caps_malloc((size_t)len,
+                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    int got = 0;
+    while (got < len) {
+        int r = httpd_req_recv(req, (char *)buf + got, len - got);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r <= 0) break;
+        got += r;
+    }
+    bool ok = false;
+    if (got == len)
+        ok = track_img_save(id, buf, len, (float)x0, (float)y0, (float)x1, (float)y1);
+    free(buf);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+}
+
 static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 8192;
-    cfg.max_uri_handlers = 24;   /* UI + debug + race storage */
+    cfg.max_uri_handlers = 32;   /* UI + debug + race storage + satellite */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };
     httpd_uri_t u2 = { .uri = "/status", .method = HTTP_GET, .handler = h_status };
@@ -1076,6 +1114,7 @@ static void start_httpd(void) {
     httpd_uri_t u23 = { .uri = "/api/log", .method = HTTP_GET, .handler = h_api_log };
     httpd_uri_t u24 = { .uri = "/api/log/rename", .method = HTTP_POST, .handler = h_api_log_rename };
     httpd_uri_t u25 = { .uri = "/api/session/traces", .method = HTTP_GET, .handler = h_api_session_traces };
+    httpd_uri_t u26 = { .uri = "/api/track/image", .method = HTTP_POST, .handler = h_api_track_image };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1101,6 +1140,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u23);
     httpd_register_uri_handler(s_httpd, &u24);
     httpd_register_uri_handler(s_httpd, &u25);
+    httpd_register_uri_handler(s_httpd, &u26);
 }
 
 void netcfg_start_ap(void) {

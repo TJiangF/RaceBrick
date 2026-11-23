@@ -2,6 +2,7 @@
 #include "gfx.h"
 #include "theme.h"
 #include "util.h"
+#include "track_img.h"
 #include <math.h>
 #include <string.h>
 
@@ -105,11 +106,56 @@ void map_smooth(tmap_t *m, float dt, float rate) {
     m->oy += (m->tOy - m->oy) * k;
 }
 
+
+static uint16_t blend50(uint16_t a, uint16_t b) {
+    int ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+    int br = (b >> 11) & 0x1F, bg = (b >> 5) & 0x3F, bb = b & 0x1F;
+    return (uint16_t)((((ar + br) / 2) << 11) |
+                      (((ag + bg) / 2) << 5) |
+                      ((ab + bb) / 2));
+}
+
+static bool sat_draw_view(int x, int y, int w, int h, const track_t *t,
+                          float scale, float ox, float oy) {
+    if (!t || t->store_slot < 0 || scale <= 1e-6f) return false;
+    const uint16_t *img = NULL;
+    int iw = 0, ih = 0;
+    float x0, y0, x1, y1;
+    if (!track_img_get(t->store_slot, &img, &iw, &ih, &x0, &y0, &x1, &y1) ||
+        !img || iw <= 0 || ih <= 0) return false;
+    float inv = 1.0f / scale;
+    float bw = 1.0f / (x1 - x0);
+    float bh = 1.0f / (y1 - y0);
+    bool any = false;
+    for (int sy = 0; sy < h; sy++) {
+        float wy = ((float)h - (sy + 0.5f) - oy) * inv;
+        if (wy < y0 || wy > y1) continue;
+        int v = (int)((y1 - wy) * bh * (float)(ih - 1) + 0.5f);
+        if (v < 0) v = 0;
+        else if (v >= ih) v = ih - 1;
+        const uint16_t *row = img + (size_t)v * iw;
+        for (int sx = 0; sx < w; sx++) {
+            float wx = ((sx + 0.5f) - ox) * inv;
+            if (wx < x0 || wx > x1) continue;
+            int u = (int)((wx - x0) * bw * (float)(iw - 1) + 0.5f);
+            if (u < 0) u = 0;
+            else if (u >= iw) u = iw - 1;
+            gfx_pixel(x + sx, y + sy, blend50(row[u], PAL.mapbg));
+            any = true;
+        }
+    }
+    return any;
+}
+
 void map_begin(tmap_t *m) {
     gfx_fill(m->vx, m->vy, m->vw, m->vh, PAL.mapbg);
-    for (int y = GRID; y < m->vh; y += GRID)
-        for (int x = GRID; x < m->vw; x += GRID)
-            gfx_pixel(m->vx + x, m->vy + y, PAL.mapgrid);
+    bool has_sat = sat_draw_view(m->vx, m->vy, m->vw, m->vh, m->track,
+                                 m->scale, m->ox, m->oy);
+    if (!has_sat) {
+        for (int y = GRID; y < m->vh; y += GRID)
+            for (int x = GRID; x < m->vw; x += GRID)
+                gfx_pixel(m->vx + x, m->vy + y, PAL.mapgrid);
+    }
     uint16_t b = PAL.mapborder;
     gfx_hline(m->vx, m->vy, m->vw, b);
     gfx_hline(m->vx, m->vy + m->vh - 1, m->vw, b);
@@ -285,6 +331,7 @@ void map_draw_thumb(int x, int y, int w, int h, const track_t *t, uint16_t color
     if (sy < s) s = sy;
     float ox = (w - rx * s) / 2 - minX * s;
     float oy = (h - ry * s) / 2 - minY * s;
+    sat_draw_view(x, y, w, h, t, s, ox, oy);
     for (int i = 0; i < t->N; i += 4) {
         int px = x + (int)lroundf(t->points[i].x * s + ox);
         int py = y + h - (int)lroundf(t->points[i].y * s + oy);   /* north up */

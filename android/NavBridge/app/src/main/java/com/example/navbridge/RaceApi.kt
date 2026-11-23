@@ -22,6 +22,14 @@ data class RaceTrack(
     val reverse: Boolean = false,
 )
 
+data class TrackGeoRef(
+    val lat0: Double,
+    val lon0: Double,
+    val nscale: Double,
+    val nox: Double,
+    val noy: Double,
+)
+
 data class TrackDetail(
     val name: String,
     val lengthM: Double,
@@ -29,6 +37,7 @@ data class TrackDetail(
     val startF: Double,
     val reverse: Boolean,
     val points: List<TrackMapView.Layer>,
+    val geoRef: TrackGeoRef? = null,
 )
 
 data class RaceLogEntry(
@@ -131,6 +140,14 @@ object RaceApi {
                 i += 2
             }
         }
+        val nscale = o.optDouble("nscale", 0.0)
+        val geoRef = if (o.optInt("geo", 0) != 0 && nscale > 1e-9) TrackGeoRef(
+            lat0 = o.optDouble("glat0", 0.0),
+            lon0 = o.optDouble("glon0", 0.0),
+            nscale = nscale,
+            nox = o.optDouble("nox", 0.0),
+            noy = o.optDouble("noy", 0.0),
+        ) else null
         return TrackDetail(
             name = o.optString("name", ""),
             lengthM = o.optDouble("length_m", 0.0),
@@ -138,6 +155,7 @@ object RaceApi {
             startF = o.optDouble("start_f", 0.0),
             reverse = o.optInt("reverse", 0) != 0,
             points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
+            geoRef = geoRef,
         )
     }
 
@@ -304,6 +322,34 @@ object RaceApi {
             deletedLapMask = o.optInt("deleted_laps", 0),
             lapTimes = times,
         )
+    }
+
+    fun uploadTrackImage(
+        base: String, trackSlot: Int, pal16: ByteArray,
+        x0: Float, y0: Float, x1: Float, y1: Float,
+    ) {
+        val b = String.format(
+            Locale.US,
+            "/api/track/image?id=%d&x0=%.6f&y0=%.6f&x1=%.6f&y1=%.6f",
+            trackSlot, x0, y0, x1, y1,
+        )
+        val conn = URL(normalizeBase(base) + b).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 30000
+            conn.useCaches = false
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/octet-stream")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setFixedLengthStreamingMode(pal16.size)
+            conn.outputStream.use { it.write(pal16) }
+            val code = conn.responseCode
+            if (code !in 200..299) throw IllegalStateException("HTTP $code")
+            drain(conn)
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun post(base: String, path: String) {

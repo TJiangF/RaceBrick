@@ -47,12 +47,23 @@ class RaceActivity : AppCompatActivity() {
     private var sessions: List<RaceSession> = emptyList()
     private var logs: List<RaceLogEntry> = emptyList()
     private val traceCache = HashMap<Int, Map<Int, List<android.graphics.PointF>>>()
+    private val trackDetailCache = HashMap<Int, TrackDetail>()
+    private val satelliteCache = HashMap<Int, TrackSatellite>()
     private var filterTrack: Int? = null
     private var logFilterName: String? = null
     private var showingSessions = false
     private var showingLogs = false
     private var directPending = false
     private var awaitingWriteSettings = false
+
+    private data class LoadedData(
+        val tracks: List<RaceTrack>,
+        val sessions: List<RaceSession>,
+        val logs: List<RaceLogEntry>,
+        val traces: Map<Int, Map<Int, List<android.graphics.PointF>>>,
+        val details: Map<Int, TrackDetail>,
+        val satellites: Map<Int, TrackSatellite>,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -173,6 +184,12 @@ class RaceActivity : AppCompatActivity() {
 
     private fun base(): String = RaceApi.saveBaseUrl(this, etUrl.text.toString())
 
+    private fun satelliteForSession(s: RaceSession): TrackSatellite? {
+        satelliteCache[s.trackSlot]?.let { return it }
+        val t = tracks.firstOrNull { it.name == s.trackName } ?: return null
+        return satelliteCache[t.id]
+    }
+
     private fun loadAll() {
         direct.bindCurrentEsp()
         val gen = ++generation
@@ -188,17 +205,34 @@ class RaceActivity : AppCompatActivity() {
                     runCatching { RaceApi.sessionTraces(b, session.slot) }
                         .onSuccess { if (it.isNotEmpty()) tc[session.slot] = it }
                 }
-                Triple(t, s, Triple(l, tc, Unit))
-            }.onSuccess { (t, s, extra) ->
+                val details = HashMap<Int, TrackDetail>()
+                val satellites = HashMap<Int, TrackSatellite>()
+                var satelliteDown = false
+                for (track in t) {
+                    val detail = runCatching { RaceApi.track(b, track.id) }.getOrNull() ?: continue
+                    details[track.id] = detail
+                    if (detail.geoRef != null && !satelliteDown) {
+                        val sat = runCatching { TrackSatelliteApi.load(detail) }.getOrNull()
+                        if (sat != null) satellites[track.id] = sat else satelliteDown = true
+                    }
+                }
+                LoadedData(t, s, l, tc, details, satellites)
+            }.onSuccess { loaded ->
                 main.post {
                     if (gen != generation) return@post
-                    val (l, tc, _) = extra
-                    tracks = t
-                    sessions = s
-                    logs = l
+                    tracks = loaded.tracks
+                    sessions = loaded.sessions
+                    logs = loaded.logs
                     traceCache.clear()
-                    traceCache.putAll(tc)
-                    status("赛道 ${t.size} 条，Race Log ${s.size} 条")
+                    traceCache.putAll(loaded.traces)
+                    trackDetailCache.clear()
+                    trackDetailCache.putAll(loaded.details)
+                    satelliteCache.clear()
+                    satelliteCache.putAll(loaded.satellites)
+                    status(
+                        "赛道 ${loaded.tracks.size} 条，Race Log ${loaded.sessions.size} 条，" +
+                            "卫星图 ${loaded.satellites.size} 张"
+                    )
                     when {
                         showingLogs -> renderLogs()
                         showingSessions -> renderSessions()
@@ -232,6 +266,18 @@ class RaceActivity : AppCompatActivity() {
                         if (t.geo) "有 GPS 基准" else "无 GPS 基准"
                 )
             )
+            val detail = trackDetailCache[t.id]
+            if (detail != null) {
+                val preview = TrackMapView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(120),
+                    ).apply { topMargin = dp(8) }
+                    setLayers(detail.points)
+                    satelliteCache[t.id]?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
+                    setOnClickListener { showTrackPreview(t, detail) }
+                }
+                card.addView(preview)
+            }
             card.addView(
                 row(
                     button("编辑") { editTrack(t) },
@@ -313,6 +359,9 @@ class RaceActivity : AppCompatActivity() {
                     setLayers(preview.entries.sortedBy { it.key }.mapIndexed { i, e ->
                         TrackMapView.Layer(e.value, cols[i % cols.size], "L${e.key}")
                     })
+                    satelliteForSession(s)?.let {
+                        setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
+                    }
                 })
             }
             if (s.deletedLapMask != 0) {
@@ -416,6 +465,9 @@ class RaceActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(220),
                 ).apply { topMargin = dp(6) }
                 setLayers(listOf(TrackMapView.Layer(d.trace, 0xFFFFD700.toInt(), "BEST")))
+                tracks.firstOrNull { it.name == l.trackName }?.let { tr ->
+                    satelliteCache[tr.id]?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
+                }
             })
             content.addView(meta("Race Log 保存的是最佳圈轨迹（L${l.bestIndex}）。"))
         }
@@ -523,6 +575,9 @@ class RaceActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(220),
                 )
+                satelliteForSession(s)?.let {
+                    setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
+                }
             }
             val colors = intArrayOf(
                 0xFF66E0D2.toInt(), 0xFFFFB74D.toInt(), 0xFF8B5CF6.toInt(),
@@ -657,8 +712,18 @@ class RaceActivity : AppCompatActivity() {
             widthM = t.widthM.toFloat()
             trackLengthM = detail.lengthM.toFloat()
             reverse = t.reverse
+            satelliteCache[t.id]?.let {
+                setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
+            }
         }
         box.addView(map)
+        val satButton = button("同步卫星图到设备") {
+            syncTrackSatellite(t, satelliteCache[t.id])
+        }
+        satButton.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(6) }
+        box.addView(satButton)
         addLabel("起始线位置")
         val tvStart = TextView(this).apply {
             text = String.format(Locale.US, "%.1f%%", t.startF * 100.0)
@@ -755,6 +820,75 @@ class RaceActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+    }
+
+    private fun showTrackPreview(t: RaceTrack, detail: TrackDetail?) {
+        if (detail == null) {
+            toast("赛道轨迹尚未加载")
+            return
+        }
+        val satellite = satelliteCache[t.id]
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), 0)
+        }
+        box.addView(meta(
+            "点击预览可查看卫星图叠加；同步后设备端同一赛道也会显示。"
+        ))
+        box.addView(TrackMapView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(320),
+            ).apply { topMargin = dp(8) }
+            setLayers(detail.points)
+            startF = t.startF.toFloat()
+            widthM = t.widthM.toFloat()
+            trackLengthM = detail.lengthM.toFloat()
+            reverse = t.reverse
+            satellite?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
+        })
+        if (satellite == null) {
+            box.addView(meta("该赛道没有 GPS 基准，或卫星图加载失败。", warning = true))
+        } else {
+            box.addView(meta(String.format(Locale.US, "卫星图覆盖 %.0f m，透明度 50%%", satellite.spanM)))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("赛道卫星预览")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("同步到设备", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).isEnabled = satellite != null
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                syncTrackSatellite(t, satellite)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun syncTrackSatellite(t: RaceTrack, satellite: TrackSatellite?) {
+        if (satellite == null) {
+            toast("没有可同步的卫星图")
+            return
+        }
+        val b = base()
+        status("正在同步卫星图到设备…")
+        worker.execute {
+            runCatching {
+                RaceApi.uploadTrackImage(
+                    b, t.id, satellite.pal16,
+                    satellite.bounds.left, satellite.bounds.top,
+                    satellite.bounds.right, satellite.bounds.bottom,
+                )
+            }.onSuccess {
+                main.post {
+                    status("卫星图已同步到设备")
+                    toast("卫星图已同步：${t.name}")
+                }
+            }.onFailure { e ->
+                main.post { fail("同步失败：${e.message}") }
+            }
+        }
     }
 
     private fun confirmDeleteTrack(t: RaceTrack) {
