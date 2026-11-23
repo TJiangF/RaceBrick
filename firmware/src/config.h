@@ -4,14 +4,14 @@
  */
 #pragma once
 
-/* ---------------- ST7789 wiring (production board V4.0) ----------------
- * CS-io11  SCK-io12  MOSI-io13  DC-io14  BL-io21 (MISO is not wired) */
-#define LCD_MOSI   13
-#define LCD_SCLK   12
-#define LCD_CS     11
-#define LCD_DC     14
+/* ---------------- ST7789 wiring (new PCB) ----------------
+ * BL-io38  DC-io39  MOSI-io40  CS-io41  SCK-io42 (MISO is not wired) */
+#define LCD_MOSI   40
+#define LCD_SCLK   42
+#define LCD_CS     41
+#define LCD_DC     39
 #define LCD_RST    (-1)   /* not wired; software reset only */
-#define LCD_BL     21
+#define LCD_BL     38
 
 #define LCD_HOST    SPI2_HOST
 #define LCD_PCLK_HZ (40 * 1000 * 1000)
@@ -59,13 +59,15 @@
  * active (true center press). Hardware RC debounce is fitted on V4.0, so the
  * firmware performs edge detection only, with no software debounce delay. */
 #define BTN_ENABLE   1
-#define PIN_BTN_UP    15
-#define PIN_BTN_DOWN 18
-#define PIN_BTN_LEFT 17
-#define PIN_BTN_RIGHT 8
-#define PIN_BTN_PUSH 16
-#define PIN_BTN_BACK  5
+#define PIN_BTN_UP    16
+#define PIN_BTN_DOWN 17
+#define PIN_BTN_LEFT 7
+#define PIN_BTN_RIGHT 18
+#define PIN_BTN_PUSH 15
+#define PIN_BTN_BACK  4
 #define BTN_ACTIVE_LOW 1
+#define PIN_ENC_A     8
+#define PIN_ENC_B    19
 
 /* Keep the RaceBrick-XXXX SoftAP available even without saved home WiFi, so
  * the phone can connect directly for track/session sync. */
@@ -76,27 +78,27 @@
 /* ---------------- external SPI flash (W25Q128), Rev.C ----------------
  * FLASH-CS-io41  FLASH-MISO-io40  FLASH-SCK-io39  FLASH-MOSI-io38
  * uses SPI3 (the LCD stays on SPI2) */
-#define EXT_FLASH_CS    41
-#define EXT_FLASH_MISO  40
-#define EXT_FLASH_SCLK  39
-#define EXT_FLASH_MOSI  38
+#define EXT_FLASH_CS    13
+#define EXT_FLASH_MISO  14
+#define EXT_FLASH_SCLK  12
+#define EXT_FLASH_MOSI  11
 #define EXT_FLASH_HZ    (10 * 1000 * 1000)
 #define EXT_FLASH_TEST  1     /* boot probe: JEDEC only, non-destructive */
 
-/* ---------------- other on-board peripherals (Rev.C) -----------------------
- * I2C (MPU6050) Scl-io7  Sda-io6   (MPU6050 INT io4)
- * GNSS NEO-M9N  NEO-RX-io19 (=ESP TX)  NEO-TX-io20 (=ESP RX)
- * Buzzer BEE-io42   WS2812 DI-io48
- * VBAT sense  switch-io47 (drive HIGH to sample)  adc-io1  (reading x2)
- *
- * NEO-M9N_TP is io9 (free now that LCD DC moved to io10). */
-#define PIN_I2C_SCL 7
-#define PIN_I2C_SDA 6
-#define PIN_MPU_INT 4
-#define PIN_GPS_TX  19   /* ESP TX -> NEO-RX (module RX) */
-#define PIN_GPS_RX  20   /* ESP RX <- NEO-TX (module TX) */
-#define PIN_GPS_TP  9
-#define PIN_BEE     42
+/* ---------------- other on-board peripherals (new PCB) --------------------
+ * I2C (MPU6050) Scl-io6  Sda-io5   (MPU INT not wired)
+ * GNSS NEO-M9N  ESP TX-io9  ESP RX-io10  TP-io20
+ * Buzzer BEE-io21  WS2812 DI-io48
+ * VBAT sense switch/check io47 (drive HIGH to sample)  adc-io1
+ * Encoder A-io8  B-io19  (quadrature, raw state exposed in BUTTON DEBUG)
+ */
+#define PIN_I2C_SCL 6
+#define PIN_I2C_SDA 5
+#define PIN_MPU_INT (-1)  /* not wired on the new PCB */
+#define PIN_GPS_TX  9    /* ESP TX -> NEO-RX (module RX) */
+#define PIN_GPS_RX  10   /* ESP RX <- NEO-TX (module TX) */
+#define PIN_GPS_TP  20
+#define PIN_BEE     21
 #define PIN_WS2812  48
 #define PIN_VBAT_EN 47   /* Rev.C: io21 is now LCD MOSI */
 #define PIN_VBAT_ADC 1

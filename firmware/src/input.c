@@ -23,6 +23,9 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_raw[BTN_COUNT];
 static bool s_logical[BTN_COUNT];
 static bool s_center_blocked;
+static int  s_enc_prev;
+static int  s_enc_count;
+static bool s_enc_a, s_enc_b;
 
 #if BTN_ENABLE
 static void input_scan_once(void);
@@ -70,6 +73,21 @@ void input_init(void) {
         s_raw[i] = BTN_ACTIVE_LOW ? !raw : !!raw;
         s_logical[i] = s_raw[i];
     }
+    const int enc_pins[2] = {PIN_ENC_A, PIN_ENC_B};
+    for (int i = 0; i < 2; i++) {
+        gpio_config_t cfg = {
+            .pin_bit_mask = 1ULL << enc_pins[i],
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&cfg);
+    }
+    s_enc_a = !gpio_get_level((gpio_num_t)PIN_ENC_A);
+    s_enc_b = !gpio_get_level((gpio_num_t)PIN_ENC_B);
+    s_enc_prev = (s_enc_a << 1) | s_enc_b;
+    s_enc_count = 0;
     xTaskCreate(button_task, "buttons", 3072, NULL, 5, NULL);
 #endif
 }
@@ -174,6 +192,9 @@ void input_debug(btn_debug_t *out) {
     out->left = s_raw[BTN_LEFT];
     out->right = s_raw[BTN_RIGHT];
     out->back = s_raw[BTN_BACK];
+    out->enc_a = s_enc_a;
+    out->enc_b = s_enc_b;
+    out->enc_count = s_enc_count;
     portEXIT_CRITICAL(&s_lock);
 }
 
@@ -202,8 +223,21 @@ static void input_scan_once(void) {
     logical[BTN_PUSH] = raw[BTN_PUSH] && !dir && !s_center_blocked;
     logical[BTN_BACK] = raw[BTN_BACK];
 
+    bool ea = !gpio_get_level((gpio_num_t)PIN_ENC_A);
+    bool eb = !gpio_get_level((gpio_num_t)PIN_ENC_B);
+    int estate = (ea << 1) | eb;
+    static const int8_t qdec[16] = {
+         0, -1,  1,  0,
+         1,  0,  0, -1,
+        -1,  0,  0,  1,
+         0,  1, -1,  0,
+    };
+
     portENTER_CRITICAL(&s_lock);
     for (int i = 0; i < BTN_COUNT; i++) s_raw[i] = raw[i];
+    s_enc_a = ea; s_enc_b = eb;
+    s_enc_count += qdec[(s_enc_prev << 2) | estate];
+    s_enc_prev = estate;
     portEXIT_CRITICAL(&s_lock);
 
     for (int i = 0; i < BTN_COUNT; i++) {

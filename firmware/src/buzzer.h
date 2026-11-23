@@ -1,4 +1,4 @@
-/* Passive buzzer on GPIO47 (PIN_BEE). PWM frequency = pitch, duty = loudness.
+/* Passive buzzer on GPIO21 (PIN_BEE) on the new PCB. PWM frequency = pitch, duty = loudness.
  * A tiny non-blocking sequencer plays short melodies; call buzzer_update()
  * every iteration of the main loop. */
 #pragma once

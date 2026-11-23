@@ -2586,10 +2586,13 @@ static void btn_arrow_box(int cx, int cy, int w, int h, int dir, bool active) {
 
 static void render_btn_debug(void) {
     btn_debug_t b;
+    char btxt[32];
     input_debug(&b);
     gfx_fill(0, 0, CW, CH, PAL.stage);
     title_c("BUTTON DEBUG", 5);
-    gfx_text(6, 22, "RKJXM1015004 / V4.0", PAL.dim, 1);
+    gfx_text(6, 22, "RKJXM1015004 / NEW PCB", PAL.dim, 1);
+    snprintf(btxt, sizeof btxt, "ENC A%d B%d", b.enc_a ? 1 : 0, b.enc_b ? 1 : 0);
+    gfx_text_right(CW - 6, 22, btxt, (b.enc_a || b.enc_b) ? PAL.cyan : PAL.dim, 1);
 
     bool dir = b.up || b.down || b.left || b.right;
     int cx = CW / 2, cy = 114;
@@ -2613,7 +2616,8 @@ static void render_btn_debug(void) {
              b.push ? PAL.yellow : PAL.dim, 0);
     gfx_text_right(CW - 6, 216, b.back ? "BACK LOW" : "BACK HIGH",
                    b.back ? PAL.cyan : PAL.dim, 0);
-    gfx_text_center(cx, 229, "BACK EXIT", PAL.dim, 0);
+    snprintf(btxt, sizeof btxt, "ENC CNT %+d - BACK EXIT", b.enc_count);
+    gfx_text_center(cx, 229, btxt, PAL.dim, 0);
 }
 
 /* ================= CHINA MAP (flat map + GPS) ================= */

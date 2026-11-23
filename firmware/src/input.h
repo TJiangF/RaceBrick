@@ -21,10 +21,13 @@ typedef struct {
     float     t;
 } event_t;
 
-/* Raw V4.0 joystick state for the settings debug page. PUSH is the common
- * contact and is low for center + every direction. */
+/* Raw joystick/encoder state for the settings debug page. PUSH is the common
+ * contact and is low for center + every direction. Encoder A/B are active-low
+ * contact states; enc_count is the accumulated quadrature count. */
 typedef struct {
     bool push, up, down, left, right, back;
+    bool enc_a, enc_b;
+    int  enc_count;
 } btn_debug_t;
 
 void input_init(void);
