@@ -197,6 +197,18 @@ class RaceActivity : AppCompatActivity() {
         return satelliteCache[t.id]
     }
 
+    private fun trackForSession(s: RaceSession): RaceTrack? =
+        tracks.firstOrNull { it.id == s.trackSlot }
+            ?: tracks.firstOrNull { it.name == s.trackName }
+
+    private fun styleStartLine(map: TrackMapView, t: RaceTrack, detail: TrackDetail? = null) {
+        map.startF = t.startF.toFloat()
+        map.widthM = t.widthM.toFloat()
+        map.trackLengthM = (detail?.lengthM ?: t.lengthM).toFloat()
+        map.startOffsetM = (detail?.startOffsetM ?: t.startOffsetM).toFloat()
+        map.reverse = t.reverse
+    }
+
     private fun loadAll() {
         direct.bindCurrentEsp()
         val gen = ++generation
@@ -365,6 +377,7 @@ class RaceActivity : AppCompatActivity() {
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(120),
                     ).apply { topMargin = dp(8) }
                     setLayers(detail.points)
+                    styleStartLine(this, t, detail)
                     satelliteCache[t.id]?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
                     setOnClickListener { showTrackPreview(t, detail) }
                 }
@@ -462,6 +475,7 @@ class RaceActivity : AppCompatActivity() {
                     setLayers(preview.entries.sortedBy { it.key }.mapIndexed { i, e ->
                         TrackMapView.Layer(e.value, cols[i % cols.size], "L${e.key}")
                     })
+                    trackForSession(s)?.let { styleStartLine(this, it) }
                     satelliteForSession(s)?.let {
                         setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
                     }
@@ -569,6 +583,7 @@ class RaceActivity : AppCompatActivity() {
                 ).apply { topMargin = dp(6) }
                 setLayers(listOf(TrackMapView.Layer(d.trace, 0xFFFFD700.toInt(), "BEST")))
                 tracks.firstOrNull { it.name == l.trackName }?.let { tr ->
+                    styleStartLine(this, tr)
                     satelliteCache[tr.id]?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
                 }
             })
@@ -678,6 +693,7 @@ class RaceActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(220),
                 )
+                trackForSession(s)?.let { styleStartLine(this, it) }
                 satelliteForSession(s)?.let {
                     setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
                 }
@@ -814,6 +830,7 @@ class RaceActivity : AppCompatActivity() {
             startF = t.startF.toFloat()
             widthM = t.widthM.toFloat()
             trackLengthM = detail.lengthM.toFloat()
+            startOffsetM = detail.startOffsetM.toFloat()
             reverse = t.reverse
             satelliteCache[t.id]?.let {
                 setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
@@ -872,6 +889,29 @@ class RaceActivity : AppCompatActivity() {
         })
         box.addView(sbWidth)
 
+        addLabel("起点左右偏移（负=左，正=右）")
+        val tvOffset = TextView(this).apply {
+            text = String.format(Locale.US, "%+.1f m", detail.startOffsetM)
+            setTextColor(0xFF66E0D2.toInt())
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        box.addView(tvOffset)
+        val sbOffset = SeekBar(this).apply {
+            max = 400
+            progress = ((detail.startOffsetM + 20.0) * 10.0).toInt().coerceIn(0, 400)
+        }
+        sbOffset.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val v = progress / 10.0 - 20.0
+                tvOffset.text = String.format(Locale.US, "%+.1f m", v)
+                map.startOffsetM = v.toFloat()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        box.addView(sbOffset)
+
         val swReverse = Switch(this).apply {
             text = "反向起点方向（CCW）"
             isChecked = t.reverse
@@ -896,6 +936,7 @@ class RaceActivity : AppCompatActivity() {
                 val name = etName.text.toString().trim()
                 val startPct = sbStart.progress / 10.0
                 val width = 1.0 + sbWidth.progress / 10.0
+                val offsetM = sbOffset.progress / 10.0 - 20.0
                 if (name.isEmpty()) {
                     toast("请填写名称")
                     return@setOnClickListener
@@ -906,7 +947,7 @@ class RaceActivity : AppCompatActivity() {
                     runCatching {
                         RaceApi.updateTrack(
                             b, t.id, name, startPct / 100.0,
-                            swReverse.isChecked, width,
+                            swReverse.isChecked, width, offsetM,
                         )
                         val saved = RaceApi.tracks(b).firstOrNull { it.id == t.id }
                         if (saved == null || saved.name != name) {
@@ -943,10 +984,7 @@ class RaceActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(320),
             ).apply { topMargin = dp(8) }
             setLayers(detail.points)
-            startF = t.startF.toFloat()
-            widthM = t.widthM.toFloat()
-            trackLengthM = detail.lengthM.toFloat()
-            reverse = t.reverse
+            styleStartLine(this, t, detail)
             satellite?.let { setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds)) }
         })
         if (satellite == null) {

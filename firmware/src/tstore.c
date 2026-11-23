@@ -39,6 +39,20 @@ typedef struct {
     float    sections[MAX_SECTIONS];
     pt_t     points[TRK_N];
     uint32_t hash;
+} ts_rec_v2_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t ver;
+    uint16_t N;
+    uint8_t  vehicle, nsec, flags, hasBest;
+    char     name[48];
+    float    lengthM, widthM, lapTarget, start_hdg, line_hdg, best, start_offset;
+    double   glat0, glon0, line_lat, line_lon;
+    float    nscale, nox, noy;
+    float    sections[MAX_SECTIONS];
+    pt_t     points[TRK_N];
+    uint32_t hash;
 } ts_rec_t;
 
 static ts_rec_t s_rec;
@@ -66,7 +80,12 @@ static bool rec_valid(void) {
         uint32_t h = fnv((const uint8_t *)v, (int)offsetof(ts_rec_v1_t, hash));
         return h == v->hash;
     }
-    if (s_rec.ver != 2) return false;
+    if (s_rec.ver == 2) {
+        const ts_rec_v2_t *v = (const ts_rec_v2_t *)&s_rec;
+        uint32_t h = fnv((const uint8_t *)v, (int)offsetof(ts_rec_v2_t, hash));
+        return h == v->hash;
+    }
+    if (s_rec.ver != 3) return false;
     uint32_t h = fnv((const uint8_t *)&s_rec, (int)offsetof(ts_rec_t, hash));
     return h == s_rec.hash;
 }
@@ -151,7 +170,7 @@ bool tstore_save(int slot, const track_t *t) {
     if ((!s_ext && !s_part) || slot < 0 || slot >= s_cap) return false;
     memset(&s_rec, 0, sizeof(s_rec));
     s_rec.magic = TSTORE_MAGIC;
-    s_rec.ver = 2;
+    s_rec.ver = 3;
     s_rec.N = TRK_N;
     s_rec.vehicle = (uint8_t)t->vehicle;
     s_rec.nsec = (uint8_t)t->nsec;
@@ -164,6 +183,7 @@ bool tstore_save(int slot, const track_t *t) {
     s_rec.start_hdg = t->start_hdg;
     s_rec.line_hdg = t->line_hdg;
     s_rec.best = t->best;
+    s_rec.start_offset = t->start_offset;
     s_rec.glat0 = t->glat0;
     s_rec.glon0 = t->glon0;
     s_rec.line_lat = t->line_lat;
@@ -216,6 +236,30 @@ bool tstore_load(int slot, track_t *t) {
         t->noy = v->noy;
         for (int i = 0; i < MAX_SECTIONS; i++) t->sections[i] = v->sections[i];
         memcpy(t->points, v->points, sizeof(pt_t) * TRK_N);
+    } else if (s_rec.ver == 2) {
+        const ts_rec_v2_t *v = (const ts_rec_v2_t *)&s_rec;
+        t->lengthM = v->lengthM;
+        t->widthM = v->widthM > 0 ? v->widthM : TRACK_WIDTH_M;
+        t->lapTarget = v->lapTarget;
+        t->vehicle = v->vehicle;
+        t->nsec = v->nsec;
+        t->geo = (v->flags & 1) != 0;
+        t->reverse = (v->flags & 2) != 0;
+        t->hasBest = v->hasBest != 0;
+        memcpy(t->name, v->name, sizeof(t->name));
+        t->name[sizeof(t->name) - 1] = 0;
+        t->start_hdg = v->start_hdg;
+        t->line_hdg = v->line_hdg;
+        t->best = v->best;
+        t->glat0 = v->glat0;
+        t->glon0 = v->glon0;
+        t->line_lat = v->line_lat;
+        t->line_lon = v->line_lon;
+        t->nscale = v->nscale;
+        t->nox = v->nox;
+        t->noy = v->noy;
+        for (int i = 0; i < MAX_SECTIONS; i++) t->sections[i] = v->sections[i];
+        memcpy(t->points, v->points, sizeof(pt_t) * TRK_N);
     } else {
         t->lengthM = s_rec.lengthM;
         t->widthM = s_rec.widthM > 0 ? s_rec.widthM : TRACK_WIDTH_M;
@@ -230,6 +274,7 @@ bool tstore_load(int slot, track_t *t) {
         t->start_hdg = s_rec.start_hdg;
         t->line_hdg = s_rec.line_hdg;
         t->best = s_rec.best;
+        t->start_offset = s_rec.start_offset;
         t->glat0 = s_rec.glat0;
         t->glon0 = s_rec.glon0;
         t->line_lat = s_rec.line_lat;

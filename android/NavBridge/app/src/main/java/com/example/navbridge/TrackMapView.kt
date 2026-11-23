@@ -59,6 +59,8 @@ class TrackMapView @JvmOverloads constructor(
         set(value) { field = value; invalidate() }
     var trackLengthM: Float = 0f
         set(value) { field = value; invalidate() }
+    var startOffsetM: Float = 0f
+        set(value) { field = value; invalidate() }
     var reverse: Boolean = false
         set(value) { field = value; invalidate() }
 
@@ -128,13 +130,26 @@ class TrackMapView @JvmOverloads constructor(
             val frac = pos - i
             val a = map(base[i])
             val b = map(base[i + 1])
-            val x = a.x + (b.x - a.x) * frac
-            val y = a.y + (b.y - a.y) * frac
+            val baseX = a.x + (b.x - a.x) * frac
+            val baseY = a.y + (b.y - a.y) * frac
             var tx = b.x - a.x
             var ty = b.y - a.y
             val len = max(1f, kotlin.math.hypot(tx, ty))
             tx /= len; ty /= len
-            val nx = -ty; val ny = tx
+            if (reverse) { tx = -tx; ty = -ty }
+            val nx = -ty
+            val ny = tx
+            var normLen = 0f
+            for (j in base.indices) {
+                val p0 = base[j]
+                val p1 = base[(j + 1) % base.size]
+                normLen += kotlin.math.hypot(p1.x - p0.x, p1.y - p0.y)
+            }
+            val offsetPx = if (trackLengthM > 0f && normLen > 1e-6f) {
+                startOffsetM * s / (trackLengthM / normLen)
+            } else 0f
+            val x = baseX + nx * offsetPx
+            val y = baseY + ny * offsetPx
             val half = dp(16f) + widthM * 1.4f
             startPaint.color = if (reverse) 0xFFFFB74D.toInt() else 0xFFFF5252.toInt()
             canvas.drawLine(x - nx * half, y - ny * half, x + nx * half, y + ny * half, startPaint)

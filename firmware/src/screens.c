@@ -43,6 +43,7 @@ static bool   s_map_ready;
 static bool   s_race_back_done;
 #define RACE_BACK_HOLD_MS 2000.0f
 static void race_exit_after_hold(void);
+static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir);
 
 static const char *RACE_PANELS[4] = {"TRACK MODE", "TIME MODE", "G FORCE MODE", "SECTION MODE"};
 
@@ -1314,6 +1315,8 @@ static void racing_map(bool recorded, engine_t *e, float dt) {
         float sf = track_line_fraction(e->track);
         pt_t sp = track_point_at(e->track, sf);
         pt_t st = track_tangent_at(e->track, sf);
+        pt_t lp, ld;
+        if (track_line_norm(e->track, &lp, &ld)) { sp = lp; st = ld; }
         map_start_checker_at(&s_map, sp, st, RGB565(0, 0, 0));
         for (int i = 0; i < e->track->nsec; i++) map_tick(&s_map, e->track->sections[i], PAL.orange, 4);
         float f = engine_progress(e);
@@ -1648,6 +1651,18 @@ static void render_track_list(void) {
     hint_c("UP/DOWN SELECT - PUSH ENTER", HINT_Y);
 }
 
+static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir) {
+    if (!t || !t->geo || t->nscale <= 1e-9f) return false;
+    geo_ref_t r = { t->glat0, t->glon0 };
+    float mx, my;
+    geo_meters(&r, t->line_lat, t->line_lon, &mx, &my);
+    p->x = mx * t->nscale + t->nox;
+    p->y = my * t->nscale + t->noy;
+    dir->x = cosf(t->line_hdg);
+    dir->y = sinf(t->line_hdg);
+    return true;
+}
+
 /* ================= START LINE EDIT ================= */
 static void render_track_start(void) {
     track_t *t = g.engine.track;
@@ -1658,7 +1673,12 @@ static void render_track_start(void) {
     map_centerline(&s_map, PAL.dim, 4);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
-    if (t->reverse) { st.x = -st.x; st.y = -st.y; }
+    float h = atan2f(st.y, st.x);
+    if (t->reverse) h += (float)M_PI;
+    float offn = t->start_offset * t->nscale;
+    sp.x += sinf(h) * offn;
+    sp.y += -cosf(h) * offn;
+    st.x = cosf(h); st.y = sinf(h);
     map_start_checker_at(&s_map, sp, st, PAL.red);
     map_start_arrow_at(&s_map, sp, st, PAL.red);
 

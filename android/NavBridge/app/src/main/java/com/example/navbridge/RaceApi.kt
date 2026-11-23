@@ -19,6 +19,7 @@ data class RaceTrack(
     val sections: Int,
     val widthM: Double = 5.0,
     val startF: Double = 0.0,
+    val startOffsetM: Double = 0.0,
     val reverse: Boolean = false,
 )
 
@@ -35,6 +36,7 @@ data class TrackDetail(
     val lengthM: Double,
     val widthM: Double,
     val startF: Double,
+    val startOffsetM: Double,
     val reverse: Boolean,
     val points: List<TrackMapView.Layer>,
     val geoRef: TrackGeoRef? = null,
@@ -123,6 +125,7 @@ object RaceApi {
                 sections = o.optInt("sections", 0),
                 widthM = o.optDouble("width", 5.0),
                 startF = o.optDouble("start_f", 0.0),
+                startOffsetM = o.optDouble("offset", 0.0),
                 reverse = o.optInt("reverse", 0) != 0,
             )
         }
@@ -153,6 +156,7 @@ object RaceApi {
             lengthM = o.optDouble("length_m", 0.0),
             widthM = o.optDouble("width", 5.0),
             startF = o.optDouble("start_f", 0.0),
+            startOffsetM = o.optDouble("start_offset", 0.0),
             reverse = o.optInt("reverse", 0) != 0,
             points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
             geoRef = geoRef,
@@ -236,12 +240,13 @@ object RaceApi {
 
     fun updateTrack(
         base: String, id: Int, name: String,
-        startF: Double, reverse: Boolean, widthM: Double,
+        startF: Double, reverse: Boolean, widthM: Double, offsetM: Double,
     ) {
         val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
         val sf = String.format(Locale.US, "%.5f", startF)
         val w = String.format(Locale.US, "%.2f", widthM)
-        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&width=$w")
+        val off = String.format(Locale.US, "%.2f", offsetM)
+        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&width=$w&offset=$off")
     }
 
     fun renameTrack(base: String, id: Int, name: String) {
