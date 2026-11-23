@@ -5,7 +5,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.InputFilter
 import android.os.Bundle
 import android.os.Handler
@@ -754,19 +757,55 @@ class RaceActivity : LocalizedActivity() {
                     setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
                 }
             }
-            val colors = intArrayOf(
-                0xFF66E0D2.toInt(), 0xFFFFB74D.toInt(), 0xFF8B5CF6.toInt(),
-                0xFF5ED6A3.toInt(), 0xFFFF6B9A.toInt(), 0xFF42A5F5.toInt(),
-                0xFFFFD700.toInt(), 0xFFFF7043.toInt(),
-            )
             val selected = HashSet<Int>()
+            val checkViews = LinkedHashMap<Int, CheckBox>()
             val legend = TextView(this).apply {
                 setTextColor(0xFFA9C4BE.toInt())
                 textSize = 12f
                 setPadding(0, dp(6), 0, 0)
             }
+            val highContrast = intArrayOf(
+                0xFFFF3B30.toInt(), 0xFF2979FF.toInt(), 0xFFFFD60A.toInt(),
+                0xFF34C759.toInt(), 0xFFFF2D95.toInt(), 0xFF32D4FF.toInt(),
+                0xFFFF9F0A.toInt(), 0xFFAF52DE.toInt(),
+            )
+            fun colorMapFor(sel: Set<Int>): Map<Int, Int> {
+                val order = sel.sorted()
+                val pal = when (order.size) {
+                    2 -> intArrayOf(0xFFFF3B30.toInt(), 0xFF2979FF.toInt())
+                    3 -> intArrayOf(0xFFFF3B30.toInt(), 0xFFFFD60A.toInt(), 0xFF2979FF.toInt())
+                    else -> highContrast
+                }
+                return order.mapIndexed { i, lap -> lap to pal[i % pal.size] }.toMap()
+            }
+            fun textOn(color: Int): Int {
+                val r = Color.red(color) / 255.0
+                val g = Color.green(color) / 255.0
+                val b = Color.blue(color) / 255.0
+                return if (0.299 * r + 0.587 * g + 0.114 * b > 0.62) 0xFF101010.toInt()
+                else 0xFFFFFFFF.toInt()
+            }
+            fun updateChecks(colors: Map<Int, Int>) {
+                for ((lap, cb) in checkViews) {
+                    val on = selected.contains(lap)
+                    val c = colors[lap] ?: 0xFF62727A.toInt()
+                    val fill = if (on) (c and 0x00FFFFFF) or 0x66000000 else 0x332F3A40
+                    cb.background = GradientDrawable().apply {
+                        cornerRadius = dp(5).toFloat()
+                        setColor(fill)
+                        if (lap == best) setStroke(dp(2), 0xFF8B5CF6.toInt())
+                    }
+                    cb.setTextColor(if (on) textOn(c) else 0xFF8A9A9A.toInt())
+                    cb.setTypeface(Typeface.DEFAULT, if (lap == best) Typeface.BOLD else Typeface.NORMAL)
+                    cb.buttonTintList = ColorStateList.valueOf(
+                        if (on) textOn(c) else 0xFF8A9A9A.toInt()
+                    )
+                    cb.setPadding(dp(8), dp(3), dp(8), dp(3))
+                }
+            }
             fun refreshMap() {
                 map.setMarker(null)
+                val colors = colorMapFor(selected)
                 if (selected.size == 1) {
                     val lap = selected.first()
                     val data = traces[lap]
@@ -774,21 +813,23 @@ class RaceActivity : LocalizedActivity() {
                         val seg = accelerationSegments(data)
                         val base = if (lap == best) 0xFFFFD700.toInt() else 0xFFE6F5F1.toInt()
                         map.setLayers(listOf(TrackMapView.Layer(data.points, base, "L$lap", seg)))
-                        val marker = maxSpeedMarker(data)
-                        map.setMarker(marker)
-                        legend.text = if (marker != null) {
+                        map.setMarker(maxSpeedMarker(data))
+                        legend.text = if (data.speeds.isNotEmpty()) {
                             "L$lap 单选：绿=加速，红=减速，黄点=最高速 ${String.format(Locale.US, "%.0f", data.speeds.maxOrNull() ?: 0.0)} km/h"
                         } else {
                             "L$lap 单选：该圈没有速度数据"
                         }
+                        updateChecks(colors)
                         return
                     }
                 }
-                map.setLayers(shapes(selected, traces, colors, best))
+                map.setLayers(selected.sorted().mapNotNull { lap ->
+                    val data = traces[lap] ?: return@mapNotNull null
+                    TrackMapView.Layer(data.points, colors[lap] ?: 0xFF66E0D2.toInt(), "L$lap")
+                })
                 legend.text = "可勾选单圈或多圈叠加；单选时显示加减速颜色和最高速位置。"
+                updateChecks(colors)
             }
-            selected.addAll(traces.keys)
-            refreshMap()
             content.addView(map)
             val checks = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -799,14 +840,7 @@ class RaceActivity : LocalizedActivity() {
                     text = "L$lap"
                     textSize = 12f
                     isChecked = true
-                    if (lap == best) {
-                        setTextColor(0xFFE9D5FF.toInt())
-                        setTypeface(typeface, Typeface.BOLD)
-                        setBackgroundColor(0x663B1A66.toInt())
-                        setPadding(dp(6), dp(2), dp(6), dp(2))
-                    } else {
-                        setTextColor(0xFFD7E7E4.toInt())
-                    }
+                    checkViews[lap] = this
                     setOnCheckedChangeListener { _, checked ->
                         if (checked) selected.add(lap) else selected.remove(lap)
                         refreshMap()
@@ -816,6 +850,8 @@ class RaceActivity : LocalizedActivity() {
             content.addView(HorizontalScrollView(this).apply { addView(checks) })
             content.addView(legend)
             content.addView(meta("绿=加速  红=减速  黄点=最高速"))
+            selected.addAll(traces.keys)
+            refreshMap()
         }
         if (laps.isEmpty() && s.lapTimes.isEmpty()) {
             content.addView(meta("没有有效圈速。"))

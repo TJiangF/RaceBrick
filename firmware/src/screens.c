@@ -1896,17 +1896,30 @@ static void render_history_detail(void) {
             map_fit_points(&s_map, r->trace, r->nTrace, 0.3f);
         }
     }
+    const uint16_t hc_blue = RGB565(0x42, 0xA5, 0xF5);
+    const uint16_t hc_2[2] = {PAL.red, hc_blue};
+    const uint16_t hc_3[3] = {PAL.red, PAL.yellow, hc_blue};
+    const uint16_t hc_n[8] = {PAL.red, hc_blue, PAL.yellow, PAL.green,
+                              PAL.purple, PAL.cyan, PAL.orange, PAL.gold};
+    uint16_t lap_col[8];
+    for (int i = 0; i < 8; i++) lap_col[i] = PAL.dim;
+    int order[8], nsel = 0;
+    for (int i = 0; i < s_hist_prev_laps; i++)
+        if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2) order[nsel++] = i;
+    for (int k = 0; k < nsel; k++) {
+        const uint16_t *pal = hc_n;
+        int pn = 8;
+        if (nsel == 2) { pal = hc_2; pn = 2; }
+        else if (nsel == 3) { pal = hc_3; pn = 3; }
+        lap_col[order[k]] = pal[k % pn];
+    }
     map_begin(&s_map);
     if (r) {
         if (s_hist_prev_laps > 0) {
             if (fit >= 0) {
-                const uint16_t cols[8] = {
-                    PAL.cyan, PAL.orange, PAL.purple, PAL.green,
-                    PAL.yellow, PAL.text2, PAL.gold, PAL.red
-                };
                 for (int i = 0; i < s_hist_prev_laps; i++)
                     if ((s_hist_mask & (1u << i)) && s_hist_prev_n[i] >= 2)
-                        map_polyline(&s_map, s_hist_prev[i], s_hist_prev_n[i], cols[i & 7], 2);
+                        map_polyline(&s_map, s_hist_prev[i], s_hist_prev_n[i], lap_col[i], 2);
             }
         } else {
             hist_draw96(&s_map, r->trace, r->nTrace, PAL.cyan);
@@ -1935,7 +1948,7 @@ static void render_history_detail(void) {
         if (cur) gfx_rect(182, y, 132, 18, PAL.white);
         bool shown = s_hist_prev_raw && (s_hist_mask & (1u << i)) != 0;
         gfx_fill(182 + 5, y + 5, 8, 8,
-                 s_hist_prev_raw ? (shown ? PAL.green : PAL.checkboxoff) : PAL.line);
+                 s_hist_prev_raw ? (shown ? lap_col[i] : PAL.checkboxoff) : PAL.line);
         snprintf(b, sizeof b, "L%d", r->lapIndex[i]);
         gfx_text(196, y + 5, b, best ? PAL.white : PAL.dim, 1);
         u_fmt_time(b, sizeof b, r->lapTime[i]);
