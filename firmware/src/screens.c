@@ -1692,8 +1692,8 @@ static void render_track_start(void) {
     sp.x += sinf(h) * offn;
     sp.y += -cosf(h) * offn;
     st.x = cosf(h); st.y = sinf(h);
-    map_start_checker_width(&s_map, sp, st, s_edit_width, PAL.red);
-    map_start_arrow_at(&s_map, sp, st, PAL.red);
+    map_start_line_arrow_m(&s_map, sp, st, s_edit_width,
+                           s_edit_reverse ? PAL.orange : PAL.red);
 
     const char *names[4] = {"START", "WIDTH", "OFFSET", "DIR"};
     char vals[4][16];

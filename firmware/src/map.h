@@ -25,6 +25,7 @@ void map_centerline(tmap_t *m, uint16_t color, int step);
 void map_track_ribbon(tmap_t *m, float width_m, uint16_t color);
 void map_start_checker_at(tmap_t *m, pt_t p, pt_t tangent, uint16_t color);
 void map_start_checker_width(tmap_t *m, pt_t p, pt_t tangent, float width_m, uint16_t color);
+void map_start_line_arrow_m(tmap_t *m, pt_t p, pt_t tangent, float width_m, uint16_t color);
 void map_start_arrow_at(tmap_t *m, pt_t p, pt_t tangent, uint16_t color);
 void map_trace(tmap_t *m, const pt_t *pts, int n, uint16_t color, int size);
 void map_trail(tmap_t *m, const engine_t *e);

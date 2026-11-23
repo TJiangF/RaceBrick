@@ -248,6 +248,37 @@ void map_start_arrow_at(tmap_t *m, pt_t pworld, pt_t tangent, uint16_t color) {
     gfx_line(tipx, tipy, rx, ry, PAL.white);
 }
 
+void map_start_line_arrow_m(tmap_t *m, pt_t pworld, pt_t tangent,
+                           float width_m, uint16_t color) {
+    pt_t p = map_px(m, pworld);
+    float tx = tangent.x, ty = -tangent.y;
+    float len = hypotf(tx, ty);
+    if (len < 1e-5f) return;
+    tx /= len; ty /= len;
+    float nx = -ty, ny = tx;
+    float half = 10.0f;
+    if (m->track && m->track->nscale > 1e-9f && width_m > 0.0f)
+        half = width_m * m->track->nscale * m->scale * 0.5f;
+    if (half < 7.0f) half = 7.0f;
+
+    int cx = (int)lroundf(m->vx + p.x);
+    int cy = (int)lroundf(m->vy + p.y);
+    for (int k = -1; k <= 1; k++) {
+        gfx_line((int)lroundf(cx - nx * half + tx * k),
+                 (int)lroundf(cy - ny * half + ty * k),
+                 (int)lroundf(cx + nx * half + tx * k),
+                 (int)lroundf(cy + ny * half + ty * k), color);
+    }
+
+    float arrow = 8.0f;
+    float tipx = cx + tx * arrow, tipy = cy + ty * arrow;
+    float bx = cx - tx * arrow * 0.4f, by = cy - ty * arrow * 0.4f;
+    float lx = bx + nx * arrow * 0.7f, ly = by + ny * arrow * 0.7f;
+    float rx = bx - nx * arrow * 0.7f, ry = by - ny * arrow * 0.7f;
+    gfx_line((int)lroundf(tipx), (int)lroundf(tipy), (int)lroundf(lx), (int)lroundf(ly), color);
+    gfx_line((int)lroundf(tipx), (int)lroundf(tipy), (int)lroundf(rx), (int)lroundf(ry), color);
+}
+
 void map_centerline(tmap_t *m, uint16_t color, int step) {
     if (!m->track) return;
     if (step < 1) step = 2;
