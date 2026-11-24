@@ -66,10 +66,21 @@ jobs:
           APP=$(find build -name 'RaceBrick.app' -type d | head -1)
           test -n "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" artifacts/RaceBrick-simulator.zip
+      - name: Package unsigned iPhone IPA
+        working-directory: ios
+        run: |
+          rm -rf Payload
+          mkdir -p Payload artifacts
+          APP=$(find build-device -name 'RaceBrick.app' -type d | head -1)
+          test -n "$APP"
+          cp -R "$APP" Payload/RaceBrick.app
+          ditto -c -k --sequesterRsrc --keepParent Payload artifacts/RaceBrick-unsigned.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: RaceBrick-iOS-simulator
-          path: ios/artifacts/RaceBrick-simulator.zip
+          name: RaceBrick-iOS-builds
+          path: |
+            ios/artifacts/RaceBrick-simulator.zip
+            ios/artifacts/RaceBrick-unsigned.ipa
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
