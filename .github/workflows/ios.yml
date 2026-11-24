@@ -7,6 +7,9 @@ on:
       - 'ios/**'
       - '.github/workflows/ios.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -42,6 +45,20 @@ jobs:
             grep -E 'error:|note:' /tmp/ios-build.log /tmp/ios-device.log 2>/dev/null | tail -80
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "run=$GITHUB_RUN_ID"
+            echo "commit=$GITHUB_SHA"
+            echo "--- simulator build ---"
+            grep -E 'error:|note:' /tmp/ios-build.log 2>/dev/null | tail -80
+            echo "--- device build ---"
+            grep -E 'error:|note:' /tmp/ios-device.log 2>/dev/null | tail -80
+          } > ios-build-error.log
+          git config user.name "RaceBrick CI"
+          git config user.email "ci@tfworks.cn"
+          git checkout -B "ci-ios-$GITHUB_RUN_ID"
+          git add -f ios-build-error.log
+          git commit -m "iOS CI diagnostics $GITHUB_RUN_ID" || true
+          git push origin "HEAD:refs/heads/ci-ios-$GITHUB_RUN_ID"
       - name: Package simulator app
         working-directory: ios
         run: |
