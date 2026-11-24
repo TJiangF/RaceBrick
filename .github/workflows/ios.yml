@@ -21,7 +21,7 @@ jobs:
             xcodebuild -version
             xcodebuild -showsdks
             xcodebuild -project RaceBrick.xcodeproj -list
-            xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
+            xcodebuild -project RaceBrick.xcodeproj -scheme RaceBrick \
               -configuration Debug -sdk iphonesimulator \
               -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
           } 2>&1 | tee /tmp/ios-build.log
@@ -29,7 +29,7 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
-          xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
+          xcodebuild -project RaceBrick.xcodeproj -scheme RaceBrick \
             -configuration Release -sdk iphoneos \
             -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build 2>&1 | tee /tmp/ios-device.log
       - name: Publish error annotation
