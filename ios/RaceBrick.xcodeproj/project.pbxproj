@@ -1,0 +1,400 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A6DE420A16FE385A04ED13A /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B40056FB727818F56017FC9 /* DevicesView.swift */; };
+		19A9ED34FCBED4DCD95D391F /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30EAAB7D661D1B85F6E64A82 /* MediaView.swift */; };
+		4CC03A0207F40DAFA30FCBB6 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0C66AEE395643CD3ACD503 /* BLEManager.swift */; };
+		588BEE3F89DC385355FDC8BD /* DeviceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD95C63EFD304058942D8B3 /* DeviceDetailView.swift */; };
+		62529D47F3932B227247A2A3 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E954210AF29B8E046CAEECA /* AuthView.swift */; };
+		8A6B2525A50F1877E8F6F5CF /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FD9A139914996566AF74F3A /* KeychainStore.swift */; };
+		8F97E14F89BF4B9EF68092F4 /* RaceBrickCore in Frameworks */ = {isa = PBXBuildFile; productRef = F055F73F15D964D5D8020CBF /* RaceBrickCore */; };
+		919721849688662819E750C8 /* RaceBrickApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9361997368780E4B8F85B5 /* RaceBrickApp.swift */; };
+		A02665DCD46F8D83CFA674F1 /* BLEView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431F74895BE9CE6BB06175A8 /* BLEView.swift */; };
+		B21FBF7BB385023F97398C6E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EE67BBFFF0756818205BCE38 /* Assets.xcassets */; };
+		C3BC6D9D0354EE6B07CA4310 /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88C3BC9CED8B53B36D7E1266 /* SessionDetailView.swift */; };
+		CE1FFDE6C423CFD8822D6AA0 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 718BC9C8A709346B1E6B819A /* AppModel.swift */; };
+		D292F4CDF38D03E47A382E32 /* TrackMapCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A448F774F80E385B38F262 /* TrackMapCanvas.swift */; };
+		E0EC101FC7E9D8F76ED734A9 /* NavFrameStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E58C089B06A733C275B9D1A /* NavFrameStreamer.swift */; };
+		E18EACE7CDEE5A3729A34FCD /* SatelliteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65BA7A25C2FF9615B45E0856 /* SatelliteService.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1B0C66AEE395643CD3ACD503 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
+		30EAAB7D661D1B85F6E64A82 /* MediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaView.swift; sourceTree = "<group>"; };
+		431F74895BE9CE6BB06175A8 /* BLEView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEView.swift; sourceTree = "<group>"; };
+		65BA7A25C2FF9615B45E0856 /* SatelliteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatelliteService.swift; sourceTree = "<group>"; };
+		68A448F774F80E385B38F262 /* TrackMapCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMapCanvas.swift; sourceTree = "<group>"; };
+		6E954210AF29B8E046CAEECA /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		718BC9C8A709346B1E6B819A /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		7B40056FB727818F56017FC9 /* DevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesView.swift; sourceTree = "<group>"; };
+		82F47AD8A6E7CC7E2F998ABB /* RaceBrick.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RaceBrick.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		88C3BC9CED8B53B36D7E1266 /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
+		9E58C089B06A733C275B9D1A /* NavFrameStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavFrameStreamer.swift; sourceTree = "<group>"; };
+		9FD9A139914996566AF74F3A /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		A96765DB11A745EFAF682026 /* RaceBrickCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RaceBrickCore; path = RaceBrickCore; sourceTree = SOURCE_ROOT; };
+		CDD95C63EFD304058942D8B3 /* DeviceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailView.swift; sourceTree = "<group>"; };
+		EE67BBFFF0756818205BCE38 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EF9361997368780E4B8F85B5 /* RaceBrickApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceBrickApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E09AAD62319739136390EDD5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F97E14F89BF4B9EF68092F4 /* RaceBrickCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0AF67BCB059B76D9A9C5F8F1 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				A96765DB11A745EFAF682026 /* RaceBrickCore */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		D2F99AF70A48D82F640A507F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				82F47AD8A6E7CC7E2F998ABB /* RaceBrick.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D602D5A29A82608BBA855825 = {
+			isa = PBXGroup;
+			children = (
+				0AF67BCB059B76D9A9C5F8F1 /* Packages */,
+				FF171FEF8D25B286DFC9956C /* RaceBrick */,
+				D2F99AF70A48D82F640A507F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FF171FEF8D25B286DFC9956C /* RaceBrick */ = {
+			isa = PBXGroup;
+			children = (
+				718BC9C8A709346B1E6B819A /* AppModel.swift */,
+				EE67BBFFF0756818205BCE38 /* Assets.xcassets */,
+				6E954210AF29B8E046CAEECA /* AuthView.swift */,
+				1B0C66AEE395643CD3ACD503 /* BLEManager.swift */,
+				431F74895BE9CE6BB06175A8 /* BLEView.swift */,
+				CDD95C63EFD304058942D8B3 /* DeviceDetailView.swift */,
+				7B40056FB727818F56017FC9 /* DevicesView.swift */,
+				9FD9A139914996566AF74F3A /* KeychainStore.swift */,
+				30EAAB7D661D1B85F6E64A82 /* MediaView.swift */,
+				9E58C089B06A733C275B9D1A /* NavFrameStreamer.swift */,
+				EF9361997368780E4B8F85B5 /* RaceBrickApp.swift */,
+				65BA7A25C2FF9615B45E0856 /* SatelliteService.swift */,
+				88C3BC9CED8B53B36D7E1266 /* SessionDetailView.swift */,
+				68A448F774F80E385B38F262 /* TrackMapCanvas.swift */,
+			);
+			path = RaceBrick;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C730A76028513BC30EBA2348 /* RaceBrick */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2899DB54167D07A0365A4B9B /* Build configuration list for PBXNativeTarget "RaceBrick" */;
+			buildPhases = (
+				0505ACB7886F5D061A6922D6 /* Sources */,
+				BFCFDB413DD27B9C4C385033 /* Resources */,
+				E09AAD62319739136390EDD5 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RaceBrick;
+			packageProductDependencies = (
+				F055F73F15D964D5D8020CBF /* RaceBrickCore */,
+			);
+			productName = RaceBrick;
+			productReference = 82F47AD8A6E7CC7E2F998ABB /* RaceBrick.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ECB96D67A2156EAB4AAB97FD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C730A76028513BC30EBA2348 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 48AEA51BEE3DA14361C72161 /* Build configuration list for PBXProject "RaceBrick" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D602D5A29A82608BBA855825;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				153D48458EE418CA502ECF0B /* XCLocalSwiftPackageReference "RaceBrickCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D2F99AF70A48D82F640A507F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C730A76028513BC30EBA2348 /* RaceBrick */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BFCFDB413DD27B9C4C385033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B21FBF7BB385023F97398C6E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0505ACB7886F5D061A6922D6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE1FFDE6C423CFD8822D6AA0 /* AppModel.swift in Sources */,
+				62529D47F3932B227247A2A3 /* AuthView.swift in Sources */,
+				4CC03A0207F40DAFA30FCBB6 /* BLEManager.swift in Sources */,
+				A02665DCD46F8D83CFA674F1 /* BLEView.swift in Sources */,
+				588BEE3F89DC385355FDC8BD /* DeviceDetailView.swift in Sources */,
+				0A6DE420A16FE385A04ED13A /* DevicesView.swift in Sources */,
+				8A6B2525A50F1877E8F6F5CF /* KeychainStore.swift in Sources */,
+				19A9ED34FCBED4DCD95D391F /* MediaView.swift in Sources */,
+				E0EC101FC7E9D8F76ED734A9 /* NavFrameStreamer.swift in Sources */,
+				919721849688662819E750C8 /* RaceBrickApp.swift in Sources */,
+				E18EACE7CDEE5A3729A34FCD /* SatelliteService.swift in Sources */,
+				C3BC6D9D0354EE6B07CA4310 /* SessionDetailView.swift in Sources */,
+				D292F4CDF38D03E47A382E32 /* TrackMapCanvas.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		270C93CF8E4FD69FD7B1709C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = RaceBrick/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.tfworks.racebrick;
+				PRODUCT_NAME = RaceBrick;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C3A12AD13EFD32F93872A875 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DDAED1A872594803FFED0828 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F91AFC9D604F72670CACAF03 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = RaceBrick/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.tfworks.racebrick;
+				PRODUCT_NAME = RaceBrick;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2899DB54167D07A0365A4B9B /* Build configuration list for PBXNativeTarget "RaceBrick" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F91AFC9D604F72670CACAF03 /* Debug */,
+				270C93CF8E4FD69FD7B1709C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		48AEA51BEE3DA14361C72161 /* Build configuration list for PBXProject "RaceBrick" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C3A12AD13EFD32F93872A875 /* Debug */,
+				DDAED1A872594803FFED0828 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		153D48458EE418CA502ECF0B /* XCLocalSwiftPackageReference "RaceBrickCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = RaceBrickCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F055F73F15D964D5D8020CBF /* RaceBrickCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RaceBrickCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = ECB96D67A2156EAB4AAB97FD /* Project object */;
+}

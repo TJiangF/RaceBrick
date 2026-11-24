@@ -1,3 +1,6 @@
 .DS_Store
 Thumbs.db
 *.log
+ios/**/DerivedData/
+ios/**/.swiftpm/
+ios/**/xcuserdata/
