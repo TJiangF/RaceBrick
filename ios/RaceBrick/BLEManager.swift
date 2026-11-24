@@ -32,7 +32,7 @@ final class BLEManager: NSObject, ObservableObject {
         disconnect()
         state = "正在搜索 RaceBrick…"
         log.append("扫描 Service \(BLEProtocol.serviceUUID.uuidString)")
-        central.scanForPeripherals(withServices: [BLEProtocol.serviceUUID], options: nil)
+        central.scanForPeripherals(withServices: [CBUUID(nsuuid: BLEProtocol.serviceUUID)], options: nil)
         scanTimer?.invalidate()
         scanTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
             Task { @MainActor in
@@ -124,7 +124,7 @@ extension BLEManager: CBCentralManagerDelegate {
             self.connected = true
             self.state = "已连接 · 发现服务"
             self.log.append("已连接 \(peripheral.name ?? "RaceBrick")")
-            peripheral.discoverServices([BLEProtocol.serviceUUID])
+            peripheral.discoverServices([CBUUID(nsuuid: BLEProtocol.serviceUUID)])
         }
     }
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -145,8 +145,12 @@ extension BLEManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         Task { @MainActor in
             if let error { self.state = "服务发现失败：\(error.localizedDescription)"; return }
-            for s in peripheral.services ?? [] where s.uuid == BLEProtocol.serviceUUID {
-                peripheral.discoverCharacteristics([BLEProtocol.rxUUID, BLEProtocol.txUUID], for: s)
+            let serviceCB = CBUUID(nsuuid: BLEProtocol.serviceUUID)
+            for s in peripheral.services ?? [] where s.uuid == serviceCB {
+                peripheral.discoverCharacteristics([
+                    CBUUID(nsuuid: BLEProtocol.rxUUID),
+                    CBUUID(nsuuid: BLEProtocol.txUUID),
+                ], for: s)
             }
         }
     }
@@ -155,8 +159,8 @@ extension BLEManager: CBPeripheralDelegate {
         Task { @MainActor in
             if let error { self.state = "特征发现失败：\(error.localizedDescription)"; return }
             for c in service.characteristics ?? [] {
-                if c.uuid == BLEProtocol.rxUUID { self.rx = c }
-                if c.uuid == BLEProtocol.txUUID {
+                if c.uuid == CBUUID(nsuuid: BLEProtocol.rxUUID) { self.rx = c }
+                if c.uuid == CBUUID(nsuuid: BLEProtocol.txUUID) {
                     self.tx = c
                     peripheral.setNotifyValue(true, for: c)
                 }
