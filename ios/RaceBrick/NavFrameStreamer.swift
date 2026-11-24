@@ -32,8 +32,8 @@ final class NavFrameStreamer: NSObject, ObservableObject {
 
     func start(ble: BLEManager) {
         self.ble = ble
-        let status = location.authorizationStatus
-        switch status {
+        let auth = location.authorizationStatus
+        switch auth {
         case .notDetermined:
             location.requestWhenInUseAuthorization()
         case .denied, .restricted:
