@@ -140,7 +140,7 @@ struct SessionMapCanvas: View {
                     if let mx = lap.points.max(by: { $0[2] < $1[2] }) {
                         let p = map(mx)
                         context.fill(Path(ellipseIn: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)), with: .color(.orange))
-                        context.draw(Text(String(format: "MAX %.0f", mx[2])).font(.caption2.bold()).foregroundStyle(.white),
+                        context.draw(Text(String(format: "MAX %.0f", mx[2])).font(.caption2.bold()).foregroundColor(.white),
                                      at: CGPoint(x: p.x + 30, y: p.y - 12))
                     }
                 } else {
