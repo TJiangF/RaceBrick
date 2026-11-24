@@ -13,30 +13,45 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          xcodebuild -showsdks
-      - name: Resolve packages / build simulator
+      - name: Toolchain and build (simulator)
         working-directory: ios
         run: |
-          xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
-            -configuration Debug -sdk iphonesimulator \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          set -o pipefail
+          {
+            xcodebuild -version
+            xcodebuild -showsdks
+            xcodebuild -project RaceBrick.xcodeproj -list
+            xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
+              -configuration Debug -sdk iphonesimulator \
+              -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          } 2>&1 | tee /tmp/ios-build.log
       - name: Build device binary without signing
         working-directory: ios
         run: |
+          set -o pipefail
           xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
             -configuration Release -sdk iphoneos \
-            -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+            -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build 2>&1 | tee /tmp/ios-device.log
+      - name: Publish error annotation
+        if: failure()
+        run: |
+          echo "::error title=iOS build failed::$(tail -30 /tmp/ios-build.log 2>/dev/null | tr '\n' ' ' | sed 's/%/%25/g') $(tail -30 /tmp/ios-device.log 2>/dev/null | tr '\n' ' ' | sed 's/%/%25/g')"
       - name: Package simulator app
         working-directory: ios
         run: |
           mkdir -p artifacts
           APP=$(find build -name 'RaceBrick.app' -type d | head -1)
-          echo "app=$APP"
+          test -n "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" artifacts/RaceBrick-simulator.zip
       - uses: actions/upload-artifact@v4
         with:
           name: RaceBrick-iOS-simulator
           path: ios/artifacts/RaceBrick-simulator.zip
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-logs
+          path: |
+            /tmp/ios-build.log
+            /tmp/ios-device.log
