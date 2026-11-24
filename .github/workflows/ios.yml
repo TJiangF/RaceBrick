@@ -32,10 +32,16 @@ jobs:
           xcodebuild -project RaceBrick.xcodeproj -scheme RaceBrick \
             -configuration Release -sdk iphoneos \
             -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build 2>&1 | tee /tmp/ios-device.log
-      - name: Publish error annotation
+      - name: Publish build errors
         if: failure()
         run: |
-          echo "::error title=iOS build failed::$(grep -E 'error:|warning:.*(deprecated|unavailable)' /tmp/ios-build.log /tmp/ios-device.log 2>/dev/null | tail -40 | tr '\n' ' ' | sed 's/%/%25/g')"
+          echo "::error title=iOS build failed::$(grep -E 'error:' /tmp/ios-build.log /tmp/ios-device.log 2>/dev/null | tail -40 | tr '\n' ' ' | sed 's/%/%25/g')"
+          {
+            echo '## iOS build errors'
+            echo '```'
+            grep -E 'error:|note:' /tmp/ios-build.log /tmp/ios-device.log 2>/dev/null | tail -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Package simulator app
         working-directory: ios
         run: |
