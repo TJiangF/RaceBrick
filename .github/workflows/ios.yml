@@ -1,0 +1,42 @@
+name: iOS build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+      - name: Resolve packages / build simulator
+        working-directory: ios
+        run: |
+          xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
+            -configuration Debug -sdk iphonesimulator \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Build device binary without signing
+        working-directory: ios
+        run: |
+          xcodebuild -project RaceBrick.xcodeproj -target RaceBrick \
+            -configuration Release -sdk iphoneos \
+            -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+      - name: Package simulator app
+        working-directory: ios
+        run: |
+          mkdir -p artifacts
+          APP=$(find build -name 'RaceBrick.app' -type d | head -1)
+          echo "app=$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" artifacts/RaceBrick-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RaceBrick-iOS-simulator
+          path: ios/artifacts/RaceBrick-simulator.zip
