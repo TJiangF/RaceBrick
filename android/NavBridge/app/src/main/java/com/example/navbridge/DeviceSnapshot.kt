@@ -16,7 +16,7 @@ object DeviceSnapshot {
         val logs: Int,
     )
 
-    fun build(base: String, progress: (String) -> Unit = {}): Result {
+    fun build(base: String, progress: (String, Int) -> Unit = { _, _ -> }): Result {
         val body = JSONObject().apply {
             put("replace", true)
             put("since", 0)
@@ -32,7 +32,7 @@ object DeviceSnapshot {
             throw IllegalStateException("设备 Track 列表不完整（${tracks.size}/$expectedTracks），已取消上传")
         }
         for ((i, t) in tracks.withIndex()) {
-            progress("读取赛道 ${i + 1}/${tracks.size}")
+            progress("读取赛道 ${i + 1}/${tracks.size}", 22 + 15 * (i + 1) / tracks.size.coerceAtLeast(1))
             val d = RaceApi.track(base, t.id)
             tracksOut.put(JSONObject().apply {
                 put("local_id", t.id)
@@ -69,7 +69,7 @@ object DeviceSnapshot {
         val logsOut = body.getJSONArray("logs")
         val logs = RaceApi.logs(base)
         for ((i, l) in logs.withIndex()) {
-            progress("读取 Race Log ${i + 1}/${logs.size}")
+            progress("读取 Race Log ${i + 1}/${logs.size}", 37 + 8 * (i + 1) / logs.size.coerceAtLeast(1))
             val d = RaceApi.logDetail(base, l.index)
             val e = d.entry
             logsOut.put(JSONObject().apply {
@@ -96,7 +96,7 @@ object DeviceSnapshot {
         val sessionsOut = body.getJSONArray("sessions")
         val sessions = RaceApi.sessions(base)
         for ((i, s) in sessions.withIndex()) {
-            progress("读取 Session CSV ${i + 1}/${sessions.size}")
+            progress("读取 Session CSV ${i + 1}/${sessions.size}", 45 + 15 * (i + 1) / sessions.size.coerceAtLeast(1))
             val csv = RaceApi.sessionCsv(base, s.slot)
             val compressed = ByteArrayOutputStream()
             GZIPOutputStream(compressed).use { it.write(csv) }

@@ -13,12 +13,14 @@ import android.os.Handler
 import android.os.SystemClock
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -196,6 +198,11 @@ class MainActivity : LocalizedActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val syncWatchHandler = Handler(Looper.getMainLooper())
     private val syncWatchWorker = Executors.newSingleThreadExecutor()
+    private val cloudLaunchWorker = Executors.newSingleThreadExecutor()
+    private var launchCloudChecked = false
+    private var cloudProgress: AlertDialog? = null
+    private var cloudProgressBar: ProgressBar? = null
+    private var cloudProgressText: TextView? = null
     private var syncWatchOn = false
     private var syncWatchBusy = false
     private var syncWatchMisses = 0
@@ -481,6 +488,10 @@ class MainActivity : LocalizedActivity() {
         }
         findViewById<Button>(R.id.btnRace).setOnClickListener {
             startActivity(Intent(this, RaceActivity::class.java))
+        }
+        findViewById<Button>(R.id.btnOffline).setOnClickListener {
+            startActivity(Intent(this, RaceActivity::class.java)
+                .putExtra(RaceActivity.EXTRA_OFFLINE, true))
         }
         mapStyle = MapStyles.byId(
             getSharedPreferences("navbridge", MODE_PRIVATE).getString("map_style", MapStyles.DEFAULT.id)
@@ -1344,6 +1355,7 @@ class MainActivity : LocalizedActivity() {
         syncWatchOn = true
         syncWatchHandler.removeCallbacks(syncWatchTick)
         syncWatchHandler.postDelayed(syncWatchTick, 7_000)
+        maybeCheckCloudOnLaunch()
     }
 
     override fun onPause() {
@@ -1351,6 +1363,192 @@ class MainActivity : LocalizedActivity() {
         syncWatchHandler.removeCallbacks(syncWatchTick)
         super.onPause()
     }
+
+    private fun maybeCheckCloudOnLaunch() {
+        if (launchCloudChecked) return
+        val token = CloudStore.token(this) ?: return
+        val uid = LocalCache.uid(this) ?: return
+        if (!LocalCache.hasCache(this)) return
+        launchCloudChecked = true
+        showCloudProgress("云端同步", "正在比较本地与云端记录版本…", true)
+        updateCloudProgress(20, null)
+        cloudLaunchWorker.execute {
+            runCatching { CloudApi().state(uid, token) }
+                .onSuccess { st ->
+                    main.post {
+                        if (isFinishing) return@post
+                        if (st.dataVersion == LocalCache.dataVersion(this) && !LocalCache.dirty(this)) {
+                            updateCloudProgress(100, "版本一致，无需同步")
+                            status("云端已同步 · 版本 ${st.dataVersion}")
+                            main.postDelayed({ hideCloudProgress() }, 450)
+                        } else {
+                            hideCloudProgress()
+                            showCloudConflict(uid, token, st.dataVersion)
+                        }
+                    }
+                }
+                .onFailure { e ->
+                    main.post {
+                        hideCloudProgress()
+                        status("云端检查失败：${e.message}")
+                    }
+                }
+        }
+    }
+
+    private fun showCloudConflict(uid: String, token: String, cloudVersion: Int) {
+        val localVersion = LocalCache.localVersion(this)
+        val dirty = LocalCache.dirty(this)
+        val text = "本地版本：$localVersion${if (dirty) "（有本地修改）" else ""}\n" +
+            "云端版本：$cloudVersion\n\n" +
+            "请选择要加载的数据。"
+        val d = AlertDialog.Builder(this)
+            .setTitle("本地与云端记录不一致")
+            .setMessage(text)
+            .setPositiveButton("加载本地", null)
+            .setNeutralButton("加载云端", null)
+            .setNegativeButton("稍后", null)
+            .create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                d.dismiss()
+                if (dirty) {
+                    launchLocalSyncForDevice()
+                } else {
+                    uploadLocalCache(uid, token)
+                }
+            }
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                d.dismiss()
+                downloadCloudCache(uid, token)
+            }
+        }
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
+    private fun launchLocalSyncForDevice() {
+        showCloudProgress("本地优先", "正在寻找设备，准备上传本地修改…", true)
+        cloudLaunchWorker.execute {
+            val found = HotspotDiscovery.find(RaceApi.baseUrl(this), 3500)
+            main.post {
+                hideCloudProgress()
+                if (found == null) {
+                    toast("本地有未上传修改，请先连接设备热点")
+                } else {
+                    startActivity(
+                        Intent(this, RaceActivity::class.java)
+                            .putExtra(RaceActivity.EXTRA_AUTO_SYNC_UID, found.uid)
+                            .putExtra(RaceActivity.EXTRA_FORCE_LOCAL, true)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun uploadLocalCache(uid: String, token: String) {
+        showCloudProgress("上传本地记录", "正在用本地版本覆盖云端…", true)
+        updateCloudProgress(15, null)
+        cloudLaunchWorker.execute {
+            runCatching {
+                updateCloudProgressOnMain(45, "正在上传本地快照…")
+                CloudSyncManager.uploadCachedLocal(this, uid, token)
+            }.onSuccess { version ->
+                main.post {
+                    updateCloudProgress(100, "本地已上传")
+                    status("本地版本已上传 · 版本 $version")
+                    main.postDelayed({ hideCloudProgress() }, 450)
+                }
+            }.onFailure { e ->
+                main.post {
+                    hideCloudProgress()
+                    status("本地上传失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun downloadCloudCache(uid: String, token: String) {
+        showCloudProgress("加载云端记录", "正在下载云端快照…", true)
+        updateCloudProgress(15, null)
+        cloudLaunchWorker.execute {
+            runCatching {
+                updateCloudProgressOnMain(55, "正在下载云端快照…")
+               val version = CloudSyncManager.loadCloudToCache(this, uid, token)
+                updateCloudProgressOnMain(80, "正在检查设备…")
+                val found = HotspotDiscovery.find(RaceApi.baseUrl(this), 2500)
+                if (found != null) {
+                    updateCloudProgressOnMain(90, "正在写回设备 Track…")
+                    CloudSyncManager.applyCloudTracks(this, found.baseUrl, uid, token)
+                }
+                version
+            }.onSuccess { version ->
+                main.post {
+                    updateCloudProgress(100, "云端记录已加载")
+                    status("云端记录已加载 · 版本 $version")
+                    main.postDelayed({ hideCloudProgress() }, 450)
+                }
+            }.onFailure { e ->
+                main.post {
+                    hideCloudProgress()
+                    status("加载云端失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun updateCloudProgressOnMain(progress: Int, message: String?) {
+        main.post { updateCloudProgress(progress, message) }
+    }
+
+    private fun showCloudProgress(title: String, message: String, determinate: Boolean) {
+        hideCloudProgress()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(20))
+        }
+        cloudProgressText = TextView(this).apply {
+            text = Lang.tr(message)
+            setTextColor(0xFFA9C4BE.toInt())
+            textSize = 13f
+        }
+        box.addView(cloudProgressText)
+        cloudProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = !determinate
+            max = 100
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) }
+        }
+        box.addView(cloudProgressBar)
+        cloudProgress = AlertDialog.Builder(this)
+            .setTitle(Lang.tr(title))
+            .setView(box)
+            .setCancelable(false)
+            .create()
+            .also {
+                it.setCanceledOnTouchOutside(false)
+                it.show()
+                Lang.localizeDialog(it)
+            }
+    }
+
+    private fun updateCloudProgress(progress: Int, message: String?) {
+        cloudProgressBar?.let {
+            it.isIndeterminate = false
+            it.progress = progress.coerceIn(0, 100)
+        }
+        if (message != null) cloudProgressText?.text = Lang.tr(message)
+    }
+
+    private fun hideCloudProgress() {
+        cloudProgress?.dismiss()
+        cloudProgress = null
+        cloudProgressBar = null
+        cloudProgressText = null
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun checkHotspotSync() {
         if (!syncWatchOn || syncWatchBusy || isFinishing) return
@@ -1920,6 +2118,8 @@ class MainActivity : LocalizedActivity() {
         frameWorker.shutdownNow()
         syncWatchHandler.removeCallbacks(syncWatchTick)
         syncWatchWorker.shutdownNow()
+        cloudLaunchWorker.shutdownNow()
+        hideCloudProgress()
         super.onDestroy()
     }
 }

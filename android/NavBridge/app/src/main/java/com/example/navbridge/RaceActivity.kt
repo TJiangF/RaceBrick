@@ -33,6 +33,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -42,6 +44,8 @@ import java.util.concurrent.Executors
 class RaceActivity : LocalizedActivity() {
     companion object {
         const val EXTRA_AUTO_SYNC_UID = "auto_sync_uid"
+        const val EXTRA_OFFLINE = "offline_cache"
+        const val EXTRA_FORCE_LOCAL = "force_local"
     }
 
     private lateinit var tvStatus: TextView
@@ -49,6 +53,8 @@ class RaceActivity : LocalizedActivity() {
     private lateinit var llList: LinearLayout
     private lateinit var pbLoad: ProgressBar
     private var busyDialog: AlertDialog? = null
+    private var busyProgress: ProgressBar? = null
+    private var busyText: TextView? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -62,6 +68,8 @@ class RaceActivity : LocalizedActivity() {
     private var sessions: List<RaceSession> = emptyList()
     private var logs: List<RaceLogEntry> = emptyList()
     private val traceCache = HashMap<Int, Map<Int, TraceData>>()
+    private val sessionLapCache = HashMap<Int, List<LapDetail>>()
+    private val logTraceCache = HashMap<Int, List<android.graphics.PointF>>()
     private val trackDetailCache = HashMap<Int, TrackDetail>()
     private val satelliteCache = HashMap<Int, TrackSatellite>()
     private var filterTrack: Int? = null
@@ -70,6 +78,7 @@ class RaceActivity : LocalizedActivity() {
     private var showingLogs = false
     private var directPending = false
     private var awaitingWriteSettings = false
+    private var offlineMode = false
     private var discoveredDevice: DiscoveredDevice? = null
     private var hotspotWatching = false
     private var hotspotChecking = false
@@ -78,6 +87,7 @@ class RaceActivity : LocalizedActivity() {
     private var lastPromptedIp: String? = null
     private var cloudSyncRunning = false
     private var autoSyncUid: String? = null
+    private var forceLocalSync = false
     private val hotspotHandler = Handler(Looper.getMainLooper())
     private val hotspotTick = object : Runnable {
         override fun run() {
@@ -107,6 +117,8 @@ class RaceActivity : LocalizedActivity() {
         pbLoad = findViewById(R.id.pbRaceLoad)
         direct = WifiDirectConnector(this)
         autoSyncUid = intent.getStringExtra(EXTRA_AUTO_SYNC_UID)
+        forceLocalSync = intent.getBooleanExtra(EXTRA_FORCE_LOCAL, false)
+        offlineMode = intent.getBooleanExtra(EXTRA_OFFLINE, false)
         etUrl.setText(RaceApi.baseUrl(this))
 
         findViewById<Button>(R.id.btnRaceNav).setOnClickListener { finish() }
@@ -134,7 +146,12 @@ class RaceActivity : LocalizedActivity() {
             renderLogs()
         }
 
-        status("点击“连接并刷新”读取设备数据")
+        if (offlineMode) {
+            offlineModeUi()
+            loadCachedSnapshot()
+        } else {
+            status("点击“连接并刷新”读取设备数据")
+        }
     }
 
     private fun directWithPermission() {
@@ -175,6 +192,7 @@ class RaceActivity : LocalizedActivity() {
             awaitingWriteSettings = false
             directWithPermission()
         }
+        if (offlineMode) return
         hotspotWatching = true
         hotspotHandler.removeCallbacks(hotspotTick)
         hotspotHandler.postDelayed(hotspotTick, 1200)
@@ -252,7 +270,7 @@ class RaceActivity : LocalizedActivity() {
         val b = base()
         val directBound = direct.isConnected
         val internetNetwork = direct.internetNetwork
-        showBusy("正在同步设备数据", "正在读取赛道、Race Log 和原始场次，请稍候…")
+        showBusy("正在同步设备数据", "正在读取赛道、Race Log 和原始场次，请稍候…", progress = true)
         pbLoad.visibility = View.VISIBLE
         pbLoad.progress = 0
         status("正在读取赛道和场次…")
@@ -289,8 +307,8 @@ class RaceActivity : LocalizedActivity() {
                     trackDetailCache.clear()
                     trackDetailCache.putAll(loaded.details)
                     satelliteCache.clear()
-                    hideBusy()
                     pbLoad.progress = 65
+                    updateBusy(65, "正在加载卫星图…")
                     val geoTracks = loaded.details.values.count { it.geoRef != null }
                     status(
                         "赛道 ${loaded.tracks.size} 条，Race Log ${loaded.sessions.size} 条，" +
@@ -318,8 +336,10 @@ class RaceActivity : LocalizedActivity() {
     private fun publishLoad(gen: Int, progress: Int, text: String) {
         main.post {
             if (gen != generation) return@post
+            val p = progress.coerceIn(0, 100)
             pbLoad.visibility = View.VISIBLE
-            pbLoad.progress = progress.coerceIn(0, 100)
+            pbLoad.progress = p
+            updateBusy(p, text)
             status(text)
         }
     }
@@ -361,8 +381,10 @@ class RaceActivity : LocalizedActivity() {
                 }
                 main.post {
                     if (gen != generation) return@post
+                    val p = (65 + 35 * loaded / geo.size).coerceIn(65, 99)
                     pbLoad.visibility = View.VISIBLE
-                    pbLoad.progress = (65 + 35 * loaded / geo.size).coerceIn(65, 99)
+                    pbLoad.progress = p
+                    updateBusy(p, "正在加载卫星图 $loaded/${geo.size}")
                     status("正在加载卫星图 $loaded/${geo.size}")
                 }
             }
@@ -380,6 +402,7 @@ class RaceActivity : LocalizedActivity() {
 
     private fun finishSatelliteLoad(gen: Int, loaded: Int, total: Int, error: String?) {
         if (gen != generation) return
+        hideBusy()
         pbLoad.progress = 100
         val suffix = when {
             error != null -> "（$error）"
@@ -420,7 +443,7 @@ class RaceActivity : LocalizedActivity() {
                 }
                 card.addView(preview)
             }
-            if (t.geo && satelliteCache[t.id] == null) {
+            if (!offlineMode && t.geo && satelliteCache[t.id] == null) {
                 val detail = trackDetailCache[t.id]
                 card.addView(meta(
                     when {
@@ -432,16 +455,28 @@ class RaceActivity : LocalizedActivity() {
                 ))
             }
             card.addView(
-                row(
-                    button("编辑") { editTrack(t) },
-                    button("Race Log") {
-                        filterTrack = t.id
-                        showingSessions = true
-                        showingLogs = false
-                        renderSessions()
-                    },
-                    button("删除", danger = true) { confirmDeleteTrack(t) },
-                )
+                if (offlineMode) {
+                    row(
+                        button("查看地图") { showTrackPreview(t, trackDetailCache[t.id]) },
+                        button("Race Log") {
+                            filterTrack = t.id
+                            showingSessions = true
+                            showingLogs = false
+                            renderSessions()
+                        },
+                    )
+                } else {
+                    row(
+                        button("编辑") { editTrack(t) },
+                        button("Race Log") {
+                            filterTrack = t.id
+                            showingSessions = true
+                            showingLogs = false
+                            renderSessions()
+                        },
+                        button("删除", danger = true) { confirmDeleteTrack(t) },
+                    )
+                }
             )
             llList.addView(card)
         }
@@ -474,7 +509,7 @@ class RaceActivity : LocalizedActivity() {
                     renderSessions()
                 }
             )
-            header.addView(
+            if (!offlineMode) header.addView(
                 button("清空 Log", danger = true) {
                     deleteTrackLogs(filter, visible)
                 }
@@ -522,11 +557,15 @@ class RaceActivity : LocalizedActivity() {
                 card.addView(meta("已删除圈：${deletedLaps(s)}", warning = true))
             }
             card.addView(
-                row(
-                    button("详情") { showSessionDetail(s) },
-                    button("导出 RaceChrono") { exportSession(s) },
-                    button("删除", danger = true) { confirmDeleteSession(s) },
-                )
+                if (offlineMode) {
+                    row(button("详情") { showSessionDetail(s) })
+                } else {
+                    row(
+                        button("详情") { showSessionDetail(s) },
+                        button("导出 RaceChrono") { exportSession(s) },
+                        button("删除", danger = true) { confirmDeleteSession(s) },
+                    )
+                }
             )
             llList.addView(card)
         }
@@ -560,10 +599,14 @@ class RaceActivity : LocalizedActivity() {
                 )
             )
             card.addView(
-                row(
-                    button("圈速详情") { showLogDetail(l) },
-                    button("关联到赛道") { associateLog(l) },
-                )
+                if (offlineMode) {
+                    row(button("圈速详情") { showLogDetail(l) })
+                } else {
+                    row(
+                        button("圈速详情") { showLogDetail(l) },
+                        button("关联到赛道") { associateLog(l) },
+                    )
+                }
             )
             llList.addView(card)
         }
@@ -585,6 +628,7 @@ class RaceActivity : LocalizedActivity() {
                     runCatching { RaceApi.renameLogs(b, l.trackName, target) }
                         .onSuccess {
                             main.post {
+                                markCacheDirty()
                                 toast("Race Log 已关联到 $target")
                                 loadAll()
                             }
@@ -599,6 +643,12 @@ class RaceActivity : LocalizedActivity() {
     }
 
     private fun showLogDetail(l: RaceLogEntry) {
+        if (offlineMode) {
+            val dialog = buildLogDetailDialog(RaceLogDetail(l, logTraceCache[l.index].orEmpty()))
+            dialog.show()
+            Lang.localizeDialog(dialog)
+            return
+        }
         val b = base()
         status("正在读取 Race Log 轨迹…")
         worker.execute {
@@ -657,6 +707,14 @@ class RaceActivity : LocalizedActivity() {
     }
 
     private fun showSessionDetail(summary: RaceSession) {
+        if (offlineMode) {
+            val laps = sessionLapCache[summary.slot].orEmpty()
+            val traces = traceCache[summary.slot].orEmpty()
+            val dialog = buildDetailDialog(summary, laps, traces)
+            dialog.show()
+            Lang.localizeDialog(dialog)
+            return
+        }
         status("正在读取 Race Log 详情…")
         val b = base()
         worker.execute {
@@ -923,7 +981,7 @@ class RaceActivity : LocalizedActivity() {
                         textSize = 12f
                     }
                 )
-                if (!l.deleted) {
+                if (!l.deleted && !offlineMode) {
                     val del = button("删除这一圈") { confirmDeleteLap(s, l.lap) }
                     del.layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1113,6 +1171,7 @@ class RaceActivity : LocalizedActivity() {
                     }.onSuccess {
                         main.post {
                             dialog.dismiss()
+                            markCacheDirty()
                             toast("赛道设置已保存并同步")
                             loadAll()
                         }
@@ -1153,9 +1212,9 @@ class RaceActivity : LocalizedActivity() {
             .setTitle("赛道卫星预览")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("关闭", null)
-            .setNeutralButton("同步到设备", null)
+            .apply { if (!offlineMode) setNeutralButton("同步到设备", null) }
             .create()
-        dialog.setOnShowListener {
+        if (!offlineMode) dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).isEnabled = satellite != null
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 syncTrackSatellite(t, satellite)
@@ -1204,6 +1263,7 @@ class RaceActivity : LocalizedActivity() {
                             trackDetailCache.remove(t.id)
                             satelliteCache.remove(t.id)
                             if (filterTrack == t.id) filterTrack = null
+                            markCacheDirty()
                             toast("已删除赛道")
                             when {
                                 showingLogs -> renderLogs()
@@ -1238,6 +1298,7 @@ class RaceActivity : LocalizedActivity() {
                 }
                 main.post {
                     if (failed.isEmpty()) {
+                        markCacheDirty()
                         toast("已清空 ${list.size} 条 Race Log")
                         loadAll()
                     } else {
@@ -1258,6 +1319,7 @@ class RaceActivity : LocalizedActivity() {
                     .onSuccess {
                         main.post {
                             if (gen != generation) return@post
+                            markCacheDirty()
                             toast("已删除场次")
                             loadAll()
                         }
@@ -1274,6 +1336,7 @@ class RaceActivity : LocalizedActivity() {
                 runCatching { RaceApi.deleteLap(b, s.slot, lap) }
                     .onSuccess {
                         main.post {
+                            markCacheDirty()
                             toast("已删除第 $lap 圈")
                             loadAll()
                         }
@@ -1387,24 +1450,28 @@ class RaceActivity : LocalizedActivity() {
         Toast.makeText(this, Lang.tr(text), Toast.LENGTH_SHORT).show()
     }
 
-    private fun showBusy(title: String, message: String) {
+    private fun showBusy(title: String, message: String, progress: Boolean = false) {
         if (isFinishing) return
         hideBusy()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(20))
         }
-        box.addView(TextView(this).apply {
+        busyText = TextView(this).apply {
             text = Lang.tr(message)
             setTextColor(0xFFA9C4BE.toInt())
             textSize = 13f
-        })
-        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = true
+        }
+        box.addView(busyText)
+        busyProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = !progress
+            max = 100
+            this.progress = 0
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(12) }
-        })
+        }
+        box.addView(busyProgress)
         busyDialog = AlertDialog.Builder(this)
             .setTitle(Lang.tr(title))
             .setView(box)
@@ -1417,9 +1484,19 @@ class RaceActivity : LocalizedActivity() {
             }
     }
 
+    private fun updateBusy(progress: Int, message: String? = null) {
+        busyProgress?.let {
+            it.isIndeterminate = false
+            it.progress = progress.coerceIn(0, 100)
+        }
+        if (message != null) busyText?.text = Lang.tr(message)
+    }
+
     private fun hideBusy() {
         busyDialog?.dismiss()
         busyDialog = null
+        busyProgress = null
+        busyText = null
     }
 
     private fun confirm(title: String, message: String, action: () -> Unit) {
@@ -1431,6 +1508,159 @@ class RaceActivity : LocalizedActivity() {
             .create()
         d.show()
         Lang.localizeDialog(d)
+    }
+
+    private fun offlineModeUi() {
+        findViewById<Button>(R.id.btnRaceDirect).visibility = View.GONE
+        findViewById<Button>(R.id.btnRaceLoad).visibility = View.GONE
+        findViewById<Button>(R.id.btnRaceCloud).visibility = View.GONE
+        etUrl.visibility = View.GONE
+        pbLoad.visibility = View.GONE
+    }
+
+    private fun loadCachedSnapshot() {
+        val snap = LocalCache.loadSnapshot(this)
+        if (snap == null) {
+            status("没有本地缓存；联网完成一次云端同步后即可离线查看")
+            renderTracks()
+            return
+        }
+        tracks = parseCacheTracks(snap)
+        sessions = parseCacheSessions(snap)
+        logs = parseCacheLogs(snap)
+        sessionLapCache.clear()
+        val sIn = snap.optJSONArray("sessions") ?: JSONArray()
+        for (i in 0 until sIn.length()) {
+            val o = sIn.getJSONObject(i)
+            val slot = o.optInt("local_slot", -1)
+            val summary = o.optJSONObject("summary") ?: continue
+            val la = summary.optJSONArray("laps") ?: continue
+            val laps = ArrayList<LapDetail>()
+            val traces = LinkedHashMap<Int, TraceData>()
+            for (j in 0 until la.length()) {
+                val l = la.getJSONObject(j)
+                val lap = l.optInt("lap")
+                laps += LapDetail(
+                    lap = lap, time = l.optDouble("time", 0.0),
+                    samples = l.optLong("samples", 0), distanceM = l.optDouble("distance_m", 0.0),
+                    avgKmh = l.optDouble("avg_kmh", 0.0), maxKmh = l.optDouble("max_kmh", 0.0),
+                    deleted = false,
+                )
+                val pts = ArrayList<android.graphics.PointF>()
+                val sp = ArrayList<Double>()
+                val tm = ArrayList<Long>()
+                val pa = l.optJSONArray("points")
+                if (pa != null) for (k in 0 until pa.length()) {
+                    val q = pa.optJSONArray(k) ?: continue
+                    if (q.length() < 2) continue
+                    pts += android.graphics.PointF(q.optDouble(0).toFloat(), q.optDouble(1).toFloat())
+                    if (q.length() > 2) sp += q.optDouble(2, 0.0)
+                    if (q.length() > 3) tm += (q.optDouble(3, 0.0) * 1000).toLong()
+                }
+                if (pts.size >= 2) traces[lap] = TraceData(pts, sp, tm)
+            }
+            if (slot >= 0) sessionLapCache[slot] = laps
+            if (traces.isNotEmpty()) traceCache[slot] = traces
+        }
+        renderTracks()
+        val name = LocalCache.uid(this) ?: "本地"
+        status("离线缓存 · $name · ${tracks.size} 赛道 / ${sessions.size} Race Log（只读）")
+    }
+
+    private fun parseCacheTracks(snap: JSONObject): List<RaceTrack> {
+        val out = ArrayList<RaceTrack>()
+        val arr = snap.optJSONArray("tracks") ?: return out
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val p = o.optJSONObject("payload") ?: JSONObject()
+            val id = o.optInt("local_id", -1)
+            val nscale = p.optDouble("nscale", 0.0)
+            out += RaceTrack(
+                id = id,
+                name = p.optString("name", ""),
+                geo = p.optBoolean("geo", false),
+                lengthM = p.optDouble("length_m", 0.0),
+                sections = p.optJSONArray("sections")?.length() ?: 0,
+                widthM = p.optDouble("width", 5.0),
+                startWidthM = p.optDouble("start_width", p.optDouble("width", 5.0)),
+                startF = p.optDouble("start_f", 0.0),
+                startOffsetM = p.optDouble("start_offset", 0.0),
+                reverse = p.optBoolean("reverse", false),
+            )
+            val pts = ArrayList<android.graphics.PointF>()
+            val pa = p.optJSONArray("points")
+            if (pa != null) for (j in 0 until pa.length()) {
+                val q = pa.optJSONArray(j) ?: continue
+                if (q.length() >= 2) pts += android.graphics.PointF(q.optDouble(0).toFloat(), q.optDouble(1).toFloat())
+            }
+            val geoRef = if (p.optBoolean("geo", false) && nscale > 1e-9) TrackGeoRef(
+                p.optDouble("glat0", 0.0), p.optDouble("glon0", 0.0), nscale,
+                p.optDouble("nox", 0.0), p.optDouble("noy", 0.0),
+            ) else null
+            val sections = ArrayList<Double>()
+            p.optJSONArray("sections")?.let { a -> for (j in 0 until a.length()) sections += a.optDouble(j, 0.0) }
+            trackDetailCache[id] = TrackDetail(
+                name = p.optString("name", ""), lengthM = p.optDouble("length_m", 0.0),
+                widthM = p.optDouble("width", 5.0),
+                startWidthM = p.optDouble("start_width", p.optDouble("width", 5.0)),
+                startF = p.optDouble("start_f", 0.0), startOffsetM = p.optDouble("start_offset", 0.0),
+                reverse = p.optBoolean("reverse", false),
+                points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
+                geoRef = geoRef, sections = sections,
+            )
+        }
+        return out
+    }
+
+    private fun parseCacheSessions(snap: JSONObject): List<RaceSession> {
+        val out = ArrayList<RaceSession>()
+        val arr = snap.optJSONArray("sessions") ?: return out
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val p = o.optJSONObject("payload") ?: JSONObject()
+            val times = ArrayList<Double>()
+            p.optJSONArray("lap_times")?.let { a -> for (j in 0 until a.length()) times += a.optDouble(j, 0.0) }
+            out += RaceSession(
+                slot = o.optInt("local_slot", -1), id = p.optLong("id", 0L),
+                trackSlot = p.optInt("track", o.optInt("track_local_id", -1)),
+                trackName = p.optString("track_name", o.optString("track_name", "")),
+                startEpoch = p.optLong("start", o.optLong("start_epoch", 0L)),
+                durationMs = p.optLong("duration_ms", 0L),
+                samples = p.optLong("samples", 0L), laps = p.optInt("laps", 0),
+                deletedLapMask = p.optInt("deleted_laps", 0), lapTimes = times,
+            )
+        }
+        return out
+    }
+
+    private fun parseCacheLogs(snap: JSONObject): List<RaceLogEntry> {
+        val out = ArrayList<RaceLogEntry>()
+        val arr = snap.optJSONArray("logs") ?: return out
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val p = o.optJSONObject("payload") ?: JSONObject()
+            val times = ArrayList<Double>()
+            p.optJSONArray("lap_times")?.let { a -> for (j in 0 until a.length()) times += a.optDouble(j, 0.0) }
+            val idx = o.optInt("local_index", -1)
+            out += RaceLogEntry(
+                index = idx, trackName = p.optString("track_name", o.optString("track_name", "")),
+                date = p.optString("date", ""), mode = p.optInt("mode", 0),
+                durationS = p.optDouble("duration", 0.0), laps = p.optInt("laps", 0),
+                bestS = p.optDouble("best", 0.0), bestIndex = p.optInt("best_index", 0),
+                hasBest = p.optInt("has_best", 0) != 0, vehicle = p.optInt("vehicle", 0),
+                lapTimes = times,
+            )
+            val trace = ArrayList<android.graphics.PointF>()
+            p.optJSONArray("trace")?.let { a ->
+                var j = 0
+                while (j + 1 < a.length()) {
+                    trace += android.graphics.PointF(a.optDouble(j).toFloat(), a.optDouble(j + 1).toFloat())
+                    j += 2
+                }
+            }
+            if (idx >= 0) logTraceCache[idx] = trace
+        }
+        return out
     }
 
     private fun checkHotspot() {
@@ -1465,7 +1695,7 @@ class RaceActivity : LocalizedActivity() {
                     autoSyncUid = null
                     lastPromptedUid = found.uid
                     lastPromptedIp = found.ip
-                    if (CloudStore.token(this) != null) syncCloud(found) else showCloudAccount()
+                    if (CloudStore.token(this) != null) syncCloud(found, forceLocalSync) else showCloudAccount()
                 } else {
                     maybePromptCloud(found)
                 }
@@ -1567,7 +1797,7 @@ class RaceActivity : LocalizedActivity() {
                     dialog.dismiss()
                     discoveredDevice?.let { device ->
                         if (!cloudSyncRunning) {
-                            syncCloud(device)
+                            syncCloud(device, forceLocalSync)
                         }
                     } ?: status("云端已登录；等待设备连接手机热点")
                 }
@@ -1636,7 +1866,7 @@ class RaceActivity : LocalizedActivity() {
         }
     }
 
-    private fun syncCloud(device: DiscoveredDevice) {
+    private fun syncCloud(device: DiscoveredDevice, forceLocal: Boolean = false) {
         if (cloudSyncRunning) return
         val token = CloudStore.token(this)
         if (token == null) {
@@ -1647,12 +1877,18 @@ class RaceActivity : LocalizedActivity() {
         discoveredDevice = device
         RaceApi.saveBaseUrl(this, device.baseUrl)
         etUrl.setText(device.baseUrl)
-        showBusy("正在与云端同步", "正在读取设备 Track / Race Log / Session…")
+        showBusy("正在与云端同步", "正在检查云端版本…", progress = true)
         status("正在与云端同步 ${device.uid}…")
         cloudWorker.execute {
             runCatching {
-                CloudSyncManager.sync(this, device.baseUrl, device.uid, token) { msg ->
-                    main.post { if (!isFinishing) status(msg) }
+                CloudSyncManager.sync(this, device.baseUrl, device.uid, token,
+                    pullCloud = !forceLocal) { msg, pct ->
+                    main.post {
+                        if (!isFinishing) {
+                            updateBusy(pct, msg)
+                            status(msg)
+                        }
+                    }
                 }
             }.onSuccess { r ->
                 main.post {
@@ -1672,6 +1908,11 @@ class RaceActivity : LocalizedActivity() {
                 }
             }
         }
+    }
+
+    private fun markCacheDirty() {
+        val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: return
+        LocalCache.markDirty(this, uid)
     }
 
     private fun fmtCloudTime(epoch: Long): String {

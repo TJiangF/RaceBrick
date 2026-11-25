@@ -57,6 +57,7 @@ data class CloudAccount(val username: String, val token: String, val admin: Bool
 
 data class CloudDeviceState(
     val revision: Int,
+    val dataVersion: Int,
     val tracks: Int,
     val sessions: Int,
     val logs: Int,
@@ -89,12 +90,16 @@ class CloudApi {
         val o = request("GET", "/api/phone/v1/devices/${path(uid)}/state", token, null)
         return CloudDeviceState(
             revision = o.optInt("revision", 0),
+            dataVersion = o.optInt("data_version", 0),
             tracks = o.optInt("tracks", 0),
             sessions = o.optInt("sessions", 0),
             logs = o.optInt("logs", 0),
             history = o.optJSONArray("history") ?: JSONArray(),
         )
     }
+
+    fun snapshot(uid: String, token: String): JSONObject =
+        request("GET", "/api/phone/v1/devices/${path(uid)}/snapshot", token, null)
 
     fun changes(uid: String, since: Int, token: String): JSONObject =
         request("GET", "/api/phone/v1/devices/${path(uid)}/changes?since=$since", token, null)
