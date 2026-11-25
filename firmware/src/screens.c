@@ -846,11 +846,11 @@ static void render_track_grid(const char *title, int sel, bool edit_mode,
         int rows = (g.ntracks + 1) / 2;
         if (row > 0) {
             for (int k = 0; k < 4; k++)
-                gfx_hline(cx - k, cx + k, TRACK_GRID_Y + TRACK_CARD_H + 3 - k, PAL.cyan);
+                gfx_hline(cx - k, TRACK_GRID_Y + TRACK_CARD_H + 3 + k, 2 * k + 1, PAL.cyan);
         }
         if (row < rows - 1) {
             for (int k = 0; k < 4; k++)
-                gfx_hline(cx - k, cx + k, TRACK_GRID_Y + TRACK_CARD_H + 8 + k, PAL.cyan);
+                gfx_hline(cx - k, TRACK_GRID_Y + TRACK_CARD_H + 11 - k, 2 * k + 1, PAL.cyan);
         }
     }
     hint_c(edit_mode ? "L/R SELECT - U/D PAGE - PUSH EDIT"
