@@ -839,18 +839,19 @@ static void render_track_grid(const char *title, int sel, bool edit_mode,
                         g.tracks[start + 1].geo ? "GPS" : NULL);
     char page[32];
     snprintf(page, sizeof page, "%d/%d", sel + 1, g.ntracks);
-    gfx_text(x0, TRACK_GRID_Y + TRACK_CARD_H + 4, page, PAL.dim, 0);
-    bool blink = ((int)(g.now / 300)) % 2 == 0;
+    gfx_text(TRACK_GRID_X, TRACK_GRID_Y + TRACK_CARD_H + 6, page, PAL.cyan, 1);
+    bool blink = ((int)(g.now / 350)) % 2 == 0;
     if (blink) {
-        int cx = CW / 2;
+        int cx = TRACK_GRID_X + TRACK_CARD_W + TRACK_GRID_GAP / 2;
         int rows = (g.ntracks + 1) / 2;
+        int base = TRACK_GRID_Y + TRACK_CARD_H;
         if (row > 0) {
-            for (int k = 0; k < 4; k++)
-                gfx_hline(cx - k, TRACK_GRID_Y + TRACK_CARD_H + 3 + k, 2 * k + 1, PAL.cyan);
+            for (int k = 0; k < 6; k++)
+                gfx_hline(cx - k, base + 1 + k, 2 * k + 1, PAL.cyan);
         }
         if (row < rows - 1) {
-            for (int k = 0; k < 4; k++)
-                gfx_hline(cx - k, TRACK_GRID_Y + TRACK_CARD_H + 11 - k, 2 * k + 1, PAL.cyan);
+            for (int k = 0; k < 6; k++)
+                gfx_hline(cx - k, base + 13 - k, 2 * k + 1, PAL.cyan);
         }
     }
     hint_c(edit_mode ? "L/R SELECT - U/D PAGE - PUSH EDIT"
