@@ -16,6 +16,7 @@
 #include "netcfg.h"
 #include "nav.h"
 #include "btmap.h"
+#include "cloud_sync.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -110,6 +111,7 @@ void app_main(void) {
     if (netcfg_has_creds()) netcfg_start_ap();   /* auto-connect on later boots */
 #endif
     btmap_set_enabled(g.set_bt != 0);             /* after WiFi reserves its memory */
+    cloud_sync_init();
 
     ESP_LOGI("racebrick", "RaceBrick UI up (%dx%d) reset_reason=%d",
              LCD_W, LCD_H, (int)esp_reset_reason());
@@ -158,6 +160,20 @@ void app_main(void) {
             app_go((scid_t)gid, 1);
             if (gid == SC_NAV) { g.entered = true; nav_set_active(true); nav_refresh(); }
             else if (gent) g.entered = true;
+        }
+
+        bool racing = g.cur == SC_RACING || g.cur == SC_RACING_RECORDED ||
+                      g.cur == SC_REC_PREVIEW || g.cur == SC_NEW_TRACK_MARK_START ||
+                      g.cur == SC_REC_LAP_SELECT || g.cur == SC_SECTION_MARKING;
+        if (!g.overlay_active && !racing && cloud_sync_ready() && cloud_sync_take_ready()) {
+            char msg[192];
+            cloud_sync_summary(msg, sizeof(msg));
+            app_push_confirm(msg, "SYNC", "LATER",
+                             cloud_sync_start, cloud_sync_cancel);
+        }
+        {
+            char msg[64];
+            if (cloud_sync_take_result(msg, sizeof(msg))) app_toast(msg);
         }
 
         app_update(dt);

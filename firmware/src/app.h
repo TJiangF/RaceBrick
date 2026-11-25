@@ -160,7 +160,7 @@ typedef struct {
     float imu_progress; bool imu_stable; float imu_doneTimer;
     imu6_t imu_mean;
 
-    char confirm_text[96]; char confirm_yes[8]; char confirm_no[8]; int confirm_sel;
+    char confirm_text[192]; char confirm_yes[8]; char confirm_no[8]; int confirm_sel;
     action_fn confirm_on_yes, confirm_on_no;
 
     /* ---- timing ---- */

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include "esp_log.h"
 #include "esp_partition.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "tstore";
 
@@ -75,8 +77,18 @@ static int s_cap;
 static bool s_ext;
 static uint8_t s_used[(TSTORE_EXT_SLOTS + 7) / 8];
 static const esp_partition_t *s_part;
+static SemaphoreHandle_t s_lock;
 
 _Static_assert(sizeof(ts_rec_t) <= TSTORE_SLOT, "ts_rec_t exceeds a slot");
+
+static void tstore_lock(void) {
+    if (!s_lock) s_lock = xSemaphoreCreateRecursiveMutex();
+    if (s_lock) xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+}
+
+static void tstore_unlock(void) {
+    if (s_lock) xSemaphoreGiveRecursive(s_lock);
+}
 
 static uint32_t fnv(const uint8_t *p, int n) {
     uint32_t h = 2166136261u;
@@ -142,6 +154,8 @@ static bool write_slot(int slot) {
 }
 
 bool tstore_begin(void) {
+    if (!s_lock) s_lock = xSemaphoreCreateRecursiveMutex();
+    tstore_lock();
     s_ext = ext_available();
     if (s_ext) {
         s_cap = TSTORE_EXT_SLOTS;
@@ -149,7 +163,7 @@ bool tstore_begin(void) {
         ESP_LOGI(TAG, "using external W25Q128, %d track slots", s_cap);
     } else {
         s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, NULL);
-        if (!s_part) { ESP_LOGE(TAG, "no 'storage' data/spiffs partition"); return false; }
+        if (!s_part) { ESP_LOGE(TAG, "no 'storage' data/spiffs partition"); tstore_unlock(); return false; }
         s_cap = TSTORE_INT_SLOTS;
         ESP_LOGW(TAG, "external flash unavailable, fallback internal %d slots", s_cap);
     }
@@ -162,6 +176,7 @@ bool tstore_begin(void) {
         }
     }
     ESP_LOGI(TAG, "%d/%d track slots used (%s)", s_count, s_cap, s_ext ? "external" : "internal");
+    tstore_unlock();
     return true;
 }
 
@@ -169,24 +184,29 @@ int tstore_count(void) { return s_count; }
 int tstore_capacity(void) { return s_cap; }
 
 int tstore_slots(int *out, int cap) {
+    tstore_lock();
     int n = 0;
     for (int i = 0; i < s_cap && n < cap; i++) {
         if (slot_used(i) && out) out[n++] = i;
     }
+    tstore_unlock();
     return n;
 }
 
 int tstore_first_free(void) {
-    if (!s_ext && !s_part) return -1;
+    tstore_lock();
+    if (!s_ext && !s_part) { tstore_unlock(); return -1; }
     for (int i = 0; i < s_cap; i++) {
-        if (!read_slot(i)) return i;
-        if (!rec_valid()) return i;
+        if (!read_slot(i)) { tstore_unlock(); return i; }
+        if (!rec_valid()) { tstore_unlock(); return i; }
     }
+    tstore_unlock();
     return -1;
 }
 
 bool tstore_save(int slot, const track_t *t) {
-    if ((!s_ext && !s_part) || slot < 0 || slot >= s_cap) return false;
+    tstore_lock();
+    if ((!s_ext && !s_part) || slot < 0 || slot >= s_cap) { tstore_unlock(); return false; }
     memset(&s_rec, 0, sizeof(s_rec));
     s_rec.magic = TSTORE_MAGIC;
     s_rec.ver = 4;
@@ -217,6 +237,7 @@ bool tstore_save(int slot, const track_t *t) {
 
     if (!write_slot(slot)) {
         ESP_LOGE(TAG, "write slot %d failed", slot);
+        tstore_unlock();
         return false;
     }
     if (!slot_used(slot)) {
@@ -224,12 +245,14 @@ bool tstore_save(int slot, const track_t *t) {
         set_used(slot, true);
     }
     ESP_LOGI(TAG, "saved '%s' to slot %d (%d bytes, %s)", t->name, slot, (int)sizeof(s_rec), s_ext ? "ext" : "int");
+    tstore_unlock();
     return true;
 }
 
 bool tstore_load(int slot, track_t *t) {
-    if ((!s_ext && !s_part) || slot < 0 || slot >= s_cap) return false;
-    if (!read_slot(slot) || !rec_valid()) return false;
+    tstore_lock();
+    if ((!s_ext && !s_part) || slot < 0 || slot >= s_cap) { tstore_unlock(); return false; }
+    if (!read_slot(slot) || !rec_valid()) { tstore_unlock(); return false; }
 
     memset(t, 0, sizeof(*t));
     t->N = TRK_N;
@@ -335,16 +358,19 @@ bool tstore_load(int slot, track_t *t) {
         memcpy(t->points, s_rec.points, sizeof(pt_t) * TRK_N);
     }
     track_finalize(t);
+    tstore_unlock();
     return true;
 }
 
 bool tstore_delete(int slot) {
-    if (slot < 0 || slot >= s_cap) return false;
+    tstore_lock();
+    if (slot < 0 || slot >= s_cap) { tstore_unlock(); return false; }
     memset(&s_rec, 0xFF, sizeof(s_rec));
     bool ok = write_slot(slot);
     if (ok && slot_used(slot)) {
         if (s_count > 0) s_count--;
         set_used(slot, false);
     }
+    tstore_unlock();
     return ok;
 }

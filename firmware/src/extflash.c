@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "driver/spi_master.h"
 #include "esp_log.h"
 
@@ -19,6 +20,7 @@ static const char *TAG = "extflash";
 
 static spi_device_handle_t s_dev;
 static bool s_init = false;
+static SemaphoreHandle_t s_lock;
 
 static bool xfer(const uint8_t *tx, uint8_t *rx, int n) {
     spi_transaction_t t;
@@ -49,11 +51,13 @@ static bool wait_ready(int timeout_ms) {
 
 bool ext_flash_read_jedec(uint8_t id[3]) {
     if (!s_init) { id[0] = id[1] = id[2] = 0; return false; }
+    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
     uint8_t tx[4] = {CMD_RDID, 0, 0, 0};
     uint8_t rx[4] = {0};
-    if (!xfer(tx, rx, 4)) return false;
-    id[0] = rx[1]; id[1] = rx[2]; id[2] = rx[3];
-    return true;
+    bool ok = xfer(tx, rx, 4);
+    if (ok) { id[0] = rx[1]; id[1] = rx[2]; id[2] = rx[3]; }
+    if (s_lock) xSemaphoreGive(s_lock);
+    return ok;
 }
 
 static bool erase_sector(uint32_t addr) {
@@ -126,13 +130,32 @@ bool ext_flash_init(void) {
     };
     e = spi_bus_add_device(SPI3_HOST, &d, &s_dev);
     if (e != ESP_OK) { ESP_LOGE(TAG, "add device failed: %s", esp_err_to_name(e)); return false; }
+    s_lock = xSemaphoreCreateMutex();
     s_init = true;
     return true;
 }
 
-bool ext_flash_erase_sector(uint32_t addr) { return s_init && erase_sector(addr); }
-bool ext_flash_read(uint32_t addr, void *buf, int n) { return s_init && read_data(addr, (uint8_t *)buf, n); }
-bool ext_flash_write(uint32_t addr, const void *buf, int n) { return s_init && write_data(addr, (const uint8_t *)buf, n); }
+bool ext_flash_erase_sector(uint32_t addr) {
+    if (!s_init) return false;
+    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool ok = erase_sector(addr);
+    if (s_lock) xSemaphoreGive(s_lock);
+    return ok;
+}
+bool ext_flash_read(uint32_t addr, void *buf, int n) {
+    if (!s_init) return false;
+    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool ok = read_data(addr, (uint8_t *)buf, n);
+    if (s_lock) xSemaphoreGive(s_lock);
+    return ok;
+}
+bool ext_flash_write(uint32_t addr, const void *buf, int n) {
+    if (!s_init) return false;
+    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool ok = write_data(addr, (const uint8_t *)buf, n);
+    if (s_lock) xSemaphoreGive(s_lock);
+    return ok;
+}
 uint32_t ext_flash_size(void) { return 16u * 1024u * 1024u; }   /* W25Q128 */
 
 bool ext_flash_probe(uint8_t id[3]) {
