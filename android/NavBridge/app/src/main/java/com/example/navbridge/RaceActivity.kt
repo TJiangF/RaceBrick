@@ -1441,7 +1441,7 @@ class RaceActivity : LocalizedActivity() {
             val found = HotspotDiscovery.find(saved, 3200)
             main.post {
                 hotspotChecking = false
-                if (isFinishing) return@post
+                if (isFinishing || !hotspotWatching) return@post
                 if (found == null) {
                     hotspotMisses++
                     if (hotspotMisses >= 3) {

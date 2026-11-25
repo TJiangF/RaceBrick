@@ -1360,7 +1360,7 @@ class MainActivity : LocalizedActivity() {
             val found = HotspotDiscovery.find(saved, 3000)
             main.post {
                 syncWatchBusy = false
-                if (isFinishing) return@post
+                if (isFinishing || !syncWatchOn) return@post
                 if (found == null) {
                     syncWatchMisses++
                     if (syncWatchMisses >= 3) syncWatchPromptUid = null
