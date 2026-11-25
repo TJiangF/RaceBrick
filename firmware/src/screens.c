@@ -1938,11 +1938,19 @@ static void vehicle_badge(int x, int y, int w, int h, int stored, bool show_dir)
     uint16_t c = vehicle_color(stored);
     gfx_fill(x, y, w, h, vehicle_dark(stored));
     gfx_rect(x, y, w, h, c);
-    gfx_text_center(x + w / 2, y + (show_dir ? 2 : (h - 7) / 2),
-                    vehicle_code(stored), c, 0);
-    if (show_dir)
-        gfx_text_center(x + w / 2, y + h - 9, vehicle_reverse(stored) ? "CCW" : "CW",
-                        vehicle_reverse(stored) ? PAL.orange : PAL.green, 0);
+    if (vehicle_of(stored) == 0) {
+        gfx_text_center(x + w / 2, y + 2, "200", c, 0);
+        gfx_text_center(x + w / 2, y + 10, "cc", c, 0);
+        if (show_dir)
+            gfx_text_center(x + w / 2, y + 20, vehicle_reverse(stored) ? "CCW" : "CW",
+                            vehicle_reverse(stored) ? PAL.orange : PAL.green, 0);
+    } else {
+        gfx_text_center(x + w / 2, y + (show_dir ? 2 : (h - 7) / 2),
+                        vehicle_code(stored), c, 0);
+        if (show_dir)
+            gfx_text_center(x + w / 2, y + h - 9, vehicle_reverse(stored) ? "CCW" : "CW",
+                            vehicle_reverse(stored) ? PAL.orange : PAL.green, 0);
+    }
 }
 
 static void render_history(void) {
@@ -1972,14 +1980,9 @@ static void render_history(void) {
                   vehicle_dark(r->vehicle));
         vehicle_badge(144, y + 5, 28, 33, r->vehicle, true);
         snprintf(b, sizeof b, "%.18s", r->trackName);
-        gfx_text(178, y + 4, b, PAL.white, 0);
-        snprintf(b, sizeof b, "%dL", r->lapCount);
-        gfx_text_right(312, y + 4, b, PAL.cyan, 0);
-        snprintf(b, sizeof b, "%.10s", r->date);
-        gfx_text(178, y + 20, b, PAL.dim, 0);
-        if (r->hasBest) u_fmt_time(b, sizeof b, r->bestTime);
-        else snprintf(b, sizeof b, "--");
-        gfx_text_right(312, y + 19, b, r->hasBest ? PAL.gold : PAL.dim, 1);
+        gfx_text(178, y + 14, b, PAL.white, 1);
+        snprintf(b, sizeof b, "%d LAPS", r->lapCount);
+        gfx_text_right(312, y + 14, b, PAL.cyan, 1);
     }
     hint_c("UP/DN/L/R SELECT - PUSH OPEN - BACK", HINT_Y);
 }
