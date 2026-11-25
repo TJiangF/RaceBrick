@@ -134,7 +134,8 @@ class SyncActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, LocalRecordsActivity::class.java))
         })
         content.addView(button("Load RACEBRICK -> LOCAL APP") { loadDevice() })
-        content.addView(button("PUSH LOCAL -> RACEBRICK（待设备导入 API）") { toast("设备导入 API 尚未实现") })
+        val dirtyCount = db.dirtyTracks().size
+        content.addView(button("PUSH LOCAL TRACK CHANGES -> RACEBRICK (${dirtyCount})") { pushLocalTracks() })
         content.addView(button("BACKUP LOCAL -> CLOUD（待增量 API）") { toast("增量云备份尚未实现") })
         content.addView(button("RESTORE CLOUD -> LOCAL（待版本校验）") { toast("云端恢复尚未实现") })
         content.addView(button(if (CloudStore.token(this) == null) "LOGIN CLOUD" else "REFRESH CLOUD") {
@@ -228,6 +229,54 @@ class SyncActivity : AppCompatActivity() {
                     busy?.dismiss(); busy = null
                     toast("读取失败：${e.message}")
                 }
+            }
+        }
+    }
+
+    private fun pushLocalTracks() {
+        if (busy != null) return
+        val tracks = db.dirtyTracks()
+        if (tracks.isEmpty()) { toast("没有本地 Track 修改"); return }
+        AlertDialog.Builder(this)
+            .setTitle("Push local tracks")
+            .setMessage("将 ${tracks.size} 条本地 Track 修改写回 RaceBrick。不会上传云端。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("推送") { _, _ -> doPushTracks(tracks) }
+            .create().also { it.show(); Lang.localizeDialog(it) }
+    }
+
+    private fun doPushTracks(tracks: List<SyncLocalDb.LocalEntity>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        val msg = TextView(this).apply { text = "正在推送 Track…"; setTextColor(0xFFA9C4BE.toInt()) }
+        box.addView(msg)
+        busy = AlertDialog.Builder(this).setTitle("Local -> Device").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            var ok = 0
+            val failed = ArrayList<String>()
+            for ((i, e) in tracks.withIndex()) {
+                val p = e.payload
+                try {
+                    RaceApi.updateTrack(
+                        base, e.localKey.toInt(), p.optString("name", ""),
+                        p.optDouble("start_f", 0.0), p.optBoolean("reverse", false),
+                        p.optDouble("start_width", p.optDouble("width", 5.0)),
+                        p.optDouble("start_offset", 0.0),
+                    )
+                    db.markTrackDeviceClean(e.uuid)
+                    ok++
+                } catch (ex: Exception) {
+                    failed += e.name.ifBlank { e.localKey }
+                }
+                main.post { msg.text = "推送 ${i + 1}/${tracks.size}" }
+            }
+            main.post {
+                busy?.dismiss(); busy = null
+                toast(if (failed.isEmpty()) "已推送 $ok 条 Track" else "成功 $ok，失败 ${failed.size}：${failed.first()}")
+                refresh()
             }
         }
     }

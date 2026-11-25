@@ -10,7 +10,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 1) {
+class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 2) {
     private val app = context.applicationContext
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -29,6 +29,8 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
             created_at INTEGER,
             updated_at INTEGER,
             deleted INTEGER NOT NULL DEFAULT 0,
+            dirty_device INTEGER NOT NULL DEFAULT 0,
+            dirty_cloud INTEGER NOT NULL DEFAULT 0,
             origin TEXT NOT NULL,
             payload TEXT NOT NULL,
             blob_path TEXT,
@@ -37,7 +39,12 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         db.execSQL("CREATE INDEX idx_entities_type ON entities(type, deleted)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE entities ADD COLUMN dirty_device INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE entities ADD COLUMN dirty_cloud INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
     data class Summary(
         val tracks: Int,
@@ -117,6 +124,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                     put("revision", revision); put("hash", digest)
                     put("created_at", created); put("updated_at", now)
                     put("deleted", 0); put("origin", "device")
+                    put("dirty_device", 0); put("dirty_cloud", 0)
                     put("payload", payloadText)
                     if (blob != null) put("blob_path", blob.absolutePath) else putNull("blob_path")
                 }
@@ -192,12 +200,14 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         val name: String,
         val payload: JSONObject,
         val blobPath: String?,
+        val dirtyDevice: Boolean,
+        val dirtyCloud: Boolean,
     )
 
     fun entities(type: String): List<LocalEntity> {
         val out = ArrayList<LocalEntity>()
         readableDatabase.rawQuery(
-            "SELECT uuid,local_key,name,payload,blob_path FROM entities WHERE type=? AND deleted=0 ORDER BY CAST(local_key AS INTEGER)",
+            "SELECT uuid,local_key,name,payload,blob_path,dirty_device,dirty_cloud FROM entities WHERE type=? AND deleted=0 ORDER BY CAST(local_key AS INTEGER)",
             arrayOf(type),
         ).use { c ->
             while (c.moveToNext()) {
@@ -207,6 +217,8 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                     name = c.getString(2),
                     payload = runCatching { JSONObject(c.getString(3)) }.getOrElse { JSONObject() },
                     blobPath = c.getString(4),
+                    dirtyDevice = c.getInt(5) != 0,
+                    dirtyCloud = c.getInt(6) != 0,
                 )
             }
         }
@@ -216,6 +228,53 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
     fun trackByLocalKey(localKey: Int): LocalEntity? =
         entities("track").firstOrNull { it.localKey == localKey.toString() }
 
+
+
+    fun updateTrack(uuid: String, name: String, startF: Double, startWidth: Double,
+                    startOffset: Double, reverse: Boolean): Boolean {
+        val db = writableDatabase
+        val now = System.currentTimeMillis() / 1000L
+        val row = db.rawQuery("SELECT payload,revision FROM entities WHERE uuid=? AND type='track'", arrayOf(uuid)).use {
+            if (it.moveToFirst()) it.getString(0) to it.getInt(1) else null
+        } ?: return false
+        val payload = runCatching { JSONObject(row.first) }.getOrDefault(JSONObject()).apply {
+            put("name", name.take(48))
+            put("start_f", startF.coerceIn(0.0, 0.9999))
+            put("start_width", startWidth.coerceIn(1.0, 50.0))
+            put("start_offset", startOffset.coerceIn(-50.0, 50.0))
+            put("reverse", reverse)
+        }
+        val text = payload.toString()
+        val hash = sha256(text.toByteArray())
+        val values = ContentValues().apply {
+            put("name", name.take(48)); put("payload", text); put("hash", hash)
+            put("revision", row.second + 1); put("updated_at", now)
+            put("dirty_device", 1); put("dirty_cloud", 1)
+        }
+        db.update("entities", values, "uuid=?", arrayOf(uuid))
+        setMeta(db, "dirty_device", "1")
+        setMeta(db, "dirty_cloud", "1")
+        setMeta(db, "updated_at", now.toString())
+        setMeta(db, "dataset_revision", ((meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1).toString())
+        return true
+    }
+
+    fun dirtyTracks(): List<LocalEntity> = entities("track").filter { it.dirtyDevice }
+
+    fun markTrackDeviceClean(uuid: String) {
+        val db = writableDatabase
+        db.execSQL("UPDATE entities SET dirty_device=0 WHERE uuid=?", arrayOf(uuid))
+        val left = db.rawQuery("SELECT COUNT(*) FROM entities WHERE dirty_device=1 AND deleted=0", null).use {
+            if (it.moveToFirst()) it.getInt(0) else 0
+        }
+        setMeta(db, "dirty_device", if (left > 0) "1" else "0")
+    }
+
+    fun markAllCloudClean() {
+        val db = writableDatabase
+        db.execSQL("UPDATE entities SET dirty_cloud=0")
+        setMeta(db, "dirty_cloud", "0")
+    }
 
     companion object {
         fun sha256(bytes: ByteArray): String =

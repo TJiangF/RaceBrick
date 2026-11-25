@@ -2,15 +2,19 @@ package com.example.navbridge
 
 import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -89,8 +93,12 @@ class LocalRecordsActivity : AppCompatActivity() {
                 for (e in entities) {
                     val card = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
-                        setBackgroundColor(0xFF101923.toInt())
                         setPadding(dp(10), dp(10), dp(10), dp(10))
+                        background = GradientDrawable().apply {
+                            setColor(0xFF101923.toInt())
+                            cornerRadius = dp(10).toFloat()
+                            if (e.dirtyDevice) setStroke(dp(2), 0xFFFFD166.toInt())
+                        }
                         layoutParams = LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                         ).apply { bottomMargin = dp(10) }
@@ -106,6 +114,16 @@ class LocalRecordsActivity : AppCompatActivity() {
                     if (tab == "session") {
                         val times = e.payload.optJSONArray("lap_times") ?: JSONArray()
                         card.addView(text("${e.payload.optInt("laps")} laps · ${fmtDate(e.payload.optLong("start"))} · ${times.length()} lap times", 0xFFA9C4BE.toInt(), 12f))
+                    }
+                    if (tab == "track") {
+                        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                        row.addView(Button(this).apply {
+                            text = if (e.dirtyDevice) "EDIT LOCAL · DIRTY" else "EDIT LOCAL"
+                            textSize = 12f
+                            setOnClickListener { editTrack(e) }
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        card.addView(row)
                     }
                     list.addView(card)
                 }
@@ -212,6 +230,50 @@ class LocalRecordsActivity : AppCompatActivity() {
         val x = (lon - lon0) * 111320.0 * cos(Math.toRadians(lat0))
         val y = (lat - lat0) * 111320.0
         return PointF(x.toFloat(), y.toFloat())
+    }
+
+    private fun editTrack(e: SyncLocalDb.LocalEntity) {
+        val p = e.payload
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val name = EditText(this).apply { setText(p.optString("name")); hint = "Track name" }
+        val start = EditText(this).apply {
+            setText(String.format(Locale.US, "%.1f", p.optDouble("start_f", 0.0) * 100.0))
+            hint = "Start position %"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        val width = EditText(this).apply {
+            setText(String.format(Locale.US, "%.1f", p.optDouble("start_width", p.optDouble("width", 5.0))))
+            hint = "Start width m"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        val offset = EditText(this).apply {
+            setText(String.format(Locale.US, "%.1f", p.optDouble("start_offset", 0.0)))
+            hint = "Offset m"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        val reverse = Switch(this).apply {
+            text = "Reverse direction (CCW)"
+            isChecked = p.optBoolean("reverse", false)
+        }
+        box.addView(name); box.addView(start); box.addView(width); box.addView(offset); box.addView(reverse)
+        box.addView(text("只修改 Local App，不上传设备。黄色边框表示 dirtyDevice。", 0xFF8FA2B5.toInt(), 11f))
+        val d = AlertDialog.Builder(this).setTitle("EDIT LOCAL TRACK").setView(box)
+            .setNegativeButton("取消", null).setPositiveButton("保存", null).create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val sf = (start.text.toString().toDoubleOrNull() ?: 0.0) / 100.0
+                val sw = width.text.toString().toDoubleOrNull() ?: 5.0
+                val off = offset.text.toString().toDoubleOrNull() ?: 0.0
+                if (db.updateTrack(e.uuid, name.text.toString().trim(), sf, sw, off, reverse.isChecked)) {
+                    d.dismiss(); render()
+                }
+            }
+        }
+        d.show()
+        Lang.localizeDialog(d)
     }
 
     private fun pairs(arr: JSONArray?): List<PointF> {
