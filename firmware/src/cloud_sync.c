@@ -598,9 +598,14 @@ static void apply_track_command(int cid, int local, float sf, float width,
 }
 
 static void pull_commands(void) {
-    char path[192], rx[4096];
+    char path[192];
+    char *rx = (char *)heap_caps_malloc(16384, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!rx) return;
     snprintf(path, sizeof(path), "/api/device/v1/commands?uid=%s", s_uid);
-    if (http_req(path, false, NULL, 0, rx, sizeof(rx)) != 200) return;
+    if (http_req(path, false, NULL, 0, rx, 16384) != 200) {
+        free(rx);
+        return;
+    }
     char *line = rx;
     while (line && *line) {
         char *nl = strchr(line, '\n');
@@ -615,6 +620,7 @@ static void pull_commands(void) {
         }
         line = nl ? nl + 1 : NULL;
     }
+    free(rx);
 }
 
 static void sync_task(void *arg) {
