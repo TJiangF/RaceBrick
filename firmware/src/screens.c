@@ -1934,6 +1934,43 @@ static track_t *find_track_by_name(const char *name) {
 }
 
 /* ================= HISTORY ================= */
+static void fit_text_width(char *out, int cap, const char *src, int max_w, int scale) {
+    if (!out || cap <= 0) return;
+    out[0] = 0;
+    if (!src) return;
+    int n = 0;
+    const char *p = src;
+    while (*p) {
+        int cl = 1;
+        unsigned char c = (unsigned char)*p;
+        if (c >= 0xF0) cl = 4;
+        else if (c >= 0xE0) cl = 3;
+        else if (c >= 0xC0) cl = 2;
+        if (n + cl >= cap) break;
+        char tmp[48];
+        memcpy(tmp, out, (size_t)n);
+        memcpy(tmp + n, p, (size_t)cl);
+        tmp[n + cl] = 0;
+        if (gfx_text_w(tmp, scale) > max_w) break;
+        memcpy(out + n, p, (size_t)cl);
+        n += cl;
+        out[n] = 0;
+        p += cl;
+    }
+    if (*p && n + 2 < cap) {
+        char tmp[48];
+        memcpy(tmp, out, (size_t)n);
+        tmp[n] = '.'; tmp[n + 1] = '.'; tmp[n + 2] = 0;
+        while (n > 0 && gfx_text_w(tmp, scale) > max_w) {
+            n--;
+            while (n > 0 && ((unsigned char)out[n] & 0xC0) == 0x80) n--;
+            memcpy(tmp, out, (size_t)n);
+            tmp[n] = '.'; tmp[n + 1] = '.'; tmp[n + 2] = 0;
+        }
+        memcpy(out, tmp, (size_t)n + 3);
+    }
+}
+
 static void vehicle_badge(int x, int y, int w, int h, int stored, bool show_dir) {
     uint16_t c = vehicle_color(stored);
     gfx_fill(x, y, w, h, vehicle_dark(stored));
@@ -1979,10 +2016,12 @@ static void render_history(void) {
         gfx_pxbox(140, y, 176, 43, on ? PAL.white : vehicle_color(r->vehicle), 1,
                   vehicle_dark(r->vehicle));
         vehicle_badge(144, y + 5, 28, 33, r->vehicle, true);
-        snprintf(b, sizeof b, "%.18s", r->trackName);
+        char laps[12];
+        snprintf(laps, sizeof laps, "%dL", r->lapCount);
+        int name_w = 312 - gfx_text_w(laps, 1) - 6 - 178;
+        fit_text_width(b, sizeof b, r->trackName, name_w, 1);
         gfx_text(178, y + 14, b, PAL.white, 1);
-        snprintf(b, sizeof b, "%d LAPS", r->lapCount);
-        gfx_text_right(312, y + 14, b, PAL.cyan, 1);
+        gfx_text_right(312, y + 14, laps, PAL.cyan, 1);
     }
     hint_c("UP/DN/L/R SELECT - PUSH OPEN - BACK", HINT_Y);
 }
