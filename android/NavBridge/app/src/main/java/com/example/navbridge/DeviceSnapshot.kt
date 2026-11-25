@@ -26,7 +26,11 @@ object DeviceSnapshot {
         }
         val tracksOut = body.getJSONArray("tracks")
 
+        val expectedTracks = runCatching { RaceApi.status(base).optInt("tracks", -1) }.getOrDefault(-1)
         val tracks = RaceApi.tracks(base)
+        if (expectedTracks >= 0 && tracks.size < expectedTracks) {
+            throw IllegalStateException("设备 Track 列表不完整（${tracks.size}/$expectedTracks），已取消上传")
+        }
         for ((i, t) in tracks.withIndex()) {
             progress("读取赛道 ${i + 1}/${tracks.size}")
             val d = RaceApi.track(base, t.id)
