@@ -14,6 +14,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "log_store.h"
+#include "race_store.h"
 #include "math.h"
 #include "string.h"
 #include <stdio.h>
@@ -73,7 +74,8 @@ static void record_from_engine(const char *date, float duration, int mode) {
     if (lapCount > MAX_LAPS) lapCount = MAX_LAPS;
     if (lapCount > HISTORY_LAPS) lapCount = HISTORY_LAPS;
     r->lapCount = lapCount;
-    r->vehicle = g.engine.track->vehicle;
+    r->vehicle = (g.sessionVehicle & 0x0F) |
+                 (g.engine.track->reverse ? 0x100 : 0);
     r->hasBest = g.engine.hasBestLap;
     r->bestTime = g.engine.bestTime;
     r->bestIndex = g.engine.bestIndex;
@@ -694,6 +696,143 @@ void app_save_settings(void) {
 }
 
 /* ================= boot ================= */
+
+static bool keep_migrated_log(const histrec_t *r, int *vehicle) {
+    if (!r) return false;
+    if (strcmp(r->trackName, "DS Karting") == 0 && r->lapCount == 8) {
+        *vehicle = 1; return true;
+    }
+    if (strcmp(r->trackName, "DS Karting") == 0 && r->lapCount == 3) {
+        *vehicle = 0; return true;
+    }
+    if (strcmp(r->trackName, "Y") == 0 && r->lapCount == 2 && r->duration > 120.0f) {
+        *vehicle = 3; return true;
+    }
+    return false;
+}
+
+static int migrated_reverse(const char *name) {
+    for (int i = 0; i < g.ntracks; i++)
+        if (strcmp(g.tracks[i].name, name) == 0) return g.tracks[i].reverse ? 1 : 0;
+    return 0;
+}
+
+void app_migrate_records_once(void) {
+    nvs_handle_t h;
+    if (nvs_open("maint", NVS_READWRITE, &h) != ESP_OK) return;
+    uint8_t done = 0;
+    if (nvs_get_u8(h, "race_cleanup_v1", &done) == ESP_OK && done) {
+        nvs_close(h);
+        return;
+    }
+    histrec_t *keep = (histrec_t *)heap_caps_malloc(
+        sizeof(histrec_t) * HISTORY_RECORDS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!keep) { nvs_close(h); return; }
+    int nk = 0;
+    for (int i = 0; i < g.nlog; i++) {
+        int veh = 0;
+        if (!keep_migrated_log(&g.log[i], &veh)) continue;
+        histrec_t r = g.log[i];
+        r.vehicle = (veh & 0x0F) |
+                    (migrated_reverse(r.trackName) ? 0x100 : 0);
+        keep[nk++] = r;
+    }
+    log_store_clear();
+    for (int i = 0; i < nk; i++) log_store_save(&keep[i]);
+    free(keep);
+    g.nlog = log_store_load(g.log, HISTORY_RECORDS);
+
+    for (int slot = 0; slot < RACE_SLOTS; slot++) {
+        race_hdr_t rh;
+        if (!race_store_info(slot, &rh)) continue;
+        if (rh.lap_count == 0 || rh.sample_count == 0) race_store_delete(slot);
+    }
+    nvs_set_u8(h, "race_cleanup_v1", 1);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI("maint", "race records migrated: %d logs kept, empty sessions removed", nk);
+}
+
+
+static int recover_vehicle(const char *name, int laps) {
+    if (strcmp(name, "DS Karting") == 0 && laps == 8) return 1;
+    if (strcmp(name, "DS Karting") == 0 && laps == 3) return 0;
+    if (strcmp(name, "Y") == 0 && laps == 2) return 3;
+    return -1;
+}
+
+void app_recover_logs_once(void) {
+    nvs_handle_t h;
+    if (nvs_open("maint", NVS_READWRITE, &h) != ESP_OK) return;
+    uint8_t done = 0;
+    if (nvs_get_u8(h, "race_recover_v1", &done) == ESP_OK && done) {
+        nvs_close(h);
+        return;
+    }
+    int made = 0;
+    for (int slot = 0; slot < RACE_SLOTS; slot++) {
+        race_hdr_t rh;
+        if (!race_store_info(slot, &rh) || rh.lap_count == 0) continue;
+        int veh = recover_vehicle(rh.track_name, rh.lap_count);
+        if (veh < 0) continue;
+        histrec_t r;
+        memset(&r, 0, sizeof(r));
+        snprintf(r.trackName, sizeof(r.trackName), "%s", rh.track_name);
+        strcpy(r.date, "REC");
+        r.mode = rh.mode;
+        r.duration = rh.duration_ms / 1000.0f;
+        r.lapCount = rh.lap_count > HISTORY_LAPS ? HISTORY_LAPS : rh.lap_count;
+        r.vehicle = (veh & 0x0F) |
+                    (migrated_reverse(rh.track_name) ? 0x100 : 0);
+        int best_lap = 0;
+        float best_time = 0;
+        for (int i = 0; i < r.lapCount; i++) {
+            r.lapTime[i] = rh.lap_time[i];
+            r.lapIndex[i] = i + 1;
+            if (r.lapTime[i] > 0 && (best_time <= 0 || r.lapTime[i] < best_time)) {
+                best_time = r.lapTime[i];
+                best_lap = i + 1;
+            }
+        }
+        if (best_lap > 0) {
+            r.hasBest = true;
+            r.bestTime = best_time;
+            r.bestIndex = best_lap;
+            track_t *tr = NULL;
+            for (int i = 0; i < g.ntracks; i++)
+                if (strcmp(g.tracks[i].name, rh.track_name) == 0) { tr = &g.tracks[i]; break; }
+            int total = 0;
+            for (uint32_t i = 0; i < rh.sample_count; i++) {
+                race_sample_t sm;
+                if (!race_store_read_sample(slot, (int)i, &sm)) break;
+                if (sm.lap == best_lap && (sm.flags & 1)) total++;
+            }
+            int step = total > TRACE_MAX ? (total + TRACE_MAX - 1) / TRACE_MAX : 1;
+            int seen = 0, n = 0;
+            for (uint32_t i = 0; i < rh.sample_count && n < TRACE_MAX; i++) {
+                race_sample_t sm;
+                if (!race_store_read_sample(slot, (int)i, &sm)) break;
+                if (sm.lap != best_lap || !(sm.flags & 1)) continue;
+                if ((seen++ % step) != 0) continue;
+                double lat = sm.lat_e7 / 1e7, lon = sm.lon_e7 / 1e7;
+                if (tr && tr->geo && tr->nscale > 1e-9f) {
+                    r.trace[n++] = track_geo_to_norm(tr, lat, lon);
+                } else {
+                    pt_t q = { (float)lon, (float)lat };
+                    r.trace[n++] = q;
+                }
+            }
+            r.nTrace = n;
+        }
+        if (log_store_save(&r)) made++;
+    }
+    g.nlog = log_store_load(g.log, HISTORY_RECORDS);
+    nvs_set_u8(h, "race_recover_v1", 1);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI("maint", "recovered %d Race Logs from raw sessions", made);
+}
+
 void app_init(void) {
     memset(&g, 0, sizeof(g));
     g.seed = esp_random();

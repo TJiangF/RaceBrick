@@ -84,12 +84,16 @@ void app_main(void) {
     input_init();
     buzzer_init();
     app_init();
+    app_migrate_records_once();
+    app_recover_logs_once();
     {
         int raw_n = race_store_count();
         ESP_LOGI("hist", "history records=%d raw sessions=%d", g.nlog, raw_n);
         for (int i = 0; i < g.nlog; i++)
-            ESP_LOGI("hist", "log %d '%s' %dL %.1fs", i, g.log[i].trackName,
-                     g.log[i].lapCount, (double)g.log[i].duration);
+            ESP_LOGI("hist", "log %d '%s' %dL %.1fs veh=%d %s", i, g.log[i].trackName,
+                     g.log[i].lapCount, (double)g.log[i].duration,
+                     g.log[i].vehicle & 0x0F,
+                     (g.log[i].vehicle & 0x100) ? "CCW" : "CW");
         for (int i = 0; i < RACE_SLOTS; i++) {
             race_hdr_t rh;
             if (race_store_info(i, &rh))

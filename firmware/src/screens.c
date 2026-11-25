@@ -53,15 +53,32 @@ static bool  s_track_edit_from_menu;
 
 static const char *RACE_PANELS[4] = {"TRACK MODE", "TIME MODE", "G FORCE MODE", "SECTION MODE"};
 
-static const char *VEH_NAMES[4] = {"KART", "4-STROKE", "KART+", "RACE"};
+#define VEH_COUNT 6
+#define VEH_REVERSE_FLAG 0x100
+static const char *VEH_NAMES[VEH_COUNT] = {"200cc", "4T", "2T", "R", "M", "B"};
+static const char *VEH_FULL[VEH_COUNT] = {
+    "4T 200cc", "SUPER 4T", "2T RACE", "RACE", "MOTO", "BIKE"
+};
 #define HOMEF1_RED    RGB565(0xe1, 0x06, 0x00)
 #define HOMEF1_TEAL   RGB565(0x27, 0xf4, 0xd2)
 #define HOMEF1_ORANGE RGB565(0xff, 0x80, 0x00)
 #define HOMEF1_SILVER RGB565(0xd5, 0xd7, 0xda)
-static const uint16_t VEH_COLORS[4] = {
-    RGB565(0xff, 0x6b, 0x6b), RGB565(0xff, 0xd1, 0x66),
-    RGB565(0x66, 0xe0, 0xd2), RGB565(0x8b, 0x5c, 0xf6),
+static const uint16_t VEH_COLORS[VEH_COUNT] = {
+    RGB565(0x5e, 0xd6, 0xa3), RGB565(0x66, 0xe0, 0xd2),
+    RGB565(0xff, 0xb7, 0x4d), RGB565(0xa7, 0x8b, 0xfa),
+    RGB565(0xff, 0xd1, 0x66), RGB565(0x64, 0xb5, 0xf6),
 };
+static const uint16_t VEH_DARK[VEH_COUNT] = {
+    RGB565(0x12, 0x35, 0x28), RGB565(0x10, 0x2f, 0x33),
+    RGB565(0x3a, 0x24, 0x0e), RGB565(0x25, 0x1b, 0x3d),
+    RGB565(0x3a, 0x2e, 0x12), RGB565(0x12, 0x26, 0x38),
+};
+enum { VEH_AFTER_NAMING, VEH_AFTER_MOUNT, VEH_AFTER_SAVE_LOG, VEH_AFTER_SAVE_NEW };
+static int s_vehicle_after = VEH_AFTER_NAMING;
+static void open_vehicle_select(int after) {
+    s_vehicle_after = after;
+    app_go(SC_VEHICLE_SELECT, 1);
+}
 static const char *LED_COLOR_NAMES[4] = {"COLOR", "WHITE", "RED", "GREEN"};
 
 /* ---------- helpers ---------- */
@@ -823,6 +840,19 @@ static void render_track_grid(const char *title, int sel, bool edit_mode,
     char page[32];
     snprintf(page, sizeof page, "%d/%d", sel + 1, g.ntracks);
     gfx_text(x0, TRACK_GRID_Y + TRACK_CARD_H + 4, page, PAL.dim, 0);
+    bool blink = ((int)(g.now / 300)) % 2 == 0;
+    if (blink) {
+        int cx = CW / 2;
+        int rows = (g.ntracks + 1) / 2;
+        if (row > 0) {
+            for (int k = 0; k < 4; k++)
+                gfx_hline(cx - k, cx + k, TRACK_GRID_Y + TRACK_CARD_H + 3 - k, PAL.cyan);
+        }
+        if (row < rows - 1) {
+            for (int k = 0; k < 4; k++)
+                gfx_hline(cx - k, cx + k, TRACK_GRID_Y + TRACK_CARD_H + 8 + k, PAL.cyan);
+        }
+    }
     hint_c(edit_mode ? "L/R SELECT - U/D PAGE - PUSH EDIT"
                      : "L/R SELECT - U/D PAGE - PUSH ENTER", HINT_Y);
 }
@@ -1700,18 +1730,123 @@ static void render_section(void) {
 }
 
 /* ================= VEHICLE SELECT ================= */
+static int vehicle_of(int stored) { return stored & 0x0F; }
+static bool vehicle_reverse(int stored) { return (stored & VEH_REVERSE_FLAG) != 0; }
+static const char *vehicle_code(int stored) {
+    int v = vehicle_of(stored);
+    return v >= 0 && v < VEH_COUNT ? VEH_NAMES[v] : "?";
+}
+static const char *vehicle_name(int stored) {
+    int v = vehicle_of(stored);
+    return v >= 0 && v < VEH_COUNT ? VEH_FULL[v] : "UNKNOWN";
+}
+static uint16_t vehicle_color(int stored) {
+    int v = vehicle_of(stored);
+    return v >= 0 && v < VEH_COUNT ? VEH_COLORS[v] : PAL.dim;
+}
+static uint16_t vehicle_dark(int stored) {
+    int v = vehicle_of(stored);
+    return v >= 0 && v < VEH_COUNT ? VEH_DARK[v] : PAL.panel;
+}
+
+static void vehicle_logo(int x, int y, int w, int h, int type, bool on) {
+    uint16_t body = on ? VEH_COLORS[type] : PAL.glyphoff;
+    uint16_t dark = on ? RGB565(0x0a, 0x0d, 0x12) : PAL.line;
+    uint16_t accent = on ? PAL.white : PAL.dim;
+    int cx = x + w / 2, by = y + h - 8;
+    if (f1_ui()) {
+        if (type <= 2) {
+            gfx_fill(x + 8, by - 16, w - 16, 8, body);
+            gfx_fill(x + 3, by - 10, 10, 12, dark);
+            gfx_fill(x + w - 13, by - 10, 10, 12, dark);
+            gfx_fill(cx - 6, by - 24, 12, 8, body);
+            gfx_line(x + 12, by - 20, x + w - 12, by - 20, accent);
+            if (type == 1) gfx_line(cx, by - 34, cx, by - 24, accent);
+            if (type == 2) gfx_line(x + w - 18, by - 18, x + w - 6, by - 26, body);
+        } else if (type == 3) {
+            gfx_fill(x + 5, by - 10, w - 10, 7, body);
+            gfx_fill(x + w / 2 - 4, by - 24, 8, 14, body);
+            gfx_fill(x + 2, by - 30, w - 4, 4, accent);
+            gfx_fill(x + 10, by - 6, 8, 8, dark);
+            gfx_fill(x + w - 18, by - 6, 8, 8, dark);
+        } else if (type == 4) {
+            gfx_circle(x + 12, by - 4, 8, dark);
+            gfx_circle(x + w - 12, by - 4, 8, dark);
+            gfx_line(x + 12, by - 4, cx, by - 22, body);
+            gfx_line(x + w - 12, by - 4, cx, by - 22, body);
+            gfx_fill(cx - 7, by - 28, 14, 9, body);
+            gfx_disc(cx, by - 31, 4, accent);
+        } else {
+            gfx_circle(x + 12, by - 4, 7, dark);
+            gfx_circle(x + w - 12, by - 4, 7, dark);
+            gfx_line(x + 12, by - 4, cx, by - 24, body);
+            gfx_line(x + w - 12, by - 4, cx, by - 24, body);
+            gfx_line(x + 12, by - 4, x + w - 12, by - 4, body);
+            gfx_line(cx, by - 24, x + w - 12, by - 4, accent);
+            gfx_line(cx - 8, by - 34, cx + 8, by - 34, accent);
+        }
+    } else {
+        if (type <= 2) {
+            gfx_fill(x + 6, by - 12, 9, 12, dark);
+            gfx_fill(x + w - 15, by - 12, 9, 12, dark);
+            gfx_fill(x + 4, by - 20, w - 8, 10, body);
+            gfx_fill(x + 10, by - 27, w - 20, 8, body);
+            gfx_fill(cx - 7, by - 24, 14, 10, dark);
+            gfx_fill(x + 9, by - 34, 3, 12, accent);
+            if (type == 0) {
+                gfx_fill(x + w - 18, by - 28, 12, 12, body);
+            } else if (type == 1) {
+                gfx_fill(x + w - 22, by - 30, 16, 8, accent);
+                gfx_line(x + 11, by - 34, x + 18, by - 34, body);
+            } else {
+                gfx_fill(x + w - 16, by - 22, 12, 5, accent);
+                gfx_line(x + w - 20, by - 32, x + w - 4, by - 36, body);
+            }
+            gfx_fill(x + 8, by - 18, 4, 4, PAL.yellow);
+            gfx_fill(x + w - 12, by - 18, 4, 4, PAL.yellow);
+        } else if (type == 3) {
+            gfx_fill(x + 2, by - 18, w - 4, 8, body);
+            gfx_fill(cx - 5, by - 29, 10, 12, body);
+            gfx_fill(x + 4, by - 35, w - 8, 4, accent);
+            gfx_fill(x + 10, by - 10, 10, 10, dark);
+            gfx_fill(x + w - 20, by - 10, 10, 10, dark);
+            gfx_fill(cx - 3, by - 20, 6, 4, PAL.yellow);
+        } else if (type == 4) {
+            gfx_circle(x + 13, by - 3, 9, dark);
+            gfx_circle(x + w - 13, by - 3, 9, dark);
+            gfx_fill(x + 9, by - 16, w - 18, 9, body);
+            gfx_fill(cx - 8, by - 28, 16, 12, body);
+            gfx_fill(cx - 5, by - 38, 10, 10, accent);
+        } else {
+            gfx_circle(x + 12, by - 3, 8, dark);
+            gfx_circle(x + w - 12, by - 3, 8, dark);
+            gfx_line(x + 12, by - 3, cx, by - 25, body);
+            gfx_line(x + w - 12, by - 3, cx, by - 25, body);
+            gfx_line(x + 12, by - 3, x + w - 12, by - 3, body);
+            gfx_fill(cx - 8, by - 30, 16, 4, accent);
+        }
+    }
+}
+
 static void render_vehicle(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("SELECT VEHICLE", 6);
-    for (int i = 0; i < 4; i++) {
-        int cx = 160 + (i - g.sel) * 120;
-        if (cx < -60 || cx > CW + 60) continue;
+    title_c("SELECT VEHICLE", 3);
+    const int bx = 8, by = 20, bw = 96, bh = 86, gap = 8;
+    for (int i = 0; i < VEH_COUNT; i++) {
+        int col = i % 3, row = i / 3;
+        int x = bx + col * (bw + gap), y = by + row * (bh + 5);
         bool on = i == g.sel;
-        map_draw_vehicle(cx - 36, 64, 72, 56, on ? VEH_COLORS[i] : PAL.glyphoff, PAL.yellow);
-        gfx_text_center(cx, 130, VEH_NAMES[i], on ? PAL.cyan : PAL.dim, 1);
+        gfx_pxbox(x, y, bw, bh, on ? PAL.cyan : PAL.line, 1,
+                  on ? PAL.seltint : PAL.panel);
+        vehicle_logo(x + 8, y + 3, bw - 16, 52, i, on);
+        gfx_text_center(x + bw / 2, y + 59, VEH_NAMES[i],
+                        on ? VEH_COLORS[i] : PAL.dim, 1);
+        gfx_text_center(x + bw / 2, y + 72, VEH_FULL[i],
+                        on ? PAL.white : PAL.glyphoff, 0);
     }
-    hint_c("UP/DOWN SELECT - PUSH CONFIRM", HINT_Y);
+    hint_c("L/R U/D SELECT - PUSH CONFIRM", HINT_Y);
 }
+
 
 /* ================= TRACK NAMING ================= */
 static void render_naming(void) {
@@ -1730,7 +1865,7 @@ static void render_naming(void) {
             gfx_text(x0 + i * step, 160, ch, PAL.glyphoff, 0);
         }
     }
-    hint_c("UP/DOWN LETTER - PUSH SAVE", HINT_Y);
+    hint_c("LEFT/RIGHT LETTER - PUSH SAVE", HINT_Y);
 }
 
 /* ================= TRACK LIST ================= */
@@ -1751,6 +1886,54 @@ static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir) {
     dir->x = cosf(t->line_hdg);
     dir->y = sinf(t->line_hdg);
     return true;
+}
+
+/* ================= TRACK DETAIL / BEST ================= */
+static void render_track_detail(void) {
+    track_t *t = g.engine.track;
+    if (!t) { title_c("TRACK DETAIL", 6); hint_c("NO TRACK", 80); return; }
+    char b[40];
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
+    map_begin(&s_map);
+    map_centerline(&s_map, PAL.yellow, 6);
+    pt_t sp = track_point_at(t, 0);
+    pt_t st = track_tangent_at(t, 0);
+    map_start_checker_at(&s_map, sp, st, PAL.white);
+    title_c("TRACK", 3);
+    gfx_text_center(CW / 2, 174, t->name, PAL.cyan, 1);
+    gfx_text(190, 4, "BEST LAP", PAL.dim, 0);
+    gfx_text(254, 16, "CW", PAL.green, 0);
+    gfx_text_right(314, 16, "CCW", PAL.orange, 0);
+    float best[VEH_COUNT][2];
+    for (int v = 0; v < VEH_COUNT; v++) { best[v][0] = -1; best[v][1] = -1; }
+    for (int i = 0; i < g.nlog; i++) {
+        histrec_t *r = &g.log[i];
+        if (strcmp(r->trackName, t->name) != 0) continue;
+        int v = vehicle_of(r->vehicle);
+        if (v < 0 || v >= VEH_COUNT) continue;
+        bool rev = (r->vehicle & VEH_REVERSE_FLAG) ? true : (t->reverse != 0);
+        for (int k = 0; k < r->lapCount && k < HISTORY_LAPS; k++) {
+            if (r->lapTime[k] <= 0) continue;
+            if (best[v][rev ? 1 : 0] < 0 || r->lapTime[k] < best[v][rev ? 1 : 0])
+                best[v][rev ? 1 : 0] = r->lapTime[k];
+        }
+    }
+    for (int v = 0; v < VEH_COUNT; v++) {
+        int y = 30 + v * 23;
+        gfx_fill(188, y, 26, 19, vehicle_dark(v));
+        gfx_rect(188, y, 26, 19, VEH_COLORS[v]);
+        gfx_text_center(201, y + 6, VEH_NAMES[v], VEH_COLORS[v], 0);
+        if (best[v][0] > 0) {
+            u_fmt_time(b, sizeof b, best[v][0]);
+            gfx_text(222, y + 6, b, PAL.green, 0);
+        } else gfx_text(232, y + 6, "--", PAL.dim, 0);
+        if (best[v][1] > 0) {
+            u_fmt_time(b, sizeof b, best[v][1]);
+            gfx_text_right(314, y + 6, b, PAL.orange, 0);
+        } else gfx_text_right(306, y + 6, "--", PAL.dim, 0);
+    }
+    gfx_text_center(CW / 2, 204, "PUSH EDIT START - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= START LINE EDIT ================= */
@@ -1812,6 +1995,17 @@ static track_t *find_track_by_name(const char *name) {
 }
 
 /* ================= HISTORY ================= */
+static void vehicle_badge(int x, int y, int w, int h, int stored, bool show_dir) {
+    uint16_t c = vehicle_color(stored);
+    gfx_fill(x, y, w, h, vehicle_dark(stored));
+    gfx_rect(x, y, w, h, c);
+    gfx_text_center(x + w / 2, y + (show_dir ? 2 : (h - 7) / 2),
+                    vehicle_code(stored), c, 0);
+    if (show_dir)
+        gfx_text_center(x + w / 2, y + h - 9, vehicle_reverse(stored) ? "CCW" : "CW",
+                        vehicle_reverse(stored) ? PAL.orange : PAL.green, 0);
+}
+
 static void render_history(void) {
     char b[40];
     gfx_fill(0, 0, CW, CH, PAL.stage);
@@ -1834,15 +2028,16 @@ static void render_history(void) {
     for (int i = start; i < end; i++) {
         int y = 34 + (i - start) * 38;
         bool on = g.entered && i == g.sel;
-        gfx_pxbox(182, y, 132, 36, on ? PAL.white : PAL.line, 1, PAL.panel);
         histrec_t *r = &g.log[g.nlog - 1 - i];
-        snprintf(b, sizeof b, "%s  %dL", r->trackName, r->lapCount);
-        gfx_text(188, y + 5, b, PAL.white, 1);
-        snprintf(b, sizeof b, "%dK", log_store_slot_size() / 1024);
-        gfx_text_right(310, y + 5, b, PAL.gold, 0);
+        gfx_pxbox(182, y, 132, 36, on ? PAL.white : vehicle_color(r->vehicle), 1,
+                  vehicle_dark(r->vehicle));
+        vehicle_badge(186, y + 4, 28, 28, r->vehicle, true);
+        snprintf(b, sizeof b, "%s %dL", r->trackName, r->lapCount);
+        gfx_text(220, y + 5, b, PAL.white, 1);
         u_fmt_time(b, sizeof b, r->duration);
-        gfx_text(188, y + 20, r->date, PAL.dim, 0);
-        gfx_text_right(310, y + 20, b, PAL.dim, 0);
+        gfx_text_right(310, y + 5, b, PAL.gold, 1);
+        snprintf(b, sizeof b, "%s", r->date);
+        gfx_text(220, y + 20, b, PAL.dim, 0);
     }
     if (!g.nlog) hint_c("(NO RECORDS)", 60);
     gfx_text(182, 196, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
@@ -2009,6 +2204,7 @@ static void render_history_detail(void) {
     if (!s_hist_prev_raw) gfx_text(182, 142, "NO RAW LAP DATA", PAL.orange, 0);
     snprintf(b, sizeof b, "RACE %s", r->trackName);
     title_c(b, 6);
+    vehicle_badge(258, 2, 56, 18, r->vehicle, false);
     u_fmt_time(b, sizeof b, r->duration);
     char sb[48];
     snprintf(sb, sizeof sb, "%dL - %s", r->lapCount, b);
@@ -3025,6 +3221,7 @@ void screens_render(void) {
     case SC_COLOR_TUNE: render_color_tune(); break;
     case SC_IMU_DEBUG: render_imu_debug(); break;
     case SC_TRACK_START: render_track_start(); break;
+    case SC_TRACK_DETAIL: render_track_detail(); break;
     case SC_IMU_CALIB: render_imu_calib(); break;
     default: break;
     }
@@ -3099,7 +3296,11 @@ void screens_enter(scid_t id) {
     case SC_SECTION_MARKING:
         g.sec_n = 0; g.sec_prev = 0; g.sec_pos = 0.03f; g.sec_cand = NAN; g.sec_done = false;
         break;
-    case SC_VEHICLE_SELECT: g.sel = g.sessionVehicle; break;
+    case SC_VEHICLE_SELECT:
+        g.sel = g.sessionVehicle;
+        if (g.sel < 0) g.sel = 0;
+        if (g.sel >= VEH_COUNT) g.sel = VEH_COUNT - 1;
+        break;
     case SC_TRACK_NAMING: {
         g.navail = 0;
         for (char c = 'A'; c <= 'Z'; c++) {
@@ -3390,7 +3591,8 @@ static void rec_make_log(void) {
     snprintf(r->trackName, sizeof(r->trackName), "%s", g.sessionTrack.name);
     strcpy(r->date, "NEW");
     r->mode = 0;
-    r->vehicle = g.sessionTrack.vehicle;
+    r->vehicle = (g.sessionVehicle & 0x0F) |
+                 (g.sessionTrack.reverse ? VEH_REVERSE_FLAG : 0);
     r->nsec = g.sessionTrack.nsec;
     for (int i = 0; i < r->nsec; i++) r->sections[i] = g.sessionTrack.sections[i];
     float total = 0;
@@ -3426,12 +3628,11 @@ static void cb_build_fused_track(void) {
 }
 
 static void cb_confirm_fused_track(void) {
-    app_go(SC_TRACK_NAMING, 1);
+    open_vehicle_select(VEH_AFTER_NAMING);
 }
 
 static void cb_keep_log_yes(void) {
-    rec_make_log();
-    app_go_home_to(0);
+    open_vehicle_select(VEH_AFTER_SAVE_NEW);
 }
 
 static void cb_keep_log_no(void) {
@@ -3447,7 +3648,7 @@ static void cb_track_reverse_yes(void) {
 
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
 static void cb_racing_no(void) { app_back(); }
-static void cb_save_race_log_yes(void) { app_record_race(1); app_back(); }
+static void cb_save_race_log_yes(void) { open_vehicle_select(VEH_AFTER_SAVE_LOG); }
 static void cb_save_race_log_no(void) { g.engine.logged = true; app_back(); }
 
 static void race_exit_after_hold(void) {
@@ -3468,7 +3669,7 @@ static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
 static void cb_lapseg_no(void) {
     g.session_nsec = 0;
     g.sessionTrack.nsec = 0;
-    app_go(SC_VEHICLE_SELECT, 1);
+    open_vehicle_select(VEH_AFTER_NAMING);
 }
 static void cb_section_finish_yes(void) {
     if (g.sec_pos > g.sec_prev + 0.02f && g.sec_pos < 0.97f && g.sec_n < MAX_SECTIONS) {
@@ -3482,7 +3683,7 @@ static void cb_section_finish_yes(void) {
         g.sessionTrack.nsec = g.sec_n;
         for (int i = 0; i < g.sec_n; i++) g.sessionTrack.sections[i] = g.sec_sections[i];
     }
-    app_go(SC_VEHICLE_SELECT, 1);
+    open_vehicle_select(VEH_AFTER_NAMING);
 }
 
 static void open_race_item(int i) {
@@ -3831,7 +4032,7 @@ void screens_handle(const event_t *ev) {
         if (ev->button == BTN_PUSH && g.ntracks) {
             g.engine.track = &g.tracks[g.sel];
             s_track_edit_from_menu = true;
-            app_go(SC_TRACK_START, 1);
+            app_go(SC_TRACK_DETAIL, 1);
         } else if (ev->button == BTN_BACK) app_back();
         break;
 
@@ -4078,14 +4279,32 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_VEHICLE_SELECT:
-        if (d) { g.sel = (g.sel + d + 4) % 4; return; }
+        if (d || lr) {
+            int col = g.sel % 3, row = g.sel / 3;
+            col += lr;
+            row += d;
+            if (col < 0) col = 0;
+            if (col > 2) col = 2;
+            if (row < 0) row = 0;
+            if (row > 1) row = 1;
+            g.sel = row * 3 + col;
+            if (g.sel >= VEH_COUNT) g.sel = VEH_COUNT - 1;
+            return;
+        }
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { g.sessionVehicle = g.sel; app_go(SC_TRACK_NAMING, 1); }
-        else if (ev->button == BTN_BACK) app_back();
+        if (ev->button == BTN_PUSH) {
+            g.sessionVehicle = g.sel;
+            g.sessionTrack.vehicle = g.sel;
+            if (g.engine_valid && g.engine.track) g.engine.track->vehicle = g.sel;
+            if (s_vehicle_after == VEH_AFTER_NAMING) app_go(SC_TRACK_NAMING, 1);
+            else if (s_vehicle_after == VEH_AFTER_MOUNT) app_go(SC_MOUNT_SELECT, 1);
+            else if (s_vehicle_after == VEH_AFTER_SAVE_LOG) { app_record_race(1); app_back(); }
+            else { rec_make_log(); app_go_home_to(0); }
+        } else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_NAMING:
-        if (d && g.navail) { g.sel = (g.sel + d + g.navail) % g.navail; return; }
+        if (lr && g.navail) { g.sel = (g.sel + lr + g.navail) % g.navail; return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
             char name[4] = {g.avail[g.sel], 0, 0, 0};
@@ -4147,8 +4366,17 @@ void screens_handle(const event_t *ev) {
             g.raceTarget = SC_RACING_RECORDED;
             g.raceBack = t->geo ? SC_TRACK_START : SC_TRACK_LIST;
             s_track_edit_from_menu = false;
-            app_go(t->geo ? SC_TRACK_START : SC_MOUNT_SELECT, 1);
+            g.sessionVehicle = vehicle_of(t->vehicle);
+            if (g.sessionVehicle >= VEH_COUNT) g.sessionVehicle = 0;
+            if (t->geo) app_go(SC_TRACK_START, 1);
+            else open_vehicle_select(VEH_AFTER_MOUNT);
         } else if (ev->button == BTN_BACK) app_back();
+        break;
+
+    case SC_TRACK_DETAIL:
+        if (ev->type != EV_PRESS) return;
+        if (ev->button == BTN_PUSH) app_go(SC_TRACK_START, 1);
+        else if (ev->button == BTN_BACK) app_back();
         break;
 
     case SC_TRACK_START: {
@@ -4199,7 +4427,7 @@ void screens_handle(const event_t *ev) {
             app_toast("TRACK SETTINGS SAVED");
         }
         if (s_track_edit_from_menu) app_back();
-        else app_go(SC_MOUNT_SELECT, 1);
+        else open_vehicle_select(VEH_AFTER_MOUNT);
         break;
     }
 
@@ -4465,6 +4693,10 @@ void screens_chrome(void) {
     case SC_IMU_DEBUG:
         snprintf(g.status, sizeof g.status, "IMU DEBUG  MPU6050 %s", g.imu_ok ? "OK" : "NOT FOUND");
         g.statusColor = g.imu_ok ? PAL.green : PAL.red;
+        break;
+    case SC_TRACK_DETAIL:
+        snprintf(g.status, sizeof g.status, "TRACK BEST - %s",
+                 g.engine.track ? g.engine.track->name : "--");
         break;
     case SC_TRACK_START:
         snprintf(g.status, sizeof g.status, "START LINE  %.1f%%  PUSH SAVE", g.start_f * 100.0f);
