@@ -59,6 +59,7 @@ class RaceActivity : LocalizedActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val satelliteWorker = Executors.newSingleThreadExecutor()
+    private val satelliteUploadWorker = Executors.newSingleThreadExecutor()
     private val cloudWorker = Executors.newSingleThreadExecutor()
     private val cloudApi = CloudApi()
     private lateinit var direct: WifiDirectConnector
@@ -86,6 +87,7 @@ class RaceActivity : LocalizedActivity() {
     private var lastPromptedUid: String? = null
     private var lastPromptedIp: String? = null
     private var cloudSyncRunning = false
+    private var satelliteUploadRunning = false
     private var autoSyncUid: String? = null
     private var forceLocalSync = false
     private val hotspotHandler = Handler(Looper.getMainLooper())
@@ -127,6 +129,7 @@ class RaceActivity : LocalizedActivity() {
         }
         findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { directWithPermission() }
         findViewById<Button>(R.id.btnRaceCloud).setOnClickListener { showCloudAccount() }
+        findViewById<Button>(R.id.btnRaceSat).setOnClickListener { uploadAllSatellites(manual = true) }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
@@ -403,6 +406,7 @@ class RaceActivity : LocalizedActivity() {
     private fun finishSatelliteLoad(gen: Int, loaded: Int, total: Int, error: String?) {
         if (gen != generation) return
         hideBusy()
+        if (!offlineMode && discoveredDevice != null) autoUploadSatellites()
         pbLoad.progress = 100
         val suffix = when {
             error != null -> "（$error）"
@@ -1238,6 +1242,8 @@ class RaceActivity : LocalizedActivity() {
                     satellite.bounds.right, satellite.bounds.bottom,
                 )
             }.onSuccess {
+                val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: "manual"
+                SatelliteUploadCache.markUploaded(this, uid, t.id, satellite)
                 main.post {
                     status("卫星图已同步到设备")
                     toast("卫星图已同步：${t.name}")
@@ -1514,6 +1520,7 @@ class RaceActivity : LocalizedActivity() {
         findViewById<Button>(R.id.btnRaceDirect).visibility = View.GONE
         findViewById<Button>(R.id.btnRaceLoad).visibility = View.GONE
         findViewById<Button>(R.id.btnRaceCloud).visibility = View.GONE
+        findViewById<Button>(R.id.btnRaceSat).visibility = View.GONE
         etUrl.visibility = View.GONE
         pbLoad.visibility = View.GONE
     }
@@ -1690,6 +1697,9 @@ class RaceActivity : LocalizedActivity() {
                     status("发现 RaceBrick ${found.uid} · ${found.ip}")
                     if (!cloudSyncRunning && tracks.isEmpty() && !isDestroyed &&
                         autoSyncUid != found.uid) loadAll()
+                }
+                if (tracks.isNotEmpty() && satelliteCache.isNotEmpty() && !offlineMode) {
+                    autoUploadSatellites()
                 }
                 if (autoSyncUid == found.uid) {
                     autoSyncUid = null
@@ -1910,6 +1920,67 @@ class RaceActivity : LocalizedActivity() {
         }
     }
 
+    private fun autoUploadSatellites() {
+        uploadAllSatellites(manual = false)
+    }
+
+    private fun uploadAllSatellites(manual: Boolean) {
+        if (satelliteUploadRunning) return
+        val jobs = ArrayList<Pair<RaceTrack, TrackSatellite>>()
+        val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: "manual"
+        for (t in tracks) {
+            val sat = satelliteCache[t.id] ?: continue
+            if (manual || SatelliteUploadCache.needsUpload(this, uid, t.id, sat)) {
+                jobs += t to sat
+            }
+        }
+        if (jobs.isEmpty()) {
+            if (manual) toast("卫星图都已是最新")
+            return
+        }
+        if (manual && discoveredDevice == null && RaceApi.baseUrl(this).isBlank()) {
+            toast("请先连接设备热点")
+            return
+        }
+        val b = discoveredDevice?.baseUrl ?: base()
+        satelliteUploadRunning = true
+        if (manual) status("正在上传 ${jobs.size} 张卫星图…")
+        satelliteUploadWorker.execute {
+            var done = 0
+            var failed = 0
+            for ((t, sat) in jobs) {
+                runCatching {
+                    RaceApi.uploadTrackImage(
+                        b, t.id, sat.pal16,
+                        sat.bounds.left, sat.bounds.top,
+                        sat.bounds.right, sat.bounds.bottom,
+                    )
+                }.onSuccess {
+                    SatelliteUploadCache.markUploaded(this, uid, t.id, sat)
+                    done++
+                    main.post {
+                        if (manual) status("正在上传卫星图 $done/${jobs.size}…")
+                    }
+                }.onFailure {
+                    failed++
+                }
+            }
+            main.post {
+                satelliteUploadRunning = false
+                if (manual) {
+                    if (failed == 0) {
+                        toast("卫星图已全部同步到设备")
+                        status("卫星图同步完成：$done 张")
+                    } else {
+                        fail("卫星图同步：成功 $done，失败 $failed")
+                    }
+                } else if (done > 0) {
+                    status("卫星图已自动同步到设备：$done 张")
+                }
+            }
+        }
+    }
+
     private fun markCacheDirty() {
         val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: return
         LocalCache.markDirty(this, uid)
@@ -1957,6 +2028,7 @@ class RaceActivity : LocalizedActivity() {
         hotspotHandler.removeCallbacks(hotspotTick)
         worker.shutdownNow()
         satelliteWorker.shutdownNow()
+        satelliteUploadWorker.shutdownNow()
         cloudWorker.shutdownNow()
         super.onDestroy()
     }

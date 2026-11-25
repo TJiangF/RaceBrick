@@ -356,7 +356,7 @@ object RaceApi {
     fun uploadTrackImage(
         base: String, trackSlot: Int, pal16: ByteArray,
         x0: Float, y0: Float, x1: Float, y1: Float,
-    ) {
+    ): Boolean {
         val b = String.format(
             Locale.US,
             "/api/track/image?id=%d&x0=%.6f&y0=%.6f&x1=%.6f&y1=%.6f",
@@ -375,7 +375,12 @@ object RaceApi {
             conn.outputStream.use { it.write(pal16) }
             val code = conn.responseCode
             if (code !in 200..299) throw IllegalStateException("HTTP $code")
-            drain(conn)
+            val body = drain(conn)
+            val ok = runCatching {
+                JSONObject(body.toString(StandardCharsets.UTF_8)).optInt("ok", 0) != 0
+            }.getOrDefault(false)
+            if (!ok) throw IllegalStateException("设备未保存卫星图")
+            return true
         } finally {
             conn.disconnect()
         }

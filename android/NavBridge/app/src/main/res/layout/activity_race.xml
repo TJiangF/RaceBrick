@@ -194,6 +194,16 @@
                     android:text="OLD LOG"
                     android:textColor="#D7E7E4" />
             </LinearLayout>
+
+            <Button
+                android:id="@+id/btnRaceSat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:text="上传全部卫星图到设备"
+                android:textColor="#66E0D2" />
         </LinearLayout>
 
         <LinearLayout
