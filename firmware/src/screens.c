@@ -1831,7 +1831,9 @@ static void vehicle_logo(int x, int y, int w, int h, int type, bool on) {
 
 static void render_vehicle(void) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("SELECT VEHICLE", 3);
+    title_c((s_vehicle_after == VEH_AFTER_SAVE_LOG ||
+             s_vehicle_after == VEH_AFTER_SAVE_NEW) ?
+            "SAVE RACE LOG - VEHICLE" : "SELECT VEHICLE", 3);
     const int bx = 8, by = 20, bw = 96, bh = 86, gap = 8;
     for (int i = 0; i < VEH_COUNT; i++) {
         int col = i % 3, row = i / 3;
@@ -3662,7 +3664,11 @@ static void race_exit_after_hold(void) {
                          cb_racing_yes, cb_racing_no);
     } else {
         if (e->nLaps == 0) { app_back(); return; }
-        app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+        char q[64];
+        int v = g.sessionVehicle & 0x0F;
+        snprintf(q, sizeof q, "KEEP RACE LOG?\nVEHICLE: %s",
+                 v < VEH_COUNT ? VEH_NAMES[v] : "?");
+        app_push_confirm(q, "YES", "NO",
                          cb_save_race_log_yes, cb_save_race_log_no);
     }
 }
@@ -4324,7 +4330,11 @@ void screens_handle(const event_t *ev) {
             g.sessionTrack_valid = false;
             g.session_nsec = 0;
             if (g.rec_lap_n > 0 && rec_selected_count() > 0) {
-                app_push_confirm("KEEP RACE LOG?", "YES", "NO",
+                char q[64];
+                int v = g.sessionVehicle & 0x0F;
+                snprintf(q, sizeof q, "KEEP RACE LOG?\nVEHICLE: %s",
+                         v < VEH_COUNT ? VEH_NAMES[v] : "?");
+                app_push_confirm(q, "YES", "NO",
                                  cb_keep_log_yes, cb_keep_log_no);
             } else {
                 app_go_home_to(0);
