@@ -128,7 +128,11 @@ class RaceActivity : LocalizedActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { directWithPermission() }
-        findViewById<Button>(R.id.btnRaceCloud).setOnClickListener { showCloudAccount() }
+        findViewById<Button>(R.id.btnRaceCloud).setOnClickListener {
+            startActivity(Intent(this, SyncActivity::class.java)
+                .putExtra(SyncActivity.EXTRA_BASE, discoveredDevice?.baseUrl ?: RaceApi.baseUrl(this))
+                .putExtra(SyncActivity.EXTRA_UID, discoveredDevice?.uid ?: LocalCache.uid(this)))
+        }
         findViewById<Button>(R.id.btnRaceSat).setOnClickListener { uploadAllSatellites(manual = true) }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {

@@ -46,7 +46,7 @@
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:minHeight="40dp"
-                android:text="云端"
+                android:text="SYNC"
                 android:textColor="#D7E7E4" />
 
             <Button
