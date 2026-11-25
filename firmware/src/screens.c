@@ -76,7 +76,7 @@ static const uint16_t VEH_DARK[VEH_COUNT] = {
     RGB565(0x10, 0x2e, 0x15), RGB565(0x38, 0x2f, 0x08),
     RGB565(0x3a, 0x12, 0x12), RGB565(0x28, 0x10, 0x33),
 };
-enum { VEH_AFTER_NAMING, VEH_AFTER_MOUNT, VEH_AFTER_SAVE_LOG, VEH_AFTER_SAVE_NEW };
+enum { VEH_AFTER_NAMING, VEH_AFTER_RACE, VEH_AFTER_SAVE_LOG, VEH_AFTER_SAVE_NEW };
 static int s_vehicle_after = VEH_AFTER_NAMING;
 static void open_vehicle_select(int after) {
     s_vehicle_after = after;
@@ -1147,14 +1147,6 @@ static void render_mode_select(void) {
 }
 
 /* ================= MOUNT SELECT ================= */
-static void render_mount_select(void) {
-    gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("MOUNTING", 6);
-    mode_box(52, "FIXED (CHASSIS)", "RIGID - TRUST IMU", g.sel == 0);
-    mode_box(128, "NOT FIXED (WHEEL)", "ROTATES - TRUST GPS", g.sel == 1);
-    hint_c("UP/DOWN SELECT - PUSH START - BACK", HINT_Y);
-}
-
 /* ================= NEW TRACK - MARK START ================= */
 static int64_t rec_gnss_delta(uint64_t a, uint64_t b) {
     int64_t d = (int64_t)b - (int64_t)a;
@@ -3188,7 +3180,6 @@ void screens_render(void) {
     case SC_TRACK_EDIT: render_track_edit(); break;
     case SC_SETTINGS: render_settings(); break;
     case SC_MODE_SELECT: render_mode_select(); break;
-    case SC_MOUNT_SELECT: render_mount_select(); break;
     case SC_NEW_TRACK_MARK_START: render_record_track(); break;
     case SC_REC_LAP_SELECT: render_rec_lap_select(); break;
     case SC_REC_PREVIEW: render_rec_preview(); break;
@@ -3232,7 +3223,6 @@ void screens_enter(scid_t id) {
     case SC_TRACK_EDIT: g.sel = 0; g.entered = false; break;
     case SC_SETTINGS: g.sel = g.settings_sel; g.entered = true; g.set_edit = false; break;
     case SC_MODE_SELECT: g.sel = 0; break;
-    case SC_MOUNT_SELECT: g.sel = g.race_mount; break;
     case SC_PERF:
         g.entered = false; g.perf_state = 0; g.perf_time = 0; g.perf_trig_cnt = 0;
         g.perf_mode_sel = g.perf_mode;
@@ -3267,7 +3257,6 @@ void screens_enter(scid_t id) {
         g.panel = 0;
         s_race_exit_locked = false;
         if (g.engine_valid) {
-            engine_set_profile(&g.engine, g.race_mount);
             g.engine.logged = false;
             if (g.engine.track) {
                 if (!race_store_begin(g.engine.track->store_slot,
@@ -4187,16 +4176,6 @@ void screens_handle(const event_t *ev) {
         else if (ev->button == BTN_BACK) app_back();
         break;
 
-    case SC_MOUNT_SELECT:
-        if (d) { g.sel = (g.sel + d + 2) % 2; return; }
-        if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) {
-            g.race_mount = g.sel;
-            if (g.engine_valid) engine_set_profile(e, g.race_mount);
-            app_go(g.raceTarget, 1);
-        } else if (ev->button == BTN_BACK) app_back();
-        break;
-
     case SC_NEW_TRACK_MARK_START:
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
@@ -4330,7 +4309,7 @@ void screens_handle(const event_t *ev) {
             g.sessionTrack.vehicle = g.sel;
             if (g.engine_valid && g.engine.track) g.engine.track->vehicle = g.sel;
             if (s_vehicle_after == VEH_AFTER_NAMING) app_go(SC_TRACK_NAMING, 1);
-            else if (s_vehicle_after == VEH_AFTER_MOUNT) app_go(SC_MOUNT_SELECT, 1);
+            else if (s_vehicle_after == VEH_AFTER_RACE) app_go(g.raceTarget, 1);
             else if (s_vehicle_after == VEH_AFTER_SAVE_LOG) {
                 app_record_race(s_save_race_mode);
                 app_push_confirm("RACE LOG SAVED", "RACE", "HOME",
@@ -4410,7 +4389,7 @@ void screens_handle(const event_t *ev) {
             g.sessionVehicle = vehicle_of(t->vehicle);
             if (g.sessionVehicle >= VEH_COUNT) g.sessionVehicle = 0;
             if (t->geo) app_go(SC_TRACK_START, 1);
-            else open_vehicle_select(VEH_AFTER_MOUNT);
+            else open_vehicle_select(VEH_AFTER_RACE);
         } else if (ev->button == BTN_BACK) app_back();
         break;
 
@@ -4468,7 +4447,7 @@ void screens_handle(const event_t *ev) {
             app_toast("TRACK SETTINGS SAVED");
         }
         if (s_track_edit_from_menu) app_back();
-        else open_vehicle_select(VEH_AFTER_MOUNT);
+        else open_vehicle_select(VEH_AFTER_RACE);
         break;
     }
 
@@ -4686,7 +4665,6 @@ void screens_chrome(void) {
     case SC_COVER_TEST: snprintf(g.status, sizeof g.status, "STATIC COVER TEST"); break;
     case SC_COLOR_TUNE: snprintf(g.status, sizeof g.status, "MEDIA COLOR TUNING"); break;
     case SC_MODE_SELECT: snprintf(g.status, sizeof g.status, "MODE SELECT"); break;
-    case SC_MOUNT_SELECT: snprintf(g.status, sizeof g.status, g.sel == 0 ? "MOUNT - FIXED (TRUST IMU)" : "MOUNT - NOT FIXED (TRUST GPS)"); break;
     case SC_REC_LAP_SELECT:
         snprintf(g.status, sizeof g.status, "SELECT %d LAPS", rec_selected_count());
         g.statusColor = PAL.cyan; break;

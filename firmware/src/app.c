@@ -1031,9 +1031,6 @@ void app_autopilot(float dt) {
     case SC_NEW_TRACK_MARK_START:
         if (s_auto_t > 2.4f) { auto_tap(BTN_PUSH); s_auto_t = 0; }
         break;
-    case SC_MOUNT_SELECT:
-        if (s_auto_t > 2.0f) { auto_tap(BTN_OK); s_auto_t = 0; }
-        break;
     case SC_RACING:
         if (s_auto_t > 5.0f) {
             if (s_auto_step < 3) { auto_tap(BTN_UP); s_auto_step++; }

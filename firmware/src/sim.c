@@ -543,13 +543,6 @@ static void engine_run_fusion(engine_t *e, float dt) {
     float gzDeg = corr.gz;
     float axUse = corr.ax;
     float ayUse = corr.ay;
-    if (e->mount == 1) {
-        float tt = e->time;
-        e->steerAngle = 0.7f * sinf(tt * 1.6f) + 0.3f * sinf(tt * 4.1f);
-        float ddelta = 0.7f * 1.6f * cosf(tt * 1.6f) + 0.3f * 4.1f * cosf(tt * 4.1f);
-        gzDeg += (ddelta * 180.0f) / (float)M_PI;
-        ayUse += sinf(e->steerAngle);
-    }
 
     e->gpsTimer += dt;
     bool hasGps = false;
@@ -625,25 +618,13 @@ void engine_init(engine_t *e, track_t *track, bool useHistBest, mpu_t *sensor) {
     e->traceEvery = 3;
     e->speedMul = 1;
     e->useSensors = true;
-    e->mount = 0;
     e->sensor = sensor;
     e->hasHistBest = useHistBest;
     e->histBest = track->hasBest ? track->best : 0;
-    engine_set_profile(e, 0);
+    e->fusion.alpha = FUSION_ALPHA_CHASSIS;
+    e->fusion.beta = FUSION_BETA_CHASSIS;
+    e->fusion.accelWeight = FUSION_ACC_CHASSIS;
     engine_reset(e);
-}
-
-void engine_set_profile(engine_t *e, int steering) {
-    e->mount = steering;
-    if (steering) {
-        e->fusion.alpha = FUSION_ALPHA_STEER;
-        e->fusion.beta = FUSION_BETA_STEER;
-        e->fusion.accelWeight = FUSION_ACC_STEER;
-    } else {
-        e->fusion.alpha = FUSION_ALPHA_CHASSIS;
-        e->fusion.beta = FUSION_BETA_CHASSIS;
-        e->fusion.accelWeight = FUSION_ACC_CHASSIS;
-    }
 }
 
 void engine_fill_times(engine_t *e) {

@@ -153,8 +153,6 @@ typedef struct {
     mpu_t    *sensor;
     fusion_t  fusion;
     bool      useSensors;
-    int       mount;         /* 0 chassis, 1 steering */
-    float     steerAngle;
     bool      has_ph; float ph;
     bool      has_ps; float ps;
     float     gpsTimer;
@@ -184,7 +182,6 @@ typedef struct {
 } engine_t;
 
 void  engine_init(engine_t *e, track_t *track, bool useHistBest, mpu_t *sensor);
-void  engine_set_profile(engine_t *e, int steering);   /* 0 chassis, 1 steering */
 void  engine_reset(engine_t *e);
 void  engine_update(engine_t *e, float dt);
 /* real-GNSS racing: project the live fix onto the track, time laps */

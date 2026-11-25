@@ -9,7 +9,7 @@
 #include "input.h"
 
 typedef enum {
-    SC_IMU_CALIB, SC_HOME, SC_RACE_MENU, SC_NAV_MENU, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT, SC_MOUNT_SELECT,
+    SC_IMU_CALIB, SC_HOME, SC_RACE_MENU, SC_NAV_MENU, SC_TRACK_EDIT, SC_SETTINGS, SC_MODE_SELECT,
     SC_NEW_TRACK_MARK_START, SC_REC_LAP_SELECT, SC_REC_PREVIEW, SC_RACING, SC_RACING_RECORDED, SC_LAP_SELECT, SC_SECTION_MARKING,
     SC_VEHICLE_SELECT, SC_TRACK_NAMING, SC_TRACK_LIST, SC_HISTORY, SC_HISTORY_DETAIL,
     SC_GPS_DEBUG, SC_LOCATION, SC_SOUND, SC_IMU_DEBUG, SC_BTN_DEBUG, SC_FLASH, SC_TRACK_START, SC_TRACK_DETAIL, SC_PERF, SC_WIFI_SETUP, SC_NAV, SC_PHONE, SC_MEDIA, SC_CONFIRM, SC_COVER_TEST, SC_COLOR_TUNE, SC_COUNT
@@ -52,7 +52,6 @@ typedef struct {
     engine_t engine; bool engine_valid;
     gnss_t gnss;
     mpu_t imu;
-    int race_mount;
     int theme_light;
     int ui_style;                 /* 0 = pixel, 1 = Formula 1 */
     scid_t raceTarget, raceBack;
