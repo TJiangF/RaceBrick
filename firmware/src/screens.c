@@ -1946,41 +1946,42 @@ static void vehicle_badge(int x, int y, int w, int h, int stored, bool show_dir)
 }
 
 static void render_history(void) {
-    char b[40];
+    char b[48];
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    map_init(&s_map, 0, 0, 176, 226);
-    histrec_t *rec = g.nlog ? &g.log[g.nlog - 1 - g.sel] : NULL;
+    map_init(&s_map, 0, 0, 134, 226);
+    if (g.hist_sel < 0) g.hist_sel = 0;
+    if (g.nlog && g.hist_sel >= g.nlog) g.hist_sel = g.nlog - 1;
+    histrec_t *rec = g.nlog ? &g.log[g.nlog - 1 - g.hist_sel] : NULL;
     if (rec) {
         s_map.track = find_track_by_name(rec->trackName);
         map_fit_points(&s_map, rec->trace, rec->nTrace, 0.3f);
     }
     map_begin(&s_map);
     if (rec) hist_draw96(&s_map, rec->trace, rec->nTrace, PAL.purple);
-    title_c("RACE LOG", 6);
+    gfx_text(140, 2, "RACE LOG", PAL.cyan, 1);
+    snprintf(b, sizeof b, "%d/%d", g.nlog, log_store_capacity());
+    gfx_text_right(314, 2, b, PAL.dim, 0);
+    if (!g.nlog) hint_c("(NO RECORDS)", 80);
     int start, end;
-    snprintf(b, sizeof b, "LOG %d/%d", log_store_count(), log_store_capacity());
-    gfx_text(182, 18, b, PAL.dim, 0);
-    snprintf(b, sizeof b, "%uK/%uK", (unsigned)(log_store_used_bytes() / 1024),
-             (unsigned)(log_store_total_bytes() / 1024));
-    gfx_text_right(310, 18, b, PAL.dim, 0);
-    windowed(g.nlog, g.sel, 4, &start, &end);
+    windowed(g.nlog, g.hist_sel, 4, &start, &end);
     for (int i = start; i < end; i++) {
-        int y = 34 + (i - start) * 38;
-        bool on = g.entered && i == g.sel;
+        int y = 20 + (i - start) * 46;
+        bool on = i == g.hist_sel;
         histrec_t *r = &g.log[g.nlog - 1 - i];
-        gfx_pxbox(182, y, 132, 36, on ? PAL.white : vehicle_color(r->vehicle), 1,
+        gfx_pxbox(140, y, 176, 43, on ? PAL.white : vehicle_color(r->vehicle), 1,
                   vehicle_dark(r->vehicle));
-        vehicle_badge(186, y + 4, 28, 28, r->vehicle, true);
-        snprintf(b, sizeof b, "%s %dL", r->trackName, r->lapCount);
-        gfx_text(220, y + 5, b, PAL.white, 1);
+        vehicle_badge(144, y + 5, 28, 33, r->vehicle, true);
+        snprintf(b, sizeof b, "%s", r->trackName);
+        gfx_text(178, y + 4, b, PAL.white, 1);
+        if (r->hasBest) u_fmt_time(b, sizeof b, r->bestTime);
+        else u_fmt_time(b, sizeof b, r->duration);
+        gfx_text_right(312, y + 4, b, r->hasBest ? PAL.gold : PAL.text2, 1);
+        snprintf(b, sizeof b, "%s  %dL", r->date, r->lapCount);
+        gfx_text(178, y + 20, b, PAL.dim, 0);
         u_fmt_time(b, sizeof b, r->duration);
-        gfx_text_right(310, y + 5, b, PAL.gold, 1);
-        snprintf(b, sizeof b, "%s", r->date);
-        gfx_text(220, y + 20, b, PAL.dim, 0);
+        gfx_text_right(312, y + 20, b, PAL.text2, 0);
     }
-    if (!g.nlog) hint_c("(NO RECORDS)", 60);
-    gfx_text(182, 196, g.entered ? "PUSH DETAIL" : "PUSH ENTER", PAL.dim, 1);
-    gfx_text(182, HINT_Y, "BACK EXIT", PAL.dim, 1);
+    hint_c("UP/DN/L/R SELECT - PUSH OPEN - BACK", HINT_Y);
 }
 
 /* ================= HISTORY DETAIL ================= */
@@ -3288,7 +3289,7 @@ void screens_enter(scid_t id) {
     case SC_FLASH: break;
     case SC_COVER_TEST: cover_test_capture(); break;
     case SC_COLOR_TUNE: g.sel = 0; break;
-    case SC_HISTORY: g.sel = 0; g.entered = false; break;
+    case SC_HISTORY: break;
     case SC_HISTORY_DETAIL:
         g.sel = 0;
         s_hist_prev_rec = -1;
@@ -3678,7 +3679,7 @@ static void cb_section_finish_yes(void) {
 
 static void open_race_item(int i) {
     if (i == 0) app_go(SC_MODE_SELECT, 1);
-    else if (i == 1) { app_go(SC_HISTORY, 1); g.entered = true; }
+    else if (i == 1) { g.entered = true; g.hist_sel = 0; app_go(SC_HISTORY, 1); }
     else if (i == 2) { app_go(SC_TRACK_EDIT, 1); g.entered = true; }
     else { app_go(SC_PERF, 1); g.entered = true; g.perf_state = 0; g.perf_time = 0; }
 }
@@ -4436,9 +4437,10 @@ void screens_handle(const event_t *ev) {
             if (ev->button == BTN_PUSH) g.entered = true;
             else if (ev->button == BTN_BACK) app_back();
         } else {
-            if (d && g.nlog) { g.sel = (g.sel + d + g.nlog) % g.nlog; return; }
+            int nav = d ? d : lr;
+            if (nav && g.nlog) { g.hist_sel = (g.hist_sel + nav + g.nlog) % g.nlog; return; }
             if (ev->type != EV_PRESS) return;
-            if (ev->button == BTN_PUSH && g.nlog) { g.hist_rec = g.nlog - 1 - g.sel; app_go(SC_HISTORY_DETAIL, 1); }
+            if (ev->button == BTN_PUSH && g.nlog) { g.hist_rec = g.nlog - 1 - g.hist_sel; app_go(SC_HISTORY_DETAIL, 1); }
             else if (ev->button == BTN_BACK) app_back();
         }
         break;
