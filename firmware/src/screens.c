@@ -1971,15 +1971,15 @@ static void render_history(void) {
         gfx_pxbox(140, y, 176, 43, on ? PAL.white : vehicle_color(r->vehicle), 1,
                   vehicle_dark(r->vehicle));
         vehicle_badge(144, y + 5, 28, 33, r->vehicle, true);
-        snprintf(b, sizeof b, "%s", r->trackName);
-        gfx_text(178, y + 4, b, PAL.white, 1);
-        if (r->hasBest) u_fmt_time(b, sizeof b, r->bestTime);
-        else u_fmt_time(b, sizeof b, r->duration);
-        gfx_text_right(312, y + 4, b, r->hasBest ? PAL.gold : PAL.text2, 1);
-        snprintf(b, sizeof b, "%s  %dL", r->date, r->lapCount);
+        snprintf(b, sizeof b, "%.18s", r->trackName);
+        gfx_text(178, y + 4, b, PAL.white, 0);
+        snprintf(b, sizeof b, "%dL", r->lapCount);
+        gfx_text_right(312, y + 4, b, PAL.cyan, 0);
+        snprintf(b, sizeof b, "%.10s", r->date);
         gfx_text(178, y + 20, b, PAL.dim, 0);
-        u_fmt_time(b, sizeof b, r->duration);
-        gfx_text_right(312, y + 20, b, PAL.text2, 0);
+        if (r->hasBest) u_fmt_time(b, sizeof b, r->bestTime);
+        else snprintf(b, sizeof b, "--");
+        gfx_text_right(312, y + 19, b, r->hasBest ? PAL.gold : PAL.dim, 1);
     }
     hint_c("UP/DN/L/R SELECT - PUSH OPEN - BACK", HINT_Y);
 }
