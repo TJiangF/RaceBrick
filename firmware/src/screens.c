@@ -21,6 +21,7 @@
 #include "tstore.h"
 #include "netcfg.h"
 #include "nav.h"
+#include "cloud_sync.h"
 #include "btmap.h"
 #include "china_map.h"
 #include "home_logos.h"
@@ -707,6 +708,8 @@ static void render_wifi_setup(void) {
     gfx_text(6, 74, "2) browser open:", PAL.dim, 0);
     gfx_text(6, 86, "http://192.168.4.1", PAL.cyan, 1);
     gfx_text(6, 106, "3) enter home SSID / password", PAL.dim, 0);
+    gfx_text(6, 124, "DEVICE ID", PAL.dim, 0);
+    gfx_text(6, 136, cloud_sync_uid(), PAL.cyan, 1);
 
     gfx_pxbox(6, 150, CW - 12, 40, PAL.line, 1, PAL.panel);
     gfx_text(12, 157, "STATUS", PAL.dim, 0);
