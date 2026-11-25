@@ -758,31 +758,80 @@ static void render_wifi_setup(void) {
     gfx_text(6, HINT_Y, "PUSH SCAN - BACK EXIT", PAL.dim, 0);
 }
 
-/* ================= TRACK EDIT ================= */
-static void render_track_edit(void) {
+/* ================= TRACK GRID ================= */
+#define TRACK_CARD_W 150
+#define TRACK_CARD_H 170
+#define TRACK_GRID_GAP 10
+#define TRACK_GRID_X 5
+#define TRACK_GRID_Y 20
+
+static void track_grid_move(int *idx, int n, int d, int lr) {
+    if (!idx || n <= 0) return;
+    int rows = (n + 1) / 2;
+    int row = *idx / 2;
+    int col = *idx % 2;
+    if (d) {
+        row += d;
+        if (row < 0) row = 0;
+        if (row >= rows) row = rows - 1;
+    }
+    if (lr) {
+        col += lr;
+        if (col < 0) col = 0;
+        if (col > 1) col = 1;
+    }
+    if (row == rows - 1 && (n & 1) && col > 0) col = 0;
+    int v = row * 2 + col;
+    if (v >= n) v = n - 1;
+    *idx = v;
+}
+
+static void draw_track_card(int x, int y, const track_t *t, bool sel, const char *tag) {
+    gfx_pxbox(x, y, TRACK_CARD_W, TRACK_CARD_H,
+              sel ? PAL.cyan : PAL.line, 1, PAL.panel);
+    map_draw_thumb(x + 2, y + 2, TRACK_CARD_W - 4, TRACK_CARD_H - 26,
+                   t, sel ? PAL.yellow : PAL.curtrace);
+    gfx_fill(x + 2, y + TRACK_CARD_H - 22, TRACK_CARD_W - 4, 20, PAL.panel);
+    char name[24];
+    snprintf(name, sizeof name, "%s", t->name);
+    gfx_text(x + 5, y + TRACK_CARD_H - 17, name, sel ? PAL.white : PAL.text, 1);
+    if (tag && tag[0]) gfx_text_right(x + TRACK_CARD_W - 5, y + 5, tag, PAL.gold, 0);
+}
+
+static void render_track_grid(const char *title, int sel, bool edit_mode,
+                              const char *right_info) {
     gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("TRACK EDIT", 6);
+    title_c(title, 2);
+    if (right_info && right_info[0]) gfx_text_right(CW - 6, 4, right_info, PAL.dim, 0);
     if (!g.ntracks) {
-        hint_c("(NO TRACKS)", 60);
+        hint_c("(NO TRACKS)", 80);
         hint_c("BACK EXIT", HINT_Y);
         return;
     }
-    int start, end;
-    windowed(g.ntracks, g.sel, 4, &start, &end);
-    int y = 30;
-    for (int i = start; i < end; i++) {
-        bool on = i == g.sel;
-        panel_box(12, y, CW - 24, 40, on, false);
-        track_t *t = &g.tracks[i];
-        gfx_text(22, y + 5, t->name, PAL.white, 1);
-        char b[48];
-        snprintf(b, sizeof b, "LINE %.1fm  OFS %+.1fm  %s",
-                 (double)(t->start_width > 0 ? t->start_width : TRACK_WIDTH_M),
-                 (double)t->start_offset, t->reverse ? "CCW" : "CW");
-        gfx_text(22, y + 21, b, PAL.dim, 0);
-        y += 44;
-    }
-    hint_c("UP/DN SELECT - PUSH EDIT - BACK EXIT", HINT_Y);
+    if (sel < 0) sel = 0;
+    if (sel >= g.ntracks) sel = g.ntracks - 1;
+    int row = sel / 2;
+    int start = row * 2;
+    int x0 = TRACK_GRID_X;
+    int x1 = TRACK_GRID_X + TRACK_CARD_W + TRACK_GRID_GAP;
+    if (start < g.ntracks)
+        draw_track_card(x0, TRACK_GRID_Y, &g.tracks[start], sel == start,
+                        g.tracks[start].geo ? "GPS" : NULL);
+    if (start + 1 < g.ntracks)
+        draw_track_card(x1, TRACK_GRID_Y, &g.tracks[start + 1], sel == start + 1,
+                        g.tracks[start + 1].geo ? "GPS" : NULL);
+    char page[32];
+    snprintf(page, sizeof page, "%d/%d", sel + 1, g.ntracks);
+    gfx_text(x0, TRACK_GRID_Y + TRACK_CARD_H + 4, page, PAL.dim, 0);
+    hint_c(edit_mode ? "L/R SELECT - U/D PAGE - PUSH EDIT"
+                     : "L/R SELECT - U/D PAGE - PUSH ENTER", HINT_Y);
+}
+
+/* ================= TRACK EDIT ================= */
+static void render_track_edit(void) {
+    char info[32];
+    snprintf(info, sizeof info, "%d/%d", g.ntracks, tstore_capacity());
+    render_track_grid("TRACK EDIT", g.sel, true, info);
 }
 
 /* ================= SETTINGS ================= */
@@ -1686,26 +1735,10 @@ static void render_naming(void) {
 
 /* ================= TRACK LIST ================= */
 static void render_track_list(void) {
-    gfx_fill(0, 0, CW, CH, PAL.stage);
-    title_c("TRACKS", 6);
-    {
-        char fs[32];
-        int used = tstore_count(), cap = tstore_capacity();
-        snprintf(fs, sizeof fs, "FLASH %d/%d  %dK FREE", used, cap, (cap - used) * 4);
-        gfx_text_right(CW - 8, 6, fs, used < cap ? PAL.dim : PAL.red, 0);
-    }
-    if (!g.ntracks) hint_c("(NO TRACKS)", 60);
-    int start, end;
-    windowed(g.ntracks, g.cursor, 4, &start, &end);
-    for (int i = start; i < end; i++) {
-        int y = 22 + (i - start) * 44;
-        bool cur = i == g.cursor;
-        gfx_pxbox(12, y, CW - 24, 40, cur ? PAL.white : PAL.line, 1, PAL.panel);
-        map_draw_thumb(20, y + 6, 36, 28, &g.tracks[i], PAL.yellow);
-        gfx_text(70, y + 5, g.tracks[i].name, PAL.white, 1);
-        gfx_text(70, y + 20, VEH_NAMES[g.tracks[i].vehicle], PAL.dim, 1);
-    }
-    hint_c("UP/DOWN SELECT - PUSH ENTER", HINT_Y);
+    char info[32];
+    int used = tstore_count(), cap = tstore_capacity();
+    snprintf(info, sizeof info, "%d/%d  %dK FREE", used, cap, (cap - used) * 4);
+    render_track_grid("TRACKS", g.cursor, false, info);
 }
 
 static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir) {
@@ -1726,7 +1759,7 @@ static void render_track_start(void) {
     if (!t) return;
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
-    map_centerline(&s_map, PAL.yellow, 4);
+    map_centerline(&s_map, PAL.yellow, 6);
     pt_t sp = track_point_at(t, g.start_f);
     pt_t st = track_tangent_at(t, g.start_f);
     float h = atan2f(st.y, st.x);
@@ -3793,7 +3826,7 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_TRACK_EDIT:
-        if (d && g.ntracks) { g.sel = (g.sel + d + g.ntracks) % g.ntracks; return; }
+        if ((d || lr) && g.ntracks) { track_grid_move(&g.sel, g.ntracks, d, lr); return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH && g.ntracks) {
             g.engine.track = &g.tracks[g.sel];
@@ -4104,7 +4137,7 @@ void screens_handle(const event_t *ev) {
         break;
 
     case SC_TRACK_LIST:
-        if (d && g.ntracks) { g.cursor = (g.cursor + d + g.ntracks) % g.ntracks; return; }
+        if ((d || lr) && g.ntracks) { track_grid_move(&g.cursor, g.ntracks, d, lr); return; }
         if (ev->type != EV_PRESS) return;
         if (ev->button == BTN_PUSH) {
             if (!g.ntracks) return;

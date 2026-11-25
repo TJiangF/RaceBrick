@@ -413,10 +413,16 @@ void map_draw_thumb(int x, int y, int w, int h, const track_t *t, uint16_t color
     float ox = (w - rx * s) / 2 - minX * s;
     float oy = (h - ry * s) / 2 - minY * s;
     sat_draw_view(x, y, w, h, t, s, ox, oy);
-    for (int i = 0; i < t->N; i += 4) {
+    int step = w >= 100 ? 2 : 4;
+    int thick = w >= 100 ? 2 : 1;
+    int lpx = 0, lpy = 0;
+    for (int i = 0; i < t->N; i += step) {
         int px = x + (int)lroundf(t->points[i].x * s + ox);
         int py = y + h - (int)lroundf(t->points[i].y * s + oy);   /* north up */
-        gfx_pixel(px, py, color);
+        if (i > 0) gfx_line(lpx, lpy, px, py, color);
+        gfx_fill(px, py, thick, thick, color);
+        lpx = px;
+        lpy = py;
     }
 }
 
