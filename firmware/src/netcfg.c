@@ -67,6 +67,8 @@ static char s_ip[20] = "";
 static char s_ap_ssid[24] = "RaceBrick";
 static char s_sta_ssid[33] = "";
 
+static void start_sta(const char *ssid, const char *pass);
+
 #define SCAN_MAX 16
 static wifi_ap_record_t s_aps[SCAN_MAX];
 static int s_naps = 0;
@@ -159,6 +161,10 @@ static void saved_write(char ssid[][33], char pass[][65], int n) {
         nvs_set_str(h, "ssid", ssid[n - 1]);
         nvs_set_str(h, "pass", pass[n - 1]);
         nvs_set_i32(h, "last", n - 1);
+    } else {
+        nvs_erase_key(h, "ssid");
+        nvs_erase_key(h, "pass");
+        nvs_erase_key(h, "last");
     }
     nvs_commit(h);
     nvs_close(h);
@@ -227,6 +233,51 @@ bool netcfg_wifi_saved_get(int idx, char *ssid, int cap) {
     int n = saved_read(s, p);
     if (idx < 0 || idx >= n || !ssid || cap <= 0) return false;
     snprintf(ssid, cap, "%s", s[idx]);
+    return true;
+}
+
+bool netcfg_wifi_saved_has(const char *ssid) {
+    if (!ssid || !ssid[0]) return false;
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    for (int i = 0; i < n; i++) if (!strcmp(s[i], ssid)) return true;
+    return false;
+}
+
+bool netcfg_wifi_connect_saved(const char *ssid) {
+    if (!ssid || !ssid[0] || !s_started) return false;
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    int idx = -1;
+    for (int i = 0; i < n; i++) if (!strcmp(s[i], ssid)) { idx = i; break; }
+    if (idx < 0) return false;
+    if (idx != n - 1) {
+        char ts[33], tp[65];
+        memcpy(ts, s[idx], sizeof ts); memcpy(tp, p[idx], sizeof tp);
+        for (int i = idx; i < n - 1; i++) {
+            memcpy(s[i], s[i + 1], sizeof s[i]);
+            memcpy(p[i], p[i + 1], sizeof p[i]);
+        }
+        memcpy(s[n - 1], ts, sizeof s[n - 1]);
+        memcpy(p[n - 1], tp, sizeof p[n - 1]);
+        saved_write(s, p, n);
+    }
+    start_sta(s[n - 1], p[n - 1]);
+    return true;
+}
+
+bool netcfg_wifi_forget(const char *ssid) {
+    if (!ssid || !ssid[0]) return false;
+    char s[NETCFG_SAVED_MAX][33], p[NETCFG_SAVED_MAX][65];
+    int n = saved_read(s, p);
+    int idx = -1;
+    for (int i = 0; i < n; i++) if (!strcmp(s[i], ssid)) { idx = i; break; }
+    if (idx < 0) return false;
+    for (int i = idx; i < n - 1; i++) {
+        memcpy(s[i], s[i + 1], sizeof s[i]);
+        memcpy(p[i], p[i + 1], sizeof p[i]);
+    }
+    saved_write(s, p, n - 1);
     return true;
 }
 

@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 
 /** BLE WiFi provisioning UI. The ESP scans/connects; the phone only sends
  *  #W commands over the existing UART service and displays the replies. */
@@ -27,6 +28,8 @@ class WifiSetupDialog(
     private val pass = EditText(activity)
     private val list = LinearLayout(activity)
     private var rowCount = 0
+    private val savedSet = HashSet<String>()
+    private var scanAfterSavedList = false
 
     init {
         val d = activity.resources.displayMetrics.density
@@ -151,6 +154,7 @@ class WifiSetupDialog(
 
     private fun saved() {
         status.text = "读取 ESP 已保存的网络…"
+        scanAfterSavedList = false
         clearList()
         ble.send("#W,LIST")
     }
@@ -159,7 +163,29 @@ class WifiSetupDialog(
         dialog.show()
         Lang.localizeDialog(dialog)
         ble.send("#W,STATUS")
-        scan()
+        savedSet.clear()
+        clearList()
+        scanAfterSavedList = true
+        ble.send("#W,LIST")
+    }
+
+    private fun connectSaved(name: String) {
+        status.text = "正在连接已保存网络 $name …"
+        ble.send("#W,CONNECT_SAVED,${Uri.encode(name)}")
+    }
+
+    private fun forget(name: String) {
+        val d = AlertDialog.Builder(activity)
+            .setTitle("忘记 WiFi")
+            .setMessage("从 ESP 删除已保存的「$name」？")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("忘记") { _, _ ->
+                ble.send("#W,FORGET,${Uri.encode(name)}")
+                status.text = "正在忘记 $name …"
+            }
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
     }
 
     fun dismiss() {
@@ -171,19 +197,47 @@ class WifiSetupDialog(
         rowCount = 0
     }
 
-    private fun addRow(text: String, onClick: () -> Unit) {
+    private fun addRow(
+        text: String,
+        saved: Boolean = false,
+        onForget: (() -> Unit)? = null,
+        onClick: () -> Unit,
+    ) {
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (saved) 0xFF123528.toInt() else 0xFF101B1F.toInt())
+                cornerRadius = 8f * activity.resources.displayMetrics.density
+            }
+        }
         val b = Button(activity).apply {
             this.text = text
             textSize = 13f
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setTextColor(0xFFD7E7E4.toInt())
-            background = GradientDrawable().apply {
-                setColor(0xFF101B1F.toInt())
-                cornerRadius = 8f * activity.resources.displayMetrics.density
-            }
+            setTextColor(if (saved) 0xFF5ED6A3.toInt() else 0xFFD7E7E4.toInt())
+            background = null
             setOnClickListener { onClick() }
         }
-        list.addView(b, LinearLayout.LayoutParams(
+        row.addView(b, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f,
+        ))
+        if (onForget != null) {
+            val forget = Button(activity).apply {
+                this.text = "忘记"
+                textSize = 12f
+                setTextColor(0xFFFFB3C0.toInt())
+                background = GradientDrawable().apply {
+                    setColor(0xFF3A1720.toInt())
+                    cornerRadius = 8f * activity.resources.displayMetrics.density
+                }
+                setOnClickListener { onForget() }
+            }
+            row.addView(forget, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
+        list.addView(row, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = (4 * activity.resources.displayMetrics.density).toInt() })
         rowCount++
@@ -211,25 +265,44 @@ class WifiSetupDialog(
                 status.text = "发现 ${parts.getOrNull(1) ?: "0"} 个 WiFi"
             }
             "SCAN_END" -> {
-                status.text = "扫描完成，共 ${parts.getOrNull(1) ?: rowCount} 个；点击条目填入 SSID"
+                status.text = "扫描完成，共 ${parts.getOrNull(1) ?: rowCount} 个；绿色为已保存，点击自动连接"
             }
             "AP" -> {
-                val i = parts.getOrNull(1) ?: ""
                 val name = Uri.decode(parts.getOrNull(2) ?: "")
                 val rssi = parts.getOrNull(3) ?: ""
                 val auth = parts.getOrNull(4) ?: "0"
-                val lock = if (auth != "0") "  [加密]" else "  [开放]"
-                addRow("${name}   ${rssi} dBm$lock") {
-                    ssid.setText(name)
-                    pass.requestFocus()
+                val saved = savedSet.contains(name)
+                val lock = if (auth != "0") "加密" else "开放"
+                val suffix = if (saved) "  SAVED · 自动连接" else ""
+                addRow("$name   $rssi dBm  $lock$suffix", saved) {
+                    if (saved) connectSaved(name) else {
+                        ssid.setText(name)
+                        pass.requestFocus()
+                    }
                 }
             }
             "SAVED" -> {
                 val name = Uri.decode(parts.getOrNull(2) ?: "")
-                addRow("已保存：$name") { ssid.setText(name) }
+                savedSet.add(name)
+                addRow("已保存：$name   点击自动连接", saved = true, onForget = { forget(name) }) {
+                    connectSaved(name)
+                }
             }
             "SAVED_END" -> {
                 status.text = "已保存 ${parts.getOrNull(1) ?: rowCount} 个网络"
+                if (scanAfterSavedList) {
+                    scanAfterSavedList = false
+                    scan()
+                }
+            }
+            "FORGOTTEN" -> {
+                val name = Uri.decode(parts.getOrNull(1) ?: "")
+                savedSet.remove(name)
+                status.text = "已忘记 $name"
+                saved()
+            }
+            "ERR" -> {
+                status.text = Uri.decode(parts.getOrNull(1) ?: "操作失败")
             }
         }
     }

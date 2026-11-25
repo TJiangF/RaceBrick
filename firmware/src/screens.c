@@ -696,26 +696,66 @@ static void render_nav(void) {
 }
 
 /* ================= WIFI SETUP (SoftAP + phone web page) ================= */
+static bool s_wifi_list_mode = false;
+static int s_wifi_scan_sel = 0;
+
+static bool wifi_is_saved(const char *ssid) {
+    return netcfg_wifi_saved_has(ssid);
+}
+
+static void render_wifi_scan_list(void) {
+    int n = netcfg_wifi_scan_count();
+    gfx_fill(0, 0, CW, CH, PAL.stage);
+    char title[40];
+    snprintf(title, sizeof title, "WIFI NEARBY  %d", n);
+    gfx_text(6, 2, title, PAL.cyan, 1);
+    if (n <= 0) {
+        gfx_text_center(CW / 2, 100, "NO NETWORKS", PAL.dim, 1);
+        gfx_text(6, HINT_Y, "BACK RETRY", PAL.dim, 0);
+        return;
+    }
+    if (s_wifi_scan_sel < 0) s_wifi_scan_sel = 0;
+    if (s_wifi_scan_sel >= n) s_wifi_scan_sel = n - 1;
+    int start, end;
+    windowed(n, s_wifi_scan_sel, 6, &start, &end);
+    int y = 22;
+    for (int i = start; i < end; i++) {
+        char ssid[33], meta[48];
+        int rssi = 0, auth = 0;
+        if (!netcfg_wifi_scan_get(i, ssid, sizeof ssid, &rssi, &auth)) continue;
+        bool saved = wifi_is_saved(ssid);
+        bool on = i == s_wifi_scan_sel;
+        panel_box(8, y, CW - 16, 28, on, false);
+        gfx_text(16, y + 4, ssid, saved ? PAL.green : PAL.white, 1);
+        snprintf(meta, sizeof meta, "%d dBm  %s%s", rssi,
+                 auth ? "LOCK" : "OPEN", saved ? "  SAVED" : "");
+        gfx_text(16, y + 16, meta, saved ? PAL.green : PAL.dim, 0);
+        y += 30;
+    }
+    gfx_text(6, HINT_Y, "UP/DN SELECT - PUSH CONNECT - BACK", PAL.dim, 0);
+}
+
 static void render_wifi_setup(void) {
+    if (s_wifi_list_mode) { render_wifi_scan_list(); return; }
     char st[48];
     netcfg_status(st, sizeof st);
     gfx_fill(0, 0, CW, CH, PAL.stage);
     gfx_text(6, 2, "WIFI SETUP", PAL.cyan, 1);
 
-    gfx_text(6, 22, "1) phone WiFi ->", PAL.dim, 0);
-    gfx_text(6, 34, netcfg_ap_ssid(), PAL.white, 1);
-    gfx_text(6, 54, "   pass: racebrick", PAL.dim, 0);
-    gfx_text(6, 74, "2) browser open:", PAL.dim, 0);
-    gfx_text(6, 86, "http://192.168.4.1", PAL.cyan, 1);
-    gfx_text(6, 106, "3) enter home SSID / password", PAL.dim, 0);
-    gfx_text(6, 124, "DEVICE ID", PAL.dim, 0);
-    gfx_text(6, 136, cloud_sync_uid(), PAL.cyan, 1);
+    gfx_text(6, 20, "PUSH: scan nearby WiFi", PAL.white, 1);
+    gfx_text(6, 38, "Green = saved / auto-connect", PAL.green, 0);
+    gfx_text(6, 52, "White = needs phone setup", PAL.dim, 0);
+    gfx_text(6, 74, "Phone AP: ", PAL.dim, 0);
+    gfx_text(6, 86, netcfg_ap_ssid(), PAL.white, 1);
+    gfx_text(6, 104, "pass: racebrick", PAL.dim, 0);
+    gfx_text(6, 122, "DEVICE ID", PAL.dim, 0);
+    gfx_text(6, 134, cloud_sync_uid(), PAL.cyan, 1);
 
     gfx_pxbox(6, 150, CW - 12, 40, PAL.line, 1, PAL.panel);
     gfx_text(12, 157, "STATUS", PAL.dim, 0);
     gfx_text(12, 172, st, netcfg_connected() ? PAL.green : PAL.yellow, 1);
 
-    gfx_text(6, HINT_Y, "PUSH RESTART AP - BACK EXIT", PAL.dim, 0);
+    gfx_text(6, HINT_Y, "PUSH SCAN - BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= TRACK EDIT ================= */
@@ -2984,7 +3024,11 @@ void screens_enter(scid_t id) {
     case SC_NAV: g.entered = false; g.nav_menu = 0; g.nav_sel = 0; break;
     case SC_PHONE: g.entered = false; break;
     case SC_MEDIA: g.entered = false; s_media_hit = -1; s_lyr_menu = false; break;
-    case SC_WIFI_SETUP: netcfg_start_ap(); break;
+    case SC_WIFI_SETUP:
+        s_wifi_list_mode = false;
+        s_wifi_scan_sel = 0;
+        netcfg_start_ap();
+        break;
     case SC_REC_LAP_SELECT:
         g.rec_sel_cursor = 0;
         g.rec_lap_sel = 0;
@@ -3588,8 +3632,49 @@ void screens_handle(const event_t *ev) {
 
     case SC_WIFI_SETUP:
         if (ev->type != EV_PRESS) return;
-        if (ev->button == BTN_PUSH) { netcfg_start_ap(); app_toast("AP RUNNING"); }
-        else if (ev->button == BTN_BACK) app_back();
+        if (!s_wifi_list_mode) {
+            if (ev->button == BTN_PUSH) {
+                app_toast("SCANNING...");
+                int n = netcfg_wifi_scan();
+                if (n > 0) {
+                    s_wifi_list_mode = true;
+                    s_wifi_scan_sel = 0;
+                    g.sel = 0;
+                } else {
+                    app_toast("NO WIFI FOUND");
+                }
+            } else if (ev->button == BTN_BACK) {
+                app_back();
+            }
+            break;
+        }
+        if (ev->button == BTN_UP || ev->button == BTN_DOWN) {
+            int n = netcfg_wifi_scan_count();
+            if (n > 0) {
+                s_wifi_scan_sel += ev->button == BTN_DOWN ? 1 : -1;
+                if (s_wifi_scan_sel < 0) s_wifi_scan_sel = 0;
+                if (s_wifi_scan_sel >= n) s_wifi_scan_sel = n - 1;
+                g.sel = s_wifi_scan_sel;
+            }
+        } else if (ev->button == BTN_PUSH) {
+            char ssid[33];
+            int rssi = 0, auth = 0;
+            if (netcfg_wifi_scan_get(s_wifi_scan_sel, ssid, sizeof ssid, &rssi, &auth) && ssid[0]) {
+                if (wifi_is_saved(ssid)) {
+                    if (netcfg_wifi_connect_saved(ssid)) app_toast("CONNECTING SAVED WIFI");
+                    else app_toast("SAVED WIFI FAILED");
+                    s_wifi_list_mode = false;
+                } else if (auth == 0) {
+                    netcfg_wifi_connect(ssid, "");
+                    app_toast("CONNECTING OPEN WIFI");
+                    s_wifi_list_mode = false;
+                } else {
+                    app_toast("NOT SAVED - USE PHONE");
+                }
+            }
+        } else if (ev->button == BTN_BACK) {
+            s_wifi_list_mode = false;
+        }
         break;
 
     case SC_PERF:

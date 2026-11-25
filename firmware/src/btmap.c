@@ -437,6 +437,31 @@ static void wifi_poll(void) {
                     send_wifi_status();
                 }
             }
+        } else if (strncmp(cmd, "#W,CONNECT_SAVED,", 17) == 0) {
+            char ssid[33], enc[160];
+            pct_decode(cmd + 17, ssid, sizeof ssid);
+            if (ssid[0] && netcfg_wifi_connect_saved(ssid)) {
+                send_wifi_status();
+            } else {
+                pct_encode(ssid, enc, sizeof enc);
+                char line[200];
+                snprintf(line, sizeof line, "#W,ERR,SAVED NOT FOUND,%s", enc);
+                send_line(line);
+            }
+        } else if (strncmp(cmd, "#W,FORGET,", 10) == 0) {
+            char ssid[33], enc[160];
+            pct_decode(cmd + 10, ssid, sizeof ssid);
+            if (ssid[0] && netcfg_wifi_forget(ssid)) {
+                pct_encode(ssid, enc, sizeof enc);
+                char line[200];
+                snprintf(line, sizeof line, "#W,FORGOTTEN,%s", enc);
+                send_line(line);
+            } else {
+                pct_encode(ssid, enc, sizeof enc);
+                char line[200];
+                snprintf(line, sizeof line, "#W,ERR,SAVED NOT FOUND,%s", enc);
+                send_line(line);
+            }
         }
     }
     int64_t now = esp_timer_get_time();

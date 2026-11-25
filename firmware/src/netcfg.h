@@ -22,6 +22,9 @@ bool netcfg_wifi_scan_get(int idx, char *ssid, int cap, int *rssi, int *auth);
 int  netcfg_wifi_saved_count(void);
 bool netcfg_wifi_saved_get(int idx, char *ssid, int cap);
 bool netcfg_wifi_connect(const char *ssid, const char *pass);
+bool netcfg_wifi_saved_has(const char *ssid);
+bool netcfg_wifi_connect_saved(const char *ssid);
+bool netcfg_wifi_forget(const char *ssid);
 /* Disable/enable WiFi modem sleep for low-latency frame fetch (nav screen). */
 void netcfg_set_low_latency(bool on);
 
