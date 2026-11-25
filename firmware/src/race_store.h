@@ -52,6 +52,7 @@ void race_store_sample(double lat, double lon, float speed_kmh, int lap, bool fi
                        uint32_t fix_seq, uint64_t fix_time_us);
 void race_store_end(const engine_t *e);
 bool race_store_active(void);
+void race_store_abort(void);
 
 int  race_store_count(void);
 bool race_store_info(int slot, race_hdr_t *out);

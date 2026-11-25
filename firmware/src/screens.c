@@ -42,9 +42,11 @@
 
 static tmap_t s_map;
 static bool   s_map_ready;
-static bool   s_race_back_done;
+static bool   s_race_exit_locked;
+static int    s_save_race_mode = 1;
 #define RACE_BACK_HOLD_MS 2000.0f
-static void race_exit_after_hold(void);
+static void race_finish_prompt(void);
+static void race_abandon_prompt(void);
 static bool track_line_norm(const track_t *t, pt_t *p, pt_t *dir);
 static int   s_edit_field;
 static float s_edit_width;
@@ -3213,7 +3215,7 @@ void screens_enter(scid_t id) {
         break;
     case SC_RACING: case SC_RACING_RECORDED:
         g.panel = 0;
-        s_race_back_done = false;
+        s_race_exit_locked = false;
         if (g.engine_valid) {
             engine_set_profile(&g.engine, g.race_mount);
             g.engine.logged = false;
@@ -3446,11 +3448,24 @@ void screens_update(float dt) {
     }
     case SC_RACING:
     case SC_RACING_RECORDED:
-        if (!s_race_back_done && input_is_down(BTN_BACK) &&
-            input_held_ms(BTN_BACK) >= RACE_BACK_HOLD_MS) {
-            s_race_back_done = true;
-            race_exit_after_hold();
-            break;
+        if (g.overlay_active) break;
+        if (!s_race_exit_locked) {
+            bool hold_push = input_is_down(BTN_PUSH) &&
+                             input_held_ms(BTN_PUSH) >= RACE_BACK_HOLD_MS;
+            bool hold_back = input_is_down(BTN_BACK) &&
+                             input_held_ms(BTN_BACK) >= RACE_BACK_HOLD_MS;
+            if (hold_push) {
+                s_race_exit_locked = true;
+                race_finish_prompt();
+                break;
+            }
+            if (hold_back) {
+                s_race_exit_locked = true;
+                race_abandon_prompt();
+                break;
+            }
+        } else if (!input_is_down(BTN_PUSH) && !input_is_down(BTN_BACK)) {
+            s_race_exit_locked = false;
         }
         if (g.engine_valid) {
             gps_state_t *gp = gps_get();
@@ -3576,6 +3591,27 @@ static void cb_keep_log_no(void) {
     app_go_home_to(0);
 }
 
+static void cb_race_saved_menu(void) {
+    app_go(SC_RACE_MENU, 1);
+}
+
+static void cb_race_saved_home(void) {
+    app_go_home_to(0);
+}
+
+static void cb_abandon_race_yes(void) {
+    race_store_abort();
+    app_back();
+}
+
+static void cb_abandon_race_no(void) {
+    g.engine.paused = false;
+}
+
+static void cb_finish_without_log(void) {
+    app_go(SC_RACE_MENU, 1);
+}
+
 static void cb_track_reverse_yes(void) {
     track_t *t = g.engine.track;
     if (!t) return;
@@ -3586,25 +3622,31 @@ static void cb_track_reverse_yes(void) {
 static void cb_racing_yes(void) { app_go(SC_LAP_SELECT, 1); }
 static void cb_racing_no(void) { app_back(); }
 static void cb_save_race_log_yes(void) { open_vehicle_select(VEH_AFTER_SAVE_LOG); }
-static void cb_save_race_log_no(void) { g.engine.logged = true; app_back(); }
+static void cb_save_race_log_no(void) { g.engine.logged = true; app_go(SC_RACE_MENU, 1); }
 
-static void race_exit_after_hold(void) {
+static void race_finish_prompt(void) {
     engine_t *e = &g.engine;
+    if (!g.engine_valid) { app_back(); return; }
     e->paused = true;
+    s_save_race_mode = (g.cur == SC_RACING) ? 0 : 1;
     race_store_end(e);
-    if (g.cur == SC_RACING) {
-        app_record_race(0);
-        app_push_confirm("SAVE THIS RECORD\nAS A NEW TRACK?", "YES", "NO",
-                         cb_racing_yes, cb_racing_no);
-    } else {
-        if (e->nLaps == 0) { app_back(); return; }
-        char q[64];
-        int v = g.sessionVehicle & 0x0F;
-        snprintf(q, sizeof q, "KEEP RACE LOG?\nVEHICLE: %s",
-                 v < VEH_COUNT ? VEH_NAMES[v] : "?");
-        app_push_confirm(q, "YES", "NO",
-                         cb_save_race_log_yes, cb_save_race_log_no);
+    if (e->nLaps == 0) {
+        app_toast("NO LAPS - RACE ENDED");
+        app_go(SC_RACE_MENU, 1);
+        return;
     }
+    char q[64];
+    int v = g.sessionVehicle & 0x0F;
+    snprintf(q, sizeof q, "SAVE RACE LOG?\nVEHICLE: %s",
+             v < VEH_COUNT ? VEH_NAMES[v] : "?");
+    app_push_confirm(q, "SAVE", "NO",
+                     cb_save_race_log_yes, cb_finish_without_log);
+}
+
+static void race_abandon_prompt(void) {
+    g.engine.paused = true;
+    app_push_confirm("ABANDON THIS RACE?", "YES", "NO",
+                     cb_abandon_race_yes, cb_abandon_race_no);
 }
 static void cb_lapseg_yes(void) { app_go(SC_SECTION_MARKING, 1); }
 static void cb_lapseg_no(void) {
@@ -4239,7 +4281,11 @@ void screens_handle(const event_t *ev) {
             if (g.engine_valid && g.engine.track) g.engine.track->vehicle = g.sel;
             if (s_vehicle_after == VEH_AFTER_NAMING) app_go(SC_TRACK_NAMING, 1);
             else if (s_vehicle_after == VEH_AFTER_MOUNT) app_go(SC_MOUNT_SELECT, 1);
-            else if (s_vehicle_after == VEH_AFTER_SAVE_LOG) { app_record_race(1); app_back(); }
+            else if (s_vehicle_after == VEH_AFTER_SAVE_LOG) {
+                app_record_race(s_save_race_mode);
+                app_push_confirm("RACE LOG SAVED", "RACE", "HOME",
+                                 cb_race_saved_menu, cb_race_saved_home);
+            }
             else { rec_make_log(); app_go_home_to(0); }
         } else if (ev->button == BTN_BACK) app_back();
         break;

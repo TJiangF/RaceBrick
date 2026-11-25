@@ -172,6 +172,12 @@ void race_store_end(const engine_t *e) {
 
 bool race_store_active(void) { return s_active; }
 
+void race_store_abort(void) {
+    if (s_slot >= 0) ext_flash_erase_sector(slot_base(s_slot));
+    s_active = false;
+    s_slot = -1;
+}
+
 bool race_store_read_sample(int slot, int index, race_sample_t *out) {
     race_hdr_t h;
     if (!read_hdr(slot, &h) || index < 0 || (uint32_t)index >= h.sample_count) return false;
