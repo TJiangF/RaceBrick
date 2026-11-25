@@ -2021,9 +2021,13 @@ static void history_build_preview(int rec_idx, histrec_t *r) {
         if (strcmp(hh.track_name, r->trackName) == 0 && diff < name_fallback_diff) {
             name_fallback_diff = diff; name_fallback = i; name_fallback_h = hh;
         }
-        if (strcmp(hh.track_name, r->trackName) == 0 && hh.lap_count == r->lapCount &&
-            diff < best_diff) {
-            best_diff = diff; slot = i; h = hh;
+        if (strcmp(hh.track_name, r->trackName) == 0 && hh.lap_count == r->lapCount) {
+            bool better = diff < best_diff - 0.01;
+            bool same_time_richer = fabs(diff - best_diff) <= 0.01 &&
+                                    (slot < 0 || hh.sample_count > h.sample_count);
+            if (better || same_time_richer) {
+                best_diff = diff; slot = i; h = hh;
+            }
         }
     }
     if (slot < 0 && fallback >= 0 && fallback_diff <= 15.0) {
@@ -2140,7 +2144,10 @@ static void render_history_detail(void) {
         }
     }
     if (!r) { title_c("RACE", 6); hint_c("NO RECORD", 60); return; }
-    if (!s_hist_prev_raw) gfx_text(182, 142, "NO RAW LAP DATA", PAL.orange, 0);
+    if (!s_hist_prev_raw) {
+        gfx_text(182, 136, "NO RAW LAP TRACE", PAL.orange, 0);
+        gfx_text(182, 148, "ONLY BEST TRACE", PAL.dim, 0);
+    }
     snprintf(b, sizeof b, "RACE %s", r->trackName);
     title_c(b, 6);
     vehicle_badge(258, 2, 56, 18, r->vehicle, false);
