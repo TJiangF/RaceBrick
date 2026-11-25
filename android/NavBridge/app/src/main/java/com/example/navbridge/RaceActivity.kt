@@ -1705,14 +1705,8 @@ class RaceActivity : LocalizedActivity() {
                 if (tracks.isNotEmpty() && satelliteCache.isNotEmpty() && !offlineMode) {
                     autoUploadSatellites()
                 }
-                if (autoSyncUid == found.uid) {
-                    autoSyncUid = null
-                    lastPromptedUid = found.uid
-                    lastPromptedIp = found.ip
-                    if (CloudStore.token(this) != null) syncCloud(found, forceLocalSync) else showCloudAccount()
-                } else {
-                    maybePromptCloud(found)
-                }
+                autoSyncUid = null
+                forceLocalSync = false
             }
         }
     }

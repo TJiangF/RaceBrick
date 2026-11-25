@@ -1352,10 +1352,9 @@ class MainActivity : LocalizedActivity() {
         if (MediaControl.hasAccess(this)) mediaPrompted = false
         lastMediaState = null
         sendMediaState()
-        syncWatchOn = true
+        // Cloud backup is manual in the new local-first model.
+        syncWatchOn = false
         syncWatchHandler.removeCallbacks(syncWatchTick)
-        syncWatchHandler.postDelayed(syncWatchTick, 7_000)
-        maybeCheckCloudOnLaunch()
     }
 
     override fun onPause() {

@@ -30,6 +30,8 @@ import kotlin.math.max
 class LocalRecordsActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private val satWorker = Executors.newSingleThreadExecutor()
+    private val satCache = HashMap<String, TrackSatellite>()
     private val db by lazy { SyncLocalDb(this) }
     private lateinit var list: LinearLayout
     private lateinit var status: TextView
@@ -109,8 +111,19 @@ class LocalRecordsActivity : AppCompatActivity() {
                         "session" -> sessionMap(e)
                         else -> logMap(e.payload)
                     }
-                    if (map != null) card.addView(map)
-                    else card.addView(text("No trace data", 0xFFE0A040.toInt()))
+                    if (map != null) {
+                        card.addView(map)
+                        if (tab == "track") {
+                            card.addView(text(
+                                String.format(Locale.US, "start %.1f%% · width %.1fm · offset %+.1fm · %s",
+                                    e.payload.optDouble("start_f", 0.0) * 100.0,
+                                    e.payload.optDouble("start_width", e.payload.optDouble("width", 5.0)),
+                                    e.payload.optDouble("start_offset", 0.0),
+                                    if (e.payload.optBoolean("reverse", false)) "CCW" else "CW"),
+                                0xFF8FA2B5.toInt(), 11f))
+                            attachSatellite(e, map)
+                        }
+                    } else card.addView(text("No trace data", 0xFFE0A040.toInt()))
                     if (tab == "session") {
                         val times = e.payload.optJSONArray("lap_times") ?: JSONArray()
                         card.addView(text("${e.payload.optInt("laps")} laps · ${fmtDate(e.payload.optLong("start"))} · ${times.length()} lap times", 0xFFA9C4BE.toInt(), 12f))
@@ -232,6 +245,45 @@ class LocalRecordsActivity : AppCompatActivity() {
         return PointF(x.toFloat(), y.toFloat())
     }
 
+    private fun attachSatellite(e: SyncLocalDb.LocalEntity, map: TrackMapView) {
+        satCache[e.uuid]?.let {
+            map.setSatellite(TrackMapView.Satellite(it.bitmap, it.bounds))
+            return
+        }
+        val detail = localDetail(e.payload) ?: return
+        satWorker.execute {
+            val sat = runCatching { TrackSatelliteApi.load(detail, null) }.getOrNull() ?: return@execute
+            main.post {
+                satCache[e.uuid] = sat
+                map.setSatellite(TrackMapView.Satellite(sat.bitmap, sat.bounds))
+            }
+        }
+    }
+
+    private fun localDetail(p: JSONObject): TrackDetail? {
+        val pts = pairs(p.optJSONArray("points") ?: return null)
+        if (pts.size < 2) return null
+        val ns = p.optDouble("nscale", 0.0)
+        val geo = if (p.optBoolean("geo", false) && ns > 1e-9) TrackGeoRef(
+            p.optDouble("glat0", 0.0), p.optDouble("glon0", 0.0), ns,
+            p.optDouble("nox", 0.0), p.optDouble("noy", 0.0),
+        ) else null
+        val sections = ArrayList<Double>()
+        p.optJSONArray("sections")?.let { a -> for (i in 0 until a.length()) sections += a.optDouble(i, 0.0) }
+        return TrackDetail(
+            name = p.optString("name", ""),
+            lengthM = p.optDouble("length_m", 0.0),
+            widthM = p.optDouble("width", 5.0),
+            startWidthM = p.optDouble("start_width", p.optDouble("width", 5.0)),
+            startF = p.optDouble("start_f", 0.0),
+            startOffsetM = p.optDouble("start_offset", 0.0),
+            reverse = p.optBoolean("reverse", false),
+            points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
+            geoRef = geo,
+            sections = sections,
+        )
+    }
+
     private fun editTrack(e: SyncLocalDb.LocalEntity) {
         val p = e.payload
         val box = LinearLayout(this).apply {
@@ -299,5 +351,9 @@ class LocalRecordsActivity : AppCompatActivity() {
     private fun fmtDate(ts: Long): String = if (ts <= 0) "time unknown" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ts * 1000L))
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    override fun onDestroy() { worker.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() {
+        worker.shutdownNow()
+        satWorker.shutdownNow()
+        super.onDestroy()
+    }
 }
