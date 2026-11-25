@@ -43,7 +43,7 @@ class WifiSetupDialog(
             background = rounded(0xFF0B1316.toInt())
         }
         val title = TextView(activity).apply {
-            text = "ESP WiFi 配网"
+            text = "ESP WiFi 配网 / 手机热点"
             setTextColor(0xFF66E0D2.toInt())
             textSize = 20f
             setPadding(0, 0, 0, px(6))
@@ -55,6 +55,12 @@ class WifiSetupDialog(
             setPadding(0, 0, 0, px(10))
         }
         root.addView(title)
+        root.addView(TextView(activity).apply {
+            text = "手机热点模式：先打开手机个人热点（2.4GHz），在下面输入热点名称和密码。设备连上后，RACE 页会自动发现并询问是否同步云端。"
+            setTextColor(0xFF6D817D.toInt())
+            textSize = 11f
+            setPadding(0, 0, 0, px(8))
+        })
         root.addView(status)
 
         val actions = LinearLayout(activity).apply {
@@ -77,7 +83,7 @@ class WifiSetupDialog(
         root.addView(actions)
 
         ssid.apply {
-            hint = "WiFi 名称（SSID）"
+            hint = "WiFi / 手机热点名称（SSID）"
             setSingleLine(true)
             setTextColor(Color.WHITE)
             setHintTextColor(0xFF6D817D.toInt())
@@ -85,7 +91,7 @@ class WifiSetupDialog(
             background = rounded(0xFF111E22.toInt(), 10f)
         }
         pass.apply {
-            hint = "WiFi 密码（开放网络留空）"
+            hint = "WiFi / 手机热点密码（开放网络留空）"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine(true)
             setTextColor(Color.WHITE)
@@ -192,6 +198,10 @@ class WifiSetupDialog(
             "STATUS" -> {
                 val text = Uri.decode(body.substringAfter(',', ""))
                 status.text = text.ifEmpty { "未知状态" }
+                Regex("(\\d{1,3}(?:\\.\\d{1,3}){3})").find(text)?.value?.let { ip ->
+                    RaceApi.saveBaseUrl(activity, "http://$ip")
+                    status.text = "$text\n设备地址已记录：http://$ip"
+                }
             }
             "SCAN_START" -> {
                 status.text = "ESP 正在扫描附近 WiFi…"

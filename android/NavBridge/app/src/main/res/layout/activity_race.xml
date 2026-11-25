@@ -39,6 +39,17 @@
                 android:textColor="#D7E7E4" />
 
             <Button
+                android:id="@+id/btnRaceCloud"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:minHeight="40dp"
+                android:text="云端"
+                android:textColor="#D7E7E4" />
+
+            <Button
                 android:id="@+id/btnRaceSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -107,6 +118,14 @@
                 android:textColor="#6D817D"
                 android:textSize="11sp" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="手机热点模式：在 NAV 页 WiFi 设置中让设备连接手机热点；设备连上后本页会自动发现并询问是否同步云端。"
+                android:textColor="#6D817D"
+                android:textSize="11sp" />
+
             <Button
                 android:id="@+id/btnRaceDirect"
                 android:layout_width="match_parent"
@@ -121,7 +140,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="点按后系统会连接 RaceBrick-XXXX（密码 racebrick）；直连期间手机可能没有互联网，离开 RACE 会自动断开。"
+                android:text="点按后系统会连接 RaceBrick-XXXX（密码 racebrick）；直连期间手机可能没有互联网，离开 RACE 会自动断开。手机热点模式不需要点这里。"
                 android:textColor="#6D817D"
                 android:textSize="11sp" />
 

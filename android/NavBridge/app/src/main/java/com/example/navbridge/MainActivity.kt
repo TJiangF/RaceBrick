@@ -194,6 +194,19 @@ class MainActivity : LocalizedActivity() {
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private val syncWatchHandler = Handler(Looper.getMainLooper())
+    private val syncWatchWorker = Executors.newSingleThreadExecutor()
+    private var syncWatchOn = false
+    private var syncWatchBusy = false
+    private var syncWatchMisses = 0
+    private var syncWatchPromptUid: String? = null
+    private val syncWatchTick = object : Runnable {
+        override fun run() {
+            if (!syncWatchOn) return
+            checkHotspotSync()
+            syncWatchHandler.postDelayed(this, 12_000)
+        }
+    }
     private val tdtWorker = Executors.newSingleThreadExecutor()
     private val routeWorker = Executors.newSingleThreadExecutor()
     private val lyricWorker = Executors.newSingleThreadExecutor()
@@ -1328,6 +1341,53 @@ class MainActivity : LocalizedActivity() {
         if (MediaControl.hasAccess(this)) mediaPrompted = false
         lastMediaState = null
         sendMediaState()
+        syncWatchOn = true
+        syncWatchHandler.removeCallbacks(syncWatchTick)
+        syncWatchHandler.postDelayed(syncWatchTick, 7_000)
+    }
+
+    override fun onPause() {
+        syncWatchOn = false
+        syncWatchHandler.removeCallbacks(syncWatchTick)
+        super.onPause()
+    }
+
+    private fun checkHotspotSync() {
+        if (!syncWatchOn || syncWatchBusy || isFinishing) return
+        syncWatchBusy = true
+        val saved = RaceApi.baseUrl(this)
+        syncWatchWorker.execute {
+            val found = HotspotDiscovery.find(saved, 3000)
+            main.post {
+                syncWatchBusy = false
+                if (isFinishing) return@post
+                if (found == null) {
+                    syncWatchMisses++
+                    if (syncWatchMisses >= 3) syncWatchPromptUid = null
+                    return@post
+                }
+                syncWatchMisses = 0
+                if (syncWatchPromptUid == found.uid) return@post
+                syncWatchPromptUid = found.uid
+                RaceApi.saveBaseUrl(this, found.baseUrl)
+                val logged = CloudStore.token(this) != null
+                val d = AlertDialog.Builder(this)
+                    .setTitle("RaceBrick 已连接手机热点")
+                    .setMessage("设备：${found.uid}\n\n" +
+                        (if (logged) "是否进入 RACE 同步 Track / Race Log？"
+                         else "登录云端账号后，可进入 RACE 同步 Track / Race Log。"))
+                    .setPositiveButton(if (logged) "进入同步" else "进入登录") { _, _ ->
+                        startActivity(
+                            Intent(this, RaceActivity::class.java)
+                                .putExtra(RaceActivity.EXTRA_AUTO_SYNC_UID, found.uid)
+                        )
+                    }
+                    .setNegativeButton("稍后", null)
+                    .create()
+                d.show()
+                Lang.localizeDialog(d)
+            }
+        }
     }
 
     private fun sendMediaProgress() {
@@ -1858,6 +1918,8 @@ class MainActivity : LocalizedActivity() {
         routeWorker.shutdownNow()
         lyricWorker.shutdownNow()
         frameWorker.shutdownNow()
+        syncWatchHandler.removeCallbacks(syncWatchTick)
+        syncWatchWorker.shutdownNow()
         super.onDestroy()
     }
 }

@@ -734,7 +734,5 @@ static void cloud_task(void *arg) {
 
 void cloud_sync_init(void) {
     identity_load();
-    ESP_LOGI(TAG, "uid=%s last=%u bytes", s_uid, (unsigned)s_last_size);
-    if (xTaskCreate(cloud_task, "cloud", 12288, NULL, 4, NULL) != pdPASS)
-        ESP_LOGE(TAG, "task create failed");
+    ESP_LOGI(TAG, "uid=%s direct cloud disabled", s_uid);
 }

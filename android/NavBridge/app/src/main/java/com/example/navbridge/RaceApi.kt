@@ -42,6 +42,7 @@ data class TrackDetail(
     val reverse: Boolean,
     val points: List<TrackMapView.Layer>,
     val geoRef: TrackGeoRef? = null,
+    val sections: List<Double> = emptyList(),
 )
 
 data class RaceLogEntry(
@@ -160,6 +161,9 @@ object RaceApi {
             nox = o.optDouble("nox", 0.0),
             noy = o.optDouble("noy", 0.0),
         ) else null
+        val sections = ArrayList<Double>()
+        val sa = o.optJSONArray("sections")
+        if (sa != null) for (j in 0 until sa.length()) sections += sa.optDouble(j, 0.0)
         return TrackDetail(
             name = o.optString("name", ""),
             lengthM = o.optDouble("length_m", 0.0),
@@ -170,6 +174,7 @@ object RaceApi {
             reverse = o.optInt("reverse", 0) != 0,
             points = listOf(TrackMapView.Layer(pts, 0xFF66E0D2.toInt())),
             geoRef = geoRef,
+            sections = sections,
         )
     }
 
@@ -324,6 +329,9 @@ object RaceApi {
 
     fun sessionCsv(base: String, slot: Int): ByteArray =
         get(base, "/api/session/file?id=$slot")
+
+    fun status(base: String): JSONObject =
+        JSONObject(get(base, "/api/status").toString(StandardCharsets.UTF_8))
 
     private fun parseSession(o: JSONObject): RaceSession {
         val times = ArrayList<Double>()

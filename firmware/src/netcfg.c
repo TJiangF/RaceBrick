@@ -16,6 +16,7 @@
 #include "app.h"
 #include "gps.h"
 #include "nav.h"
+#include "cloud_sync.h"
 #include "tstore.h"
 #include "race_store.h"
 #include "log_store.h"
@@ -480,13 +481,13 @@ static esp_err_t h_save(httpd_req_t *req) {
 
 static esp_err_t h_api_status(httpd_req_t *req) {
     ESP_LOGI(TAG, "api status start");
-    char b[320];
+    char b[384];
     gps_state_t *gp = gps_get();
     int n = snprintf(b, sizeof b,
-        "{\"wifi\":%d,\"ip\":\"%s\",\"fix\":%d,\"sats\":%d,\"hdop\":%.1f,\"speed\":%.1f,"
+        "{\"uid\":\"%s\",\"wifi\":%d,\"ip\":\"%s\",\"fix\":%d,\"sats\":%d,\"hdop\":%.1f,\"speed\":%.1f,"
         "\"lat\":%.6f,\"lon\":%.6f,\"lap\":%d,\"elapsed\":%.3f,\"tracks\":%d,"
         "\"nav\":%d,\"nav_age\":%d,\"nav_frames\":%d,\"nav_bytes\":%d,\"navz\":%d,\"nav_full\":%d,\"nav_mode\":%d}",
-        s_connected ? 1 : 0, s_ip, gp->fix_type, gp->sats_used, gp->hdop,
+        cloud_sync_uid(), s_connected ? 1 : 0, s_ip, gp->fix_type, gp->sats_used, gp->hdop,
         gp->speed_kmh, gp->lat, gp->lon,
         g.engine_valid ? g.engine.lap : 0,
         g.engine_valid ? g.engine.elapsed : 0.0f, tstore_count(),

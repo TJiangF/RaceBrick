@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.InputFilter
+import android.text.InputType
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -39,6 +40,10 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class RaceActivity : LocalizedActivity() {
+    companion object {
+        const val EXTRA_AUTO_SYNC_UID = "auto_sync_uid"
+    }
+
     private lateinit var tvStatus: TextView
     private lateinit var etUrl: EditText
     private lateinit var llList: LinearLayout
@@ -48,6 +53,8 @@ class RaceActivity : LocalizedActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val satelliteWorker = Executors.newSingleThreadExecutor()
+    private val cloudWorker = Executors.newSingleThreadExecutor()
+    private val cloudApi = CloudApi()
     private lateinit var direct: WifiDirectConnector
     private var generation = 0
 
@@ -63,6 +70,22 @@ class RaceActivity : LocalizedActivity() {
     private var showingLogs = false
     private var directPending = false
     private var awaitingWriteSettings = false
+    private var discoveredDevice: DiscoveredDevice? = null
+    private var hotspotWatching = false
+    private var hotspotChecking = false
+    private var hotspotMisses = 0
+    private var lastPromptedUid: String? = null
+    private var lastPromptedIp: String? = null
+    private var cloudSyncRunning = false
+    private var autoSyncUid: String? = null
+    private val hotspotHandler = Handler(Looper.getMainLooper())
+    private val hotspotTick = object : Runnable {
+        override fun run() {
+            if (!hotspotWatching) return
+            checkHotspot()
+            hotspotHandler.postDelayed(this, 10_000)
+        }
+    }
 
     private data class LoadedData(
         val tracks: List<RaceTrack>,
@@ -83,6 +106,7 @@ class RaceActivity : LocalizedActivity() {
         llList = findViewById(R.id.llRaceList)
         pbLoad = findViewById(R.id.pbRaceLoad)
         direct = WifiDirectConnector(this)
+        autoSyncUid = intent.getStringExtra(EXTRA_AUTO_SYNC_UID)
         etUrl.setText(RaceApi.baseUrl(this))
 
         findViewById<Button>(R.id.btnRaceNav).setOnClickListener { finish() }
@@ -90,6 +114,7 @@ class RaceActivity : LocalizedActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { directWithPermission() }
+        findViewById<Button>(R.id.btnRaceCloud).setOnClickListener { showCloudAccount() }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
             showingSessions = false
@@ -150,6 +175,15 @@ class RaceActivity : LocalizedActivity() {
             awaitingWriteSettings = false
             directWithPermission()
         }
+        hotspotWatching = true
+        hotspotHandler.removeCallbacks(hotspotTick)
+        hotspotHandler.postDelayed(hotspotTick, 1200)
+    }
+
+    override fun onPause() {
+        hotspotWatching = false
+        hotspotHandler.removeCallbacks(hotspotTick)
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(
@@ -1399,6 +1433,258 @@ class RaceActivity : LocalizedActivity() {
         Lang.localizeDialog(d)
     }
 
+    private fun checkHotspot() {
+        if (!hotspotWatching || hotspotChecking || direct.isConnected || isFinishing) return
+        hotspotChecking = true
+        val saved = RaceApi.baseUrl(this)
+        cloudWorker.execute {
+            val found = HotspotDiscovery.find(saved, 3200)
+            main.post {
+                hotspotChecking = false
+                if (isFinishing) return@post
+                if (found == null) {
+                    hotspotMisses++
+                    if (hotspotMisses >= 3) {
+                        discoveredDevice = null
+                        lastPromptedUid = null
+                        lastPromptedIp = null
+                    }
+                    return@post
+                }
+                hotspotMisses = 0
+                val changed = discoveredDevice?.uid != found.uid || discoveredDevice?.ip != found.ip
+                discoveredDevice = found
+                RaceApi.saveBaseUrl(this, found.baseUrl)
+                etUrl.setText(found.baseUrl)
+                if (changed) {
+                    status("发现 RaceBrick ${found.uid} · ${found.ip}")
+                    if (!cloudSyncRunning && tracks.isEmpty() && !isDestroyed &&
+                        autoSyncUid != found.uid) loadAll()
+                }
+                if (autoSyncUid == found.uid) {
+                    autoSyncUid = null
+                    lastPromptedUid = found.uid
+                    lastPromptedIp = found.ip
+                    if (CloudStore.token(this) != null) syncCloud(found) else showCloudAccount()
+                } else {
+                    maybePromptCloud(found)
+                }
+            }
+        }
+    }
+
+    private fun maybePromptCloud(device: DiscoveredDevice) {
+        if (lastPromptedUid == device.uid && lastPromptedIp == device.ip) return
+        lastPromptedUid = device.uid
+        lastPromptedIp = device.ip
+        val token = CloudStore.token(this)
+        if (token == null) {
+            val d = AlertDialog.Builder(this)
+                .setTitle("发现 RaceBrick")
+                .setMessage("设备已连上手机热点。登录云端账号后，可在本机与设备之间同步 Track 和 Race Log。")
+                .setPositiveButton("登录云端") { _, _ -> showCloudAccount() }
+                .setNegativeButton("稍后", null)
+                .create()
+            d.show()
+            Lang.localizeDialog(d)
+            return
+        }
+        val at = CloudStore.lastSyncAt(this, device.uid)
+        val bytes = CloudStore.lastSyncBytes(this, device.uid)
+        val whenText = if (at > 0) fmtCloudTime(at) else "尚未同步"
+        val message = "设备：${device.uid}\n上次同步：$whenText\n上次大小：${fmtCloudBytes(bytes)}\n\n云端保留最近 5 次完整同步记录。现在同步 Track / Race Log？"
+        val d = AlertDialog.Builder(this)
+            .setTitle("与 RaceBrick 同步 Race 信息？")
+            .setMessage(message)
+            .setPositiveButton("同步") { _, _ -> syncCloud(device) }
+            .setNeutralButton("云端账户") { _, _ -> showCloudAccount() }
+            .setNegativeButton("稍后", null)
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
+    private fun showCloudAccount() {
+        if (CloudStore.token(this) == null) showCloudLogin() else showCloudStatus()
+    }
+
+    private fun showCloudLogin() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val etUser = EditText(this).apply {
+            hint = "RaceBrick Cloud 用户名"
+            setSingleLine(true)
+            setText(CloudStore.username(this@RaceActivity))
+        }
+        val etPass = EditText(this).apply {
+            hint = "密码"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+        box.addView(etUser)
+        box.addView(etPass)
+        box.addView(TextView(this).apply {
+            text = "登录后可把设备数据传到云端，并在网页端查看和修改。"
+            setTextColor(0xFF6D817D.toInt())
+            textSize = 11f
+            setPadding(0, dp(8), 0, 0)
+        })
+        val d = AlertDialog.Builder(this)
+            .setTitle("云端账户")
+            .setView(box)
+            .setPositiveButton("登录", null)
+            .setNeutralButton("注册", null)
+            .setNegativeButton("取消", null)
+            .create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                cloudAuth(false, etUser.text.toString().trim(), etPass.text.toString(), d)
+            }
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                cloudAuth(true, etUser.text.toString().trim(), etPass.text.toString(), d)
+            }
+        }
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
+    private fun cloudAuth(register: Boolean, username: String, password: String, dialog: AlertDialog) {
+        if (username.isEmpty() || password.isEmpty()) {
+            toast("请输入用户名和密码")
+            return
+        }
+        status(if (register) "正在注册云端账户…" else "正在登录云端…")
+        cloudWorker.execute {
+            runCatching {
+                if (register) cloudApi.register(username, password)
+                else cloudApi.login(username, password)
+            }.onSuccess { account ->
+                main.post {
+                    CloudStore.save(this, account.token, account.username)
+                    toast(if (register) "账户已创建" else "云端登录成功")
+                    dialog.dismiss()
+                    discoveredDevice?.let { device ->
+                        if (!cloudSyncRunning) {
+                            syncCloud(device)
+                        }
+                    } ?: status("云端已登录；等待设备连接手机热点")
+                }
+            }.onFailure { e ->
+                main.post { fail("云端登录失败：${e.message}") }
+            }
+        }
+    }
+
+    private fun showCloudStatus() {
+        val token = CloudStore.token(this) ?: return
+        val user = CloudStore.username(this)
+        val device = discoveredDevice
+        val at = device?.let { CloudStore.lastSyncAt(this, it.uid) } ?: 0L
+        val bytes = device?.let { CloudStore.lastSyncBytes(this, it.uid) } ?: 0L
+        val msg = "账户：$user\n设备：${device?.uid ?: "未发现设备"}\n上次同步：${if (at > 0) fmtCloudTime(at) else "尚未同步"}\n上次大小：${fmtCloudBytes(bytes)}"
+        val d = AlertDialog.Builder(this)
+            .setTitle("RaceBrick Cloud")
+            .setMessage(msg)
+            .setPositiveButton("立即同步", null)
+            .setNeutralButton("5次记录", null)
+            .setNegativeButton("退出登录", null)
+            .create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = device != null
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                device?.let { syncCloud(it); d.dismiss() }
+            }
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                device?.let { showCloudHistory(it.uid) }
+            }
+            d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                CloudStore.clear(this)
+                toast("已退出云端账户")
+                d.dismiss()
+            }
+        }
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
+    private fun showCloudHistory(uid: String) {
+        val token = CloudStore.token(this) ?: return
+        status("正在读取云端同步记录…")
+        cloudWorker.execute {
+            runCatching { cloudApi.history(uid, token) }
+                .onSuccess { history ->
+                    main.post {
+                        val lines = ArrayList<String>()
+                        for (i in 0 until history.length()) {
+                            val h = history.getJSONObject(i)
+                            lines += "${fmtCloudTime(h.optLong("created_at", 0L))}  ${fmtCloudBytes(h.optLong("upload_bytes", 0L))}\n" +
+                                "${h.optInt("track_count", 0)} tracks · ${h.optInt("session_count", 0)} sessions · ${h.optInt("log_count", 0)} logs"
+                        }
+                        val text = if (lines.isEmpty()) "云端还没有同步记录。" else lines.joinToString("\n\n")
+                        val d = AlertDialog.Builder(this)
+                            .setTitle("最近 5 次云端记录")
+                            .setMessage(text)
+                            .setPositiveButton("关闭", null)
+                            .create()
+                        d.show()
+                        Lang.localizeDialog(d)
+                    }
+                }
+                .onFailure { e -> main.post { fail("读取云端记录失败：${e.message}") } }
+        }
+    }
+
+    private fun syncCloud(device: DiscoveredDevice) {
+        if (cloudSyncRunning) return
+        val token = CloudStore.token(this)
+        if (token == null) {
+            showCloudAccount()
+            return
+        }
+        cloudSyncRunning = true
+        discoveredDevice = device
+        RaceApi.saveBaseUrl(this, device.baseUrl)
+        etUrl.setText(device.baseUrl)
+        showBusy("正在与云端同步", "正在读取设备 Track / Race Log / Session…")
+        status("正在与云端同步 ${device.uid}…")
+        cloudWorker.execute {
+            runCatching {
+                CloudSyncManager.sync(this, device.baseUrl, device.uid, token) { msg ->
+                    main.post { if (!isFinishing) status(msg) }
+                }
+            }.onSuccess { r ->
+                main.post {
+                    cloudSyncRunning = false
+                    if (isFinishing) return@post
+                    hideBusy()
+                    status("云端同步完成：${r.tracks} 赛道 / ${r.logs} Race Log / ${r.sessions} Session，上传 ${fmtCloudBytes(r.uploadBytes.toLong())}")
+                    toast("云端同步完成")
+                    loadAll()
+                }
+            }.onFailure { e ->
+                main.post {
+                    cloudSyncRunning = false
+                    if (isFinishing) return@post
+                    hideBusy()
+                    fail("云端同步失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun fmtCloudTime(epoch: Long): String {
+        if (epoch <= 0L) return "尚未同步"
+        return SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(epoch * 1000L))
+    }
+
+    private fun fmtCloudBytes(bytes: Long): String {
+        if (bytes >= 1024L * 1024L) return String.format(Locale.US, "%.2f MB", bytes / 1024.0 / 1024.0)
+        if (bytes >= 1024L) return String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+        return "$bytes B"
+    }
+
     private fun formatTime(epoch: Long): String {
         if (epoch <= 1_600_000_000L) return "时间未同步"
         return SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(epoch * 1000L))
@@ -1427,8 +1713,10 @@ class RaceActivity : LocalizedActivity() {
         generation++
         hideBusy()
         direct.disconnect()
+        hotspotHandler.removeCallbacks(hotspotTick)
         worker.shutdownNow()
         satelliteWorker.shutdownNow()
+        cloudWorker.shutdownNow()
         super.onDestroy()
     }
 }
