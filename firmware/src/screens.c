@@ -22,6 +22,7 @@
 #include "netcfg.h"
 #include "nav.h"
 #include "cloud_sync.h"
+#include "vehicle_logos.h"
 #include "btmap.h"
 #include "china_map.h"
 #include "home_logos.h"
@@ -64,14 +65,14 @@ static const char *VEH_FULL[VEH_COUNT] = {
 #define HOMEF1_ORANGE RGB565(0xff, 0x80, 0x00)
 #define HOMEF1_SILVER RGB565(0xd5, 0xd7, 0xda)
 static const uint16_t VEH_COLORS[VEH_COUNT] = {
-    RGB565(0x5e, 0xd6, 0xa3), RGB565(0x66, 0xe0, 0xd2),
-    RGB565(0xff, 0xb7, 0x4d), RGB565(0xa7, 0x8b, 0xfa),
-    RGB565(0xff, 0xd1, 0x66), RGB565(0x64, 0xb5, 0xf6),
+    RGB565(0x29, 0x79, 0xff), RGB565(0xff, 0x8f, 0x00),
+    RGB565(0x43, 0xa0, 0x47), RGB565(0xff, 0xd6, 0x0a),
+    RGB565(0xe5, 0x39, 0x35), RGB565(0x8e, 0x24, 0xaa),
 };
 static const uint16_t VEH_DARK[VEH_COUNT] = {
-    RGB565(0x12, 0x35, 0x28), RGB565(0x10, 0x2f, 0x33),
-    RGB565(0x3a, 0x24, 0x0e), RGB565(0x25, 0x1b, 0x3d),
-    RGB565(0x3a, 0x2e, 0x12), RGB565(0x12, 0x26, 0x38),
+    RGB565(0x10, 0x23, 0x3d), RGB565(0x3d, 0x22, 0x08),
+    RGB565(0x10, 0x2e, 0x15), RGB565(0x38, 0x2f, 0x08),
+    RGB565(0x3a, 0x12, 0x12), RGB565(0x28, 0x10, 0x33),
 };
 enum { VEH_AFTER_NAMING, VEH_AFTER_MOUNT, VEH_AFTER_SAVE_LOG, VEH_AFTER_SAVE_NEW };
 static int s_vehicle_after = VEH_AFTER_NAMING;
@@ -1751,80 +1752,15 @@ static uint16_t vehicle_dark(int stored) {
 }
 
 static void vehicle_logo(int x, int y, int w, int h, int type, bool on) {
-    uint16_t body = on ? VEH_COLORS[type] : PAL.glyphoff;
-    uint16_t dark = on ? RGB565(0x0a, 0x0d, 0x12) : PAL.line;
-    uint16_t accent = on ? PAL.white : PAL.dim;
-    int cx = x + w / 2, by = y + h - 8;
-    if (f1_ui()) {
-        if (type <= 2) {
-            gfx_fill(x + 8, by - 16, w - 16, 8, body);
-            gfx_fill(x + 3, by - 10, 10, 12, dark);
-            gfx_fill(x + w - 13, by - 10, 10, 12, dark);
-            gfx_fill(cx - 6, by - 24, 12, 8, body);
-            gfx_line(x + 12, by - 20, x + w - 12, by - 20, accent);
-            if (type == 1) gfx_line(cx, by - 34, cx, by - 24, accent);
-            if (type == 2) gfx_line(x + w - 18, by - 18, x + w - 6, by - 26, body);
-        } else if (type == 3) {
-            gfx_fill(x + 5, by - 10, w - 10, 7, body);
-            gfx_fill(x + w / 2 - 4, by - 24, 8, 14, body);
-            gfx_fill(x + 2, by - 30, w - 4, 4, accent);
-            gfx_fill(x + 10, by - 6, 8, 8, dark);
-            gfx_fill(x + w - 18, by - 6, 8, 8, dark);
-        } else if (type == 4) {
-            gfx_circle(x + 12, by - 4, 8, dark);
-            gfx_circle(x + w - 12, by - 4, 8, dark);
-            gfx_line(x + 12, by - 4, cx, by - 22, body);
-            gfx_line(x + w - 12, by - 4, cx, by - 22, body);
-            gfx_fill(cx - 7, by - 28, 14, 9, body);
-            gfx_disc(cx, by - 31, 4, accent);
-        } else {
-            gfx_circle(x + 12, by - 4, 7, dark);
-            gfx_circle(x + w - 12, by - 4, 7, dark);
-            gfx_line(x + 12, by - 4, cx, by - 24, body);
-            gfx_line(x + w - 12, by - 4, cx, by - 24, body);
-            gfx_line(x + 12, by - 4, x + w - 12, by - 4, body);
-            gfx_line(cx, by - 24, x + w - 12, by - 4, accent);
-            gfx_line(cx - 8, by - 34, cx + 8, by - 34, accent);
-        }
-    } else {
-        if (type <= 2) {
-            gfx_fill(x + 6, by - 12, 9, 12, dark);
-            gfx_fill(x + w - 15, by - 12, 9, 12, dark);
-            gfx_fill(x + 4, by - 20, w - 8, 10, body);
-            gfx_fill(x + 10, by - 27, w - 20, 8, body);
-            gfx_fill(cx - 7, by - 24, 14, 10, dark);
-            gfx_fill(x + 9, by - 34, 3, 12, accent);
-            if (type == 0) {
-                gfx_fill(x + w - 18, by - 28, 12, 12, body);
-            } else if (type == 1) {
-                gfx_fill(x + w - 22, by - 30, 16, 8, accent);
-                gfx_line(x + 11, by - 34, x + 18, by - 34, body);
-            } else {
-                gfx_fill(x + w - 16, by - 22, 12, 5, accent);
-                gfx_line(x + w - 20, by - 32, x + w - 4, by - 36, body);
-            }
-            gfx_fill(x + 8, by - 18, 4, 4, PAL.yellow);
-            gfx_fill(x + w - 12, by - 18, 4, 4, PAL.yellow);
-        } else if (type == 3) {
-            gfx_fill(x + 2, by - 18, w - 4, 8, body);
-            gfx_fill(cx - 5, by - 29, 10, 12, body);
-            gfx_fill(x + 4, by - 35, w - 8, 4, accent);
-            gfx_fill(x + 10, by - 10, 10, 10, dark);
-            gfx_fill(x + w - 20, by - 10, 10, 10, dark);
-            gfx_fill(cx - 3, by - 20, 6, 4, PAL.yellow);
-        } else if (type == 4) {
-            gfx_circle(x + 13, by - 3, 9, dark);
-            gfx_circle(x + w - 13, by - 3, 9, dark);
-            gfx_fill(x + 9, by - 16, w - 18, 9, body);
-            gfx_fill(cx - 8, by - 28, 16, 12, body);
-            gfx_fill(cx - 5, by - 38, 10, 10, accent);
-        } else {
-            gfx_circle(x + 12, by - 3, 8, dark);
-            gfx_circle(x + w - 12, by - 3, 8, dark);
-            gfx_line(x + 12, by - 3, cx, by - 25, body);
-            gfx_line(x + w - 12, by - 3, cx, by - 25, body);
-            gfx_line(x + 12, by - 3, x + w - 12, by - 3, body);
-            gfx_fill(cx - 8, by - 30, 16, 4, accent);
+    (void)w; (void)h; (void)on;
+    if (type < 0 || type >= VEH_COUNT) return;
+    const uint16_t *px = VEH_LOGOS[type];
+    const uint8_t *mask = VEH_LOGOS_MASK[type];
+    for (int row = 0; row < VEH_LOGO_H; row++) {
+        for (int col = 0; col < VEH_LOGO_W; col++) {
+            int i = row * VEH_LOGO_W + col;
+            if (!(mask[i >> 3] & (1u << (i & 7)))) continue;
+            gfx_pixel(x + col, y + row, px[i]);
         }
     }
 }
@@ -1841,11 +1777,9 @@ static void render_vehicle(void) {
         bool on = i == g.sel;
         gfx_pxbox(x, y, bw, bh, on ? PAL.cyan : PAL.line, 1,
                   on ? PAL.seltint : PAL.panel);
-        vehicle_logo(x + 8, y + 3, bw - 16, 52, i, on);
-        gfx_text_center(x + bw / 2, y + 59, VEH_NAMES[i],
+        vehicle_logo(x + (bw - VEH_LOGO_W) / 2, y + 2, VEH_LOGO_W, VEH_LOGO_H, i, on);
+        gfx_text_center(x + bw / 2, y + 65, VEH_NAMES[i],
                         on ? VEH_COLORS[i] : PAL.dim, 1);
-        gfx_text_center(x + bw / 2, y + 72, VEH_FULL[i],
-                        on ? PAL.white : PAL.glyphoff, 0);
     }
     hint_c("L/R U/D SELECT - PUSH CONFIRM", HINT_Y);
 }
