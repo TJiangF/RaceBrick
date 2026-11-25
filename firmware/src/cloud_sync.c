@@ -116,7 +116,7 @@ void cloud_sync_summary(char *buf, int cap) {
     fmt_time(when, sizeof(when), s_last_time);
     fmt_size(last, sizeof(last), s_last_size);
     fmt_size(up, sizeof(up), s_upload_bytes);
-    snprintf(buf, cap, "SYNC TO CLOUD?\nUID %s\nLast %s  %s\nUpload %s  %dT/%dL",
+    snprintf(buf, cap, "SYNC TO CLOUD?\nUID %s\nLast %s UTC  %s\nUpload %s  %dT/%dL",
              s_uid, when, last, up, s_track_count, s_log_count);
 }
 
