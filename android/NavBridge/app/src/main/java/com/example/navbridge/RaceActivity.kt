@@ -150,12 +150,6 @@ class RaceActivity : LocalizedActivity() {
             showingLogs = false
             renderSessions()
         }
-        findViewById<Button>(R.id.btnRaceLogs).setOnClickListener {
-            showingSessions = false
-            showingLogs = true
-            logFilterName = null
-            renderLogs()
-        }
 
         if (offlineMode) {
             offlineModeUi()
@@ -163,7 +157,7 @@ class RaceActivity : LocalizedActivity() {
         } else if (localDb.summary().let { it.tracks > 0 || it.sessions > 0 }) {
             loadLocalData()
         } else {
-            status("点击“连接并刷新”读取设备数据")
+            status("点击“同步 RaceBrick 设备数据”读取设备")
         }
     }
 
@@ -2255,8 +2249,6 @@ class RaceActivity : LocalizedActivity() {
                     } else {
                         fail("卫星图同步：成功 $done，失败 $failed")
                     }
-                } else if (done > 0) {
-                    status("卫星图已自动同步到设备：$done 张")
                 }
             }
         }

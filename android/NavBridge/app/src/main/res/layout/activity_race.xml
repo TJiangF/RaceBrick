@@ -144,6 +144,16 @@
                 android:textColor="#6D817D"
                 android:textSize="11sp" />
 
+            <Button
+                android:id="@+id/btnRaceLoad"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/btn_primary"
+                android:backgroundTint="@null"
+                android:text="同步 RaceBrick 设备数据"
+                android:textColor="#F2FFFB" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -151,20 +161,9 @@
                 android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/btnRaceLoad"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary"
-                    android:backgroundTint="@null"
-                    android:text="连接设备（仅查看）"
-                    android:textColor="#F2FFFB" />
-
-                <Button
                     android:id="@+id/btnRaceTracks"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
                     android:layout_weight="1"
                     android:background="@drawable/btn_secondary"
                     android:backgroundTint="@null"
@@ -181,18 +180,6 @@
                     android:backgroundTint="@null"
                     android:text="Race Log"
                     android:textColor="#D7E7E4" />
-
-                <Button
-                    android:id="@+id/btnRaceLogs"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:visibility="gone"
-                    android:background="@drawable/btn_secondary"
-                    android:backgroundTint="@null"
-                    android:text="OLD LOG"
-                    android:textColor="#D7E7E4" />
             </LinearLayout>
 
             <Button
@@ -200,6 +187,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:visibility="gone"
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:text="上传全部卫星图到设备"

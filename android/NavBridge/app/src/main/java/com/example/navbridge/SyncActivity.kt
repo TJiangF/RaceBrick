@@ -464,7 +464,11 @@ class SyncActivity : AppCompatActivity() {
                 main.post {
                     busy?.dismiss()
                     busy = null
-                    toast("已备份：${r.tracks} Tracks / ${r.sessions} Race Logs（版本 ${r.dataVersion}）")
+                    if (r.tracks == 0 && r.sessions == 0) {
+                        toast("云端已是最新，没有新增备份历史")
+                    } else {
+                        toast("已备份：${r.tracks} Tracks / ${r.sessions} Race Logs（版本 ${r.dataVersion}）")
+                    }
                     refresh()
                 }
             } catch (e: Exception) {
