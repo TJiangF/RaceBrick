@@ -39,6 +39,11 @@ data class TrackUpdate(
     val revisionId: String,
 )
 
+class TrackConflictException(
+    val currentVersion: Int,
+    val currentRevisionId: String,
+) : IllegalStateException("设备 Track 已被更新")
+
 data class TrackGeoRef(
     val lat0: Double,
     val lon0: Double,
@@ -281,15 +286,33 @@ object RaceApi {
     fun updateTrack(
         base: String, id: Int, name: String,
         startF: Double, reverse: Boolean, startWidthM: Double, offsetM: Double,
+        baseRevisionId: String = "",
     ): TrackUpdate {
         val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
         val sf = String.format(Locale.US, "%.5f", startF)
         val sw = String.format(Locale.US, "%.2f", startWidthM)
         val off = String.format(Locale.US, "%.2f", offsetM)
-        val body = post(
-            base,
-            "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&start_width=$sw&offset=$off",
-        )
+        val baseRev = if (baseRevisionId.isBlank()) "" else
+            "&base_rev=" + URLEncoder.encode(baseRevisionId, StandardCharsets.UTF_8.name())
+        val path = "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}" +
+            "&start_width=$sw&offset=$off$baseRev"
+        val conn = open(base, path, "POST")
+        val body: ByteArray
+        val code: Int
+        try {
+            code = conn.responseCode
+            body = drain(conn)
+        } finally {
+            conn.disconnect()
+        }
+        if (code == 409) {
+            val o = runCatching { JSONObject(body.toString(StandardCharsets.UTF_8)) }.getOrDefault(JSONObject())
+            throw TrackConflictException(
+                currentVersion = o.optInt("current_version", 0),
+                currentRevisionId = o.optString("current_revision_id", ""),
+            )
+        }
+        if (code !in 200..299) throw IllegalStateException("HTTP $code")
         val o = JSONObject(body.toString(StandardCharsets.UTF_8))
         if (o.optInt("ok", 0) == 0) throw IllegalStateException("设备拒绝了保存")
         return TrackUpdate(

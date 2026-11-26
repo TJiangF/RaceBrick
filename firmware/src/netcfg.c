@@ -657,7 +657,7 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
 }
 
 static int query_int(httpd_req_t *req, const char *name, int defv) {
-    char q[96] = {0}, v[24];
+    char q[512] = {0}, v[32];
     if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
         httpd_query_key_value(q, name, v, sizeof v) == ESP_OK) {
         return atoi(v);
@@ -666,7 +666,7 @@ static int query_int(httpd_req_t *req, const char *name, int defv) {
 }
 
 static double query_double(httpd_req_t *req, const char *name, double defv) {
-    char q[256] = {0}, v[32];
+    char q[512] = {0}, v[40];
     if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
         httpd_query_key_value(q, name, v, sizeof v) == ESP_OK) {
         return strtod(v, NULL);
@@ -675,7 +675,7 @@ static double query_double(httpd_req_t *req, const char *name, double defv) {
 }
 
 static bool query_str(httpd_req_t *req, const char *name, char *out, int cap) {
-    char q[256] = {0};
+    char q[512] = {0};
     if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK) return false;
     if (httpd_query_key_value(q, name, out, cap) != ESP_OK) return false;
     urldecode(out);
@@ -702,6 +702,30 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
         int old_slot = id;
         bool ok = tstore_load(id, t);
+        if (ok) {
+            char base_rev[40] = {0};
+            if (query_str(req, "base_rev", base_rev, sizeof base_rev) && base_rev[0]) {
+                rb_uuid_t base_uuid;
+                if (!rb_uuid_parse(base_rev, &base_uuid)) {
+                    free(t);
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad base_rev");
+                    return ESP_FAIL;
+                }
+                if (!rb_uuid_equal(&t->rev_id, &base_uuid)) {
+                    char cur[40];
+                    rb_uuid_format(&t->rev_id, cur, sizeof(cur));
+                    char resp[256];
+                    snprintf(resp, sizeof(resp),
+                             "{\"ok\":0,\"error\":\"version_conflict\","
+                             "\"current_version\":%u,\"current_revision_id\":\"%s\"}",
+                             (unsigned)t->revision, cur);
+                    free(t);
+                    httpd_resp_set_status(req, "409 Conflict");
+                    httpd_resp_set_type(req, "application/json");
+                    return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+                }
+            }
+        }
         char old_name[48] = {0};
         if (ok) snprintf(old_name, sizeof old_name, "%s", t->name);
         int old_reverse = t ? t->reverse : 0;

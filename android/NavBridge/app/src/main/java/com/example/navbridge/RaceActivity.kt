@@ -1384,6 +1384,7 @@ class RaceActivity : LocalizedActivity() {
                         val result = RaceApi.updateTrack(
                             b, t.id, name, startPct / 100.0,
                             swReverse.isChecked, startWidthM, offsetM,
+                            baseRevisionId = t.revisionId,
                         )
                         if (t.uuid.isNotBlank() && result.uuid.isNotBlank() &&
                             result.uuid != t.uuid) {
@@ -1462,7 +1463,16 @@ class RaceActivity : LocalizedActivity() {
                                 else -> renderTracks()
                             }
                         }
-                    }.onFailure { e -> main.post { fail("保存失败：${e.message}") } }
+                    }.onFailure { e ->
+                        main.post {
+                            if (e is TrackConflictException) {
+                                fail("设备 Track 已更新为 v${e.currentVersion}，请重新打开编辑")
+                                toast("设备已被其他操作更新，本次修改未提交")
+                            } else {
+                                fail("保存失败：${e.message}")
+                            }
+                        }
+                    }
                 }
             }
         }
