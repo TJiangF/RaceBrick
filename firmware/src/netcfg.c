@@ -913,17 +913,19 @@ static esp_err_t h_api_log_rename(httpd_req_t *req) {
 }
 
 static esp_err_t h_api_sessions(httpd_req_t *req) {
-    char b[4096];
-    int n = snprintf(b, sizeof b, "{\"count\":%d,\"sessions\":[", race_store_count());
+    const int cap = 8192;
+    char *b = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int n = snprintf(b, cap, "{\"count\":%d,\"sessions\":[", race_store_count());
     bool first = true;
-    for (int i = 0; i < RACE_SLOTS && n < (int)sizeof(b) - 220; i++) {
+    for (int i = 0; i < RACE_SLOTS && n < cap - 240; i++) {
         race_hdr_t h;
         if (!race_store_info(i, &h)) continue;
         char sid[40], tid[40], rid[40];
         rb_uuid_format(&h.session_id, sid, sizeof(sid));
         rb_uuid_format(&h.track_id, tid, sizeof(tid));
         rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
-        n += snprintf(b + n, sizeof(b) - n,
+        n += snprintf(b + n, cap - n,
             "%s{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
             "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
             "\"track_version\":%lu,\"track_name\":\"%s\","
@@ -938,9 +940,11 @@ static esp_err_t h_api_sessions(httpd_req_t *req) {
             h.lap_count, h.mode);
         first = false;
     }
-    n += snprintf(b + n, sizeof(b) - n, "]}");
+    n += snprintf(b + n, cap - n, "]}");
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, b, n);
+    esp_err_t r = httpd_resp_send(req, b, n);
+    free(b);
+    return r;
 }
 
 static esp_err_t h_api_session(httpd_req_t *req) {
@@ -955,12 +959,14 @@ static esp_err_t h_api_session(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
         return ESP_FAIL;
     }
-    char b[3584];
+    const int cap = 4096;
+    char *b = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
     char sid[40], tid[40], rid[40];
     rb_uuid_format(&h.session_id, sid, sizeof(sid));
     rb_uuid_format(&h.track_id, tid, sizeof(tid));
     rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
-    int n = snprintf(b, sizeof b,
+    int n = snprintf(b, cap,
         "{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
         "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
         "\"track_version\":%lu,\"track_name\":\"%s\","
@@ -972,25 +978,27 @@ static esp_err_t h_api_session(httpd_req_t *req) {
         (unsigned long)h.duration_ms, (unsigned long)h.sample_count,
         (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
         h.lap_count, h.lap_deleted_mask);
-    for (int i = 0; i < h.lap_count && n < 2800; i++)
-        n += snprintf(b + n, sizeof(b) - n, "%s%.3f", i ? "," : "", (double)h.lap_time[i]);
-    n += snprintf(b + n, sizeof(b) - n, "],\"lap_ids\":[");
-    for (int i = 0; i < h.lap_count && n < 3400; i++) {
+    for (int i = 0; i < h.lap_count && n < cap - 1280; i++)
+        n += snprintf(b + n, cap - n, "%s%.3f", i ? "," : "", (double)h.lap_time[i]);
+    n += snprintf(b + n, cap - n, "],\"lap_ids\":[");
+    for (int i = 0; i < h.lap_count && n < cap - 800; i++) {
         char lid[40];
         rb_uuid_format(&h.lap_id[i], lid, sizeof(lid));
-        n += snprintf(b + n, sizeof(b) - n, "%s\"%s\"", i ? "," : "", lid);
+        n += snprintf(b + n, cap - n, "%s\"%s\"", i ? "," : "", lid);
     }
-    n += snprintf(b + n, sizeof(b) - n, "],\"lap_sample_start\":[");
-    for (int i = 0; i < h.lap_count && n < 3550; i++)
-        n += snprintf(b + n, sizeof(b) - n, "%s%lu", i ? "," : "",
+    n += snprintf(b + n, cap - n, "],\"lap_sample_start\":[");
+    for (int i = 0; i < h.lap_count && n < cap - 400; i++)
+        n += snprintf(b + n, cap - n, "%s%lu", i ? "," : "",
                       (unsigned long)h.lap_sample_start[i]);
-    n += snprintf(b + n, sizeof(b) - n, "],\"lap_sample_end\":[");
-    for (int i = 0; i < h.lap_count && n < 3550; i++)
-        n += snprintf(b + n, sizeof(b) - n, "%s%lu", i ? "," : "",
+    n += snprintf(b + n, cap - n, "],\"lap_sample_end\":[");
+    for (int i = 0; i < h.lap_count && n < cap - 180; i++)
+        n += snprintf(b + n, cap - n, "%s%lu", i ? "," : "",
                       (unsigned long)h.lap_sample_end[i]);
-    n += snprintf(b + n, sizeof(b) - n, "]}");
+    n += snprintf(b + n, cap - n, "]}");
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, b, n);
+    esp_err_t r = httpd_resp_send(req, b, n);
+    free(b);
+    return r;
 }
 
 static esp_err_t h_api_session_lap_delete(httpd_req_t *req) {
@@ -1047,22 +1055,26 @@ static esp_err_t h_api_session_laps(httpd_req_t *req) {
         }
         prev_lat = lat; prev_lon = lon; prev_lap = lap;
     }
-    char b[4096];
-    int n = snprintf(b, sizeof b, "{\"slot\":%d,\"laps\":[", id);
+    const int cap = 4096;
+    char *b = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int n = snprintf(b, cap, "{\"slot\":%d,\"laps\":[", id);
     bool first = true;
     for (int i = 0; i < h.lap_count && i < RACE_LAPS; i++) {
         bool deleted = (h.lap_deleted_mask & (1u << i)) != 0;
         double avg = cnt[i] ? sum_kmh[i] / cnt[i] : 0.0;
-        n += snprintf(b + n, sizeof(b) - n,
+        n += snprintf(b + n, cap - n,
             "%s{\"lap\":%d,\"time\":%.3f,\"samples\":%lu,\"distance_m\":%.1f,"
             "\"avg_kmh\":%.1f,\"max_kmh\":%.1f,\"deleted\":%d}",
             first ? "" : ",", i + 1, (double)h.lap_time[i],
             (unsigned long)cnt[i], dist[i], avg, (double)max_kmh[i], deleted ? 1 : 0);
         first = false;
     }
-    n += snprintf(b + n, sizeof(b) - n, "]}");
+    n += snprintf(b + n, cap - n, "]}");
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, b, n);
+    esp_err_t r = httpd_resp_send(req, b, n);
+    free(b);
+    return r;
 }
 
 static int append_lap_arrays(char *b, int n, int cap,
@@ -1337,7 +1349,7 @@ static esp_err_t h_api_track_image(httpd_req_t *req) {
 static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size = 8192;
+    cfg.stack_size = 12288;
     cfg.max_uri_handlers = 32;   /* UI + debug + race storage + satellite */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };

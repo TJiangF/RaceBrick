@@ -24,6 +24,8 @@ static uint32_t s_last_fix_seq;
 static bool s_start_valid;
 static uint32_t s_lap_first[RACE_LAPS];
 static uint32_t s_lap_last[RACE_LAPS];
+static int s_hdr_cache_slot = -1;
+static race_hdr_t s_hdr_cache;
 
 _Static_assert(sizeof(race_hdr_t) <= RACE_HDR_SIZE, "race header too large");
 _Static_assert(sizeof(race_sample_t) == RACE_SAMPLE_SIZE, "race sample must be 16 bytes");
@@ -58,6 +60,7 @@ static bool read_hdr(int slot, race_hdr_t *h) {
 
 static bool write_hdr(int slot, race_hdr_t *h) {
     if (slot < 0 || slot >= RACE_SLOTS) return false;
+    s_hdr_cache_slot = -1;
     if (h->ver >= 2) h->hash2 = hdr_hash2(h);
     else h->hash = hdr_hash(h);
     if (!ext_flash_erase_sector(slot_base(slot))) return false;
@@ -112,6 +115,24 @@ void race_store_migrate(void) {
     free(h);
     free(v2);
 }
+static void hdr_cache_invalidate(void) {
+    s_hdr_cache_slot = -1;
+}
+
+static bool hdr_cached(int slot, race_hdr_t *out) {
+    if (slot == s_hdr_cache_slot) {
+        *out = s_hdr_cache;
+        return true;
+    }
+    if (!read_hdr(slot, &s_hdr_cache)) {
+        s_hdr_cache_slot = -1;
+        return false;
+    }
+    s_hdr_cache_slot = slot;
+    *out = s_hdr_cache;
+    return true;
+}
+
 int race_store_count(void) {
     int n = 0;
     race_hdr_t h;
@@ -146,6 +167,7 @@ bool race_store_begin(int track_slot, const char *track_name, int mode,
         ESP_LOGW(TAG, "no free session slot");
         return false;
     }
+    hdr_cache_invalidate();
     memset(&s_hdr, 0, sizeof(s_hdr));
     s_hdr.magic = RACE_MAGIC;
     s_hdr.ver = 2;
@@ -268,6 +290,7 @@ void race_store_end(const engine_t *e) {
 bool race_store_active(void) { return s_active; }
 
 void race_store_abort(void) {
+    hdr_cache_invalidate();
     if (s_slot >= 0) ext_flash_erase_sector(slot_base(s_slot));
     s_active = false;
     s_slot = -1;
@@ -275,7 +298,7 @@ void race_store_abort(void) {
 
 bool race_store_read_sample_v2(int slot, int index, race_sample_v2_t *out) {
     race_hdr_t h;
-    if (!out || !read_hdr(slot, &h) || index < 0 || (uint32_t)index >= h.sample_count) return false;
+    if (!out || !hdr_cached(slot, &h) || index < 0 || (uint32_t)index >= h.sample_count) return false;
     if (h.ver >= 2 && h.sample_size == RACE_SAMPLE_V2_SIZE) {
         uint32_t off = slot_base(slot) + RACE_HDR_SIZE +
                        (uint32_t)index * RACE_SAMPLE_V2_SIZE;

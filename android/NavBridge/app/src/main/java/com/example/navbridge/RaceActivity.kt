@@ -989,14 +989,6 @@ class RaceActivity : LocalizedActivity() {
                         textSize = 12f
                     }
                 )
-                if (!l.deleted && !offlineMode) {
-                    val del = button("删除这一圈") { confirmDeleteLap(s, l.lap) }
-                    del.layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { topMargin = dp(4) }
-                    row.addView(del)
-                }
                 content.addView(row)
             }
         } else {
@@ -1360,48 +1352,39 @@ class RaceActivity : LocalizedActivity() {
                         .onFailure { failed += "${s.id}: ${it.message}" }
                 }
                 main.post {
+                    val slots = list.map { it.slot }.toSet()
+                    sessions = sessions.filterNot { it.slot in slots }
+                    for (slot in slots) {
+                        traceCache.remove(slot)
+                        sessionLapCache.remove(slot)
+                    }
+                    markCacheDirty()
                     if (failed.isEmpty()) {
-                        markCacheDirty()
+                        status("已删除 ${list.size} 条 Race Log（仅同步删除动作）")
                         toast("已清空 ${list.size} 条 Race Log")
-                        loadAll()
                     } else {
                         fail("部分删除失败：${failed.first()}")
-                        loadAll()
                     }
+                    renderSessions()
                 }
             }
         }
     }
 
     private fun confirmDeleteSession(s: RaceSession) {
-        confirm("删除场次", "删除这整场原始数据？此操作不可恢复。") {
-            val gen = ++generation
+        confirm("删除 Race Log", "从设备删除这条 Race Log？只同步删除动作，不修改原始数据。") {
             val b = base()
             worker.execute {
                 runCatching { RaceApi.deleteSession(b, s.slot) }
                     .onSuccess {
                         main.post {
-                            if (gen != generation) return@post
+                            sessions = sessions.filterNot { it.slot == s.slot }
+                            traceCache.remove(s.slot)
+                            sessionLapCache.remove(s.slot)
                             markCacheDirty()
-                            toast("已删除场次")
-                            loadAll()
-                        }
-                    }
-                    .onFailure { e -> main.post { fail("删除失败：${e.message}") } }
-            }
-        }
-    }
-
-    private fun confirmDeleteLap(s: RaceSession, lap: Int) {
-        confirm("删除单圈", "只删除第 $lap 圈的圈速/轨迹标记，原始场次保留。") {
-            val b = base()
-            worker.execute {
-                runCatching { RaceApi.deleteLap(b, s.slot, lap) }
-                    .onSuccess {
-                        main.post {
-                            markCacheDirty()
-                            toast("已删除第 $lap 圈")
-                            loadAll()
+                            status("Race Log 已删除：${s.trackName}（仅同步删除动作）")
+                            toast("已删除 Race Log")
+                            renderSessions()
                         }
                     }
                     .onFailure { e -> main.post { fail("删除失败：${e.message}") } }
