@@ -133,8 +133,8 @@ class SyncActivity : AppCompatActivity() {
         })
         content.addView(button("CHECK DEVICE / LOCAL DIFFERENCES") { checkDifferences() })
         content.addView(button("FULL IMPORT RACEBRICK -> LOCAL APP") { loadDevice() })
-        content.addView(button("BACKUP LOCAL -> CLOUD（待增量 API）") { toast("增量云备份尚未实现") })
-        content.addView(button("RESTORE CLOUD -> LOCAL（待版本校验）") { toast("云端恢复尚未实现") })
+        content.addView(button("BACKUP LOCAL -> CLOUD（手动）") { backupLocal() })
+        content.addView(button("RESTORE CLOUD -> LOCAL（手动）") { restoreLocal() })
         content.addView(button(if (CloudStore.token(this) == null) "LOGIN CLOUD" else "REFRESH CLOUD") {
             if (CloudStore.token(this) == null) loginDialog() else refresh()
         })
@@ -425,6 +425,99 @@ class SyncActivity : AppCompatActivity() {
                 busy?.dismiss(); busy = null
                 toast(if (failed.isEmpty()) "已推送 $ok 条 Track" else "成功 $ok，失败 ${failed.size}：${failed.first()}")
                 refresh()
+            }
+        }
+    }
+
+    private fun backupLocal() {
+        if (busy != null) return
+        val uidNow = uid?.takeIf { it.isNotBlank() } ?: db.summary().uid
+        if (uidNow.isNullOrBlank()) {
+            toast("没有设备 UID，请先连接设备或导入数据")
+            return
+        }
+        val token = CloudStore.token(this)
+        if (token.isNullOrBlank()) {
+            toast("请先登录云端")
+            loginDialog()
+            return
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        box.addView(TextView(this).apply {
+            text = "正在上传 Local App 数据到云端…"
+            setTextColor(0xFFA9C4BE.toInt())
+        })
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+        })
+        busy = AlertDialog.Builder(this).setTitle("Local -> Cloud").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            try {
+                val r = LocalCloudBackup.backup(db, uidNow, token)
+                CloudStore.saveRevision(this, uidNow, r.revision)
+                CloudStore.saveLastSync(this, uidNow, System.currentTimeMillis() / 1000L,
+                    r.bytes.toLong())
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("已备份：${r.tracks} Tracks / ${r.sessions} Race Logs（版本 ${r.dataVersion}）")
+                    refresh()
+                }
+            } catch (e: Exception) {
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("云备份失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun restoreLocal() {
+        if (busy != null) return
+        val uidNow = uid?.takeIf { it.isNotBlank() } ?: db.summary().uid
+        if (uidNow.isNullOrBlank()) {
+            toast("没有设备 UID")
+            return
+        }
+        val token = CloudStore.token(this)
+        if (token.isNullOrBlank()) {
+            toast("请先登录云端")
+            loginDialog()
+            return
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        box.addView(TextView(this).apply {
+            text = "正在从云端恢复到 Local App…"
+            setTextColor(0xFFA9C4BE.toInt())
+        })
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+        })
+        busy = AlertDialog.Builder(this).setTitle("Cloud -> Local").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            try {
+                val r = LocalCloudBackup.restore(db, uidNow, token)
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("已恢复：${r.tracks} Tracks / ${r.sessions} Race Logs")
+                    refresh()
+                }
+            } catch (e: Exception) {
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("云端恢复失败：${e.message}")
+                }
             }
         }
     }
