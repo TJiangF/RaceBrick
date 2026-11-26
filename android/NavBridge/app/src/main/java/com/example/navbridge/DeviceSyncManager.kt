@@ -19,6 +19,13 @@ object DeviceSyncManager {
         val sessions: List<SessionPick>,
     )
 
+    data class ImportResult(
+        val summary: SyncLocalDb.Summary,
+        val tracks: Int,
+        val sessions: Int,
+        val failures: List<String>,
+    )
+
     fun importSelected(
         context: Context,
         base: String,
@@ -26,36 +33,49 @@ object DeviceSyncManager {
         db: SyncLocalDb,
         selection: Selection,
         progress: (String) -> Unit = {},
-    ): SyncLocalDb.Summary {
+    ): ImportResult {
         val cleanup = ArrayList<File>()
+        val failures = ArrayList<String>()
+        var trackCount = 0
+        var sessionCount = 0
         val tracksOut = JSONArray()
         for ((i, ref) in selection.tracks.withIndex()) {
             progress("读取 Track ${i + 1}/${selection.tracks.size}")
-            val d = RaceApi.track(base, ref.slot)
-            tracksOut.put(JSONObject().apply {
-                put("local_id", ref.slot)
-                put("payload", trackPayload(ref, d))
-            })
+            try {
+                val d = RaceApi.track(base, ref.slot)
+                tracksOut.put(JSONObject().apply {
+                    put("local_id", ref.slot)
+                    put("payload", trackPayload(ref, d))
+                })
+                trackCount++
+            } catch (e: Exception) {
+                failures += "Track ${ref.name}: ${e.message}"
+            }
         }
 
         val sessionsOut = JSONArray()
         for ((i, pick) in selection.sessions.withIndex()) {
             val ref = pick.ref
             progress("读取 Race Log ${i + 1}/${selection.sessions.size}")
-            val s = RaceApi.session(base, ref.slot)
-            val csv = if (pick.includeRaw && ref.rawAvailable) {
-                downloadCsvChunked(context, base, s, cleanup) { message -> progress(message) }
-            } else null
-            val csvB64 = if (csv != null) {
-                val compressed = ByteArrayOutputStream()
-                GZIPOutputStream(compressed).use { it.write(csv) }
-                Base64.encodeToString(compressed.toByteArray(), Base64.NO_WRAP)
-            } else ""
-            sessionsOut.put(JSONObject().apply {
-                put("local_slot", s.slot)
-                put("payload", sessionPayload(s))
-                put("csv_gzip_b64", csvB64)
-            })
+            try {
+                val s = RaceApi.session(base, ref.slot)
+                val csv = if (pick.includeRaw && ref.rawAvailable) {
+                    downloadCsvChunked(context, base, s, cleanup) { message -> progress(message) }
+                } else null
+                val csvB64 = if (csv != null) {
+                    val compressed = ByteArrayOutputStream()
+                    GZIPOutputStream(compressed).use { it.write(csv) }
+                    Base64.encodeToString(compressed.toByteArray(), Base64.NO_WRAP)
+                } else ""
+                sessionsOut.put(JSONObject().apply {
+                    put("local_slot", s.slot)
+                    put("payload", sessionPayload(s))
+                    put("csv_gzip_b64", csvB64)
+                })
+                sessionCount++
+            } catch (e: Exception) {
+                failures += "Race Log ${ref.trackName}: ${e.message}"
+            }
         }
 
         val body = JSONObject().apply {
@@ -66,7 +86,7 @@ object DeviceSyncManager {
         progress("写入 Local App")
         val summary = db.importDeviceSnapshot(uid, body, replace = false)
         for (f in cleanup) runCatching { f.delete() }
-        return summary
+        return ImportResult(summary, trackCount, sessionCount, failures)
     }
 
     private fun downloadCsvChunked(

@@ -308,7 +308,7 @@ class SyncActivity : AppCompatActivity() {
             .setCancelable(false).create().also { it.show() }
         worker.execute {
             try {
-                val summary = DeviceSyncManager.importSelected(
+                val result = DeviceSyncManager.importSelected(
                     this@SyncActivity, base, deviceId, db,
                     DeviceSyncManager.Selection(tracks, sessions),
                 ) { message -> main.post { msg.text = message } }
@@ -316,7 +316,11 @@ class SyncActivity : AppCompatActivity() {
                     busy?.dismiss()
                     busy = null
                     uid = deviceId
-                    toast("已导入：${tracks.size} Tracks / ${sessions.size} Race Logs")
+                    if (result.failures.isEmpty()) {
+                        toast("已导入：${result.tracks} Tracks / ${result.sessions} Race Logs")
+                    } else {
+                        toast("导入完成：${result.tracks} Tracks / ${result.sessions} Race Logs；失败 ${result.failures.size}")
+                    }
                     renderLocal()
                 }
             } catch (e: Exception) {
