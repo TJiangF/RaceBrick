@@ -772,9 +772,21 @@ static esp_err_t h_api_track(httpd_req_t *req) {
                     *g.engine.track = *t;
             }
         }
+        char resp[256];
+        if (ok) {
+            char idbuf[40], revbuf[40];
+            rb_uuid_format(&t->id, idbuf, sizeof(idbuf));
+            rb_uuid_format(&t->rev_id, revbuf, sizeof(revbuf));
+            snprintf(resp, sizeof(resp),
+                     "{\"ok\":1,\"id\":%d,\"uuid\":\"%s\",\"version\":%u,"
+                     "\"revision_id\":\"%s\"}",
+                     id, idbuf, (unsigned)t->revision, revbuf);
+        } else {
+            snprintf(resp, sizeof(resp), "{\"ok\":0}");
+        }
         free(t);
         httpd_resp_set_type(req, "application/json");
-        return httpd_resp_send(req, ok ? "{\"ok\":1}" : "{\"ok\":0}", HTTPD_RESP_USE_STRLEN);
+        return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
     }
     if (req->method == HTTP_DELETE) {
         bool ok = id >= 0 && tstore_delete(id);

@@ -27,6 +27,13 @@ data class RaceTrack(
     val revisionId: String = "",
 )
 
+data class TrackUpdate(
+    val id: Int,
+    val uuid: String,
+    val revision: Int,
+    val revisionId: String,
+)
+
 data class TrackGeoRef(
     val lat0: Double,
     val lon0: Double,
@@ -269,12 +276,23 @@ object RaceApi {
     fun updateTrack(
         base: String, id: Int, name: String,
         startF: Double, reverse: Boolean, startWidthM: Double, offsetM: Double,
-    ) {
+    ): TrackUpdate {
         val encoded = URLEncoder.encode(name, StandardCharsets.UTF_8.name())
         val sf = String.format(Locale.US, "%.5f", startF)
         val sw = String.format(Locale.US, "%.2f", startWidthM)
         val off = String.format(Locale.US, "%.2f", offsetM)
-        post(base, "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&start_width=$sw&offset=$off")
+        val body = post(
+            base,
+            "/api/track?id=$id&name=$encoded&start_f=$sf&reverse=${if (reverse) 1 else 0}&start_width=$sw&offset=$off",
+        )
+        val o = JSONObject(body.toString(StandardCharsets.UTF_8))
+        if (o.optInt("ok", 0) == 0) throw IllegalStateException("设备拒绝了保存")
+        return TrackUpdate(
+            id = o.optInt("id", -1),
+            uuid = o.optString("uuid", ""),
+            revision = o.optInt("version", 0),
+            revisionId = o.optString("revision_id", ""),
+        )
     }
 
     fun renameTrack(base: String, id: Int, name: String) {
@@ -409,12 +427,12 @@ object RaceApi {
         }
     }
 
-    private fun post(base: String, path: String) {
+    private fun post(base: String, path: String): ByteArray {
         val conn = open(base, path, "POST")
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw IllegalStateException("HTTP $code")
-            drain(conn)
+            return drain(conn)
         } finally {
             conn.disconnect()
         }

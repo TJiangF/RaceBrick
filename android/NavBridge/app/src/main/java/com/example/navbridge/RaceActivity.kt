@@ -9,8 +9,10 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
+import android.text.TextWatcher
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -1037,6 +1039,26 @@ class RaceActivity : LocalizedActivity() {
                 setPadding(0, dp(8), 0, dp(2))
             })
         }
+        val originalName = t.name
+        val originalStart = t.startF
+        val originalWidth = detail.startWidthM
+        val originalOffset = detail.startOffsetM
+        val originalReverse = t.reverse
+        val tvDirty = TextView(this).apply {
+            textSize = 12f
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            setBackgroundColor(0x332F3A40)
+        }
+        box.addView(tvDirty)
+        var refreshDirty: () -> Unit = {}
+        var saveButton: Button? = null
+        fun markField(v: View, dirty: Boolean, cleanBackground: android.graphics.drawable.Drawable?) {
+            v.background = if (dirty) GradientDrawable().apply {
+                cornerRadius = dp(6).toFloat()
+                setColor(0xFF111923.toInt())
+                setStroke(dp(2), 0xFFF2B95C.toInt())
+            } else cleanBackground
+        }
         addLabel("赛道名称（最多 15 个字符）")
         val etName = EditText(this).apply {
             setText(t.name)
@@ -1083,6 +1105,7 @@ class RaceActivity : LocalizedActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvStart.text = String.format(Locale.US, "%.1f%%", progress / 10.0)
                 map.startF = progress / 1000f
+                if (fromUser) refreshDirty()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -1106,6 +1129,7 @@ class RaceActivity : LocalizedActivity() {
                 val w = 1.0 + progress / 10.0
                 tvWidth.text = String.format(Locale.US, "%.1f m", w)
                 map.widthM = w.toFloat()
+                if (fromUser) refreshDirty()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -1129,6 +1153,7 @@ class RaceActivity : LocalizedActivity() {
                 val v = progress / 10.0 - 20.0
                 tvOffset.text = String.format(Locale.US, "%+.1f m", v)
                 map.startOffsetM = v.toFloat()
+                if (fromUser) refreshDirty()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -1138,14 +1163,50 @@ class RaceActivity : LocalizedActivity() {
         val swReverse = Switch(this).apply {
             text = "反向起点方向（CCW）"
             isChecked = t.reverse
-            setOnCheckedChangeListener { _, checked -> map.reverse = checked }
+            setOnCheckedChangeListener { _, checked ->
+                map.reverse = checked
+                refreshDirty()
+            }
         }
         box.addView(swReverse)
         box.addView(TextView(this).apply {
-            text = "保存后会写入 ESP，并立即用于下一场计圈。"
+            text = "保存会把本次所有修改一次性写入 ESP，不使用本地暂存。"
             setTextColor(0xFF6D817D.toInt())
             textSize = 11f
             setPadding(0, dp(8), 0, 0)
+        })
+        val nameBg = etName.background
+        val startBg = tvStart.background
+        val widthBg = tvWidth.background
+        val offsetBg = tvOffset.background
+        val reverseBg = swReverse.background
+        refreshDirty = {
+            val nameDirty = etName.text.toString().trim() != originalName
+            val startDirty = sbStart.progress != (originalStart * 1000.0).toInt().coerceIn(0, 1000)
+            val widthDirty = sbWidth.progress != ((originalWidth - 1.0) * 10.0).toInt().coerceIn(0, 490)
+            val offsetDirty = sbOffset.progress != ((originalOffset + 20.0) * 10.0).toInt().coerceIn(0, 400)
+            val reverseDirty = swReverse.isChecked != originalReverse
+            markField(etName, nameDirty, nameBg)
+            markField(tvStart, startDirty, startBg)
+            markField(tvWidth, widthDirty, widthBg)
+            markField(tvOffset, offsetDirty, offsetBg)
+            markField(swReverse, reverseDirty, reverseBg)
+            val count = listOf(nameDirty, startDirty, widthDirty, offsetDirty, reverseDirty).count { it }
+            tvDirty.text = if (count == 0) {
+                "没有未保存修改"
+            } else {
+                "未保存修改 $count 项 · 黄色框标记，点击保存一次性写入设备"
+            }
+            tvDirty.setTextColor(if (count == 0) 0xFF8A9A9A.toInt() else 0xFFF2B95C.toInt())
+            saveButton?.text = if (count > 0) "保存 ($count)" else "保存"
+            saveButton?.isEnabled = count > 0
+        }
+        etName.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                refreshDirty()
+            }
+            override fun afterTextChanged(s: Editable?) {}
         })
         val scroll = ScrollView(this).apply { addView(box) }
         val dialog = AlertDialog.Builder(this)
@@ -1155,7 +1216,9 @@ class RaceActivity : LocalizedActivity() {
             .setPositiveButton("保存", null)
             .create()
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            refreshDirty()
+            saveButton?.setOnClickListener {
                 val name = etName.text.toString().trim()
                 val startPct = sbStart.progress / 10.0
                 val startWidthM = 1.0 + sbWidth.progress / 10.0
@@ -1168,19 +1231,36 @@ class RaceActivity : LocalizedActivity() {
                 status("正在保存赛道设置…")
                 worker.execute {
                     runCatching {
-                        RaceApi.updateTrack(
+                        val result = RaceApi.updateTrack(
                             b, t.id, name, startPct / 100.0,
                             swReverse.isChecked, startWidthM, offsetM,
                         )
-                        val saved = RaceApi.tracks(b).firstOrNull { it.id == t.id }
-                        if (saved == null || saved.name != name) {
-                            throw IllegalStateException("设备未确认新名称")
+                        if (t.uuid.isNotBlank() && result.uuid.isNotBlank() &&
+                            result.uuid != t.uuid) {
+                            throw IllegalStateException("设备返回了不同的 Track UUID")
                         }
-                    }.onSuccess {
+                        val sat = satelliteCache[t.id]
+                        val newId = if (result.id >= 0) result.id else {
+                            RaceApi.tracks(b).firstOrNull {
+                                (t.uuid.isNotBlank() && it.uuid == t.uuid) ||
+                                    (t.uuid.isBlank() && it.name == name)
+                            }?.id ?: throw IllegalStateException("设备未确认保存结果")
+                        }
+                        if (sat != null && newId != t.id) {
+                            runCatching {
+                                RaceApi.uploadTrackImage(
+                                    b, newId, sat.pal16,
+                                    sat.bounds.left, sat.bounds.top,
+                                    sat.bounds.right, sat.bounds.bottom,
+                                )
+                            }
+                        }
+                        result
+                    }.onSuccess { result ->
                         main.post {
                             dialog.dismiss()
                             markCacheDirty()
-                            toast("赛道设置已保存并同步")
+                            toast("赛道设置已保存 · 版本 ${result.revision}")
                             loadAll()
                         }
                     }.onFailure { e -> main.post { fail("保存失败：${e.message}") } }
