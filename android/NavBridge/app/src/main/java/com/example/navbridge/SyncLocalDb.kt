@@ -19,6 +19,13 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         createTypedTables(db)
     }
 
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (!db.isReadOnly) {
+            dedupeTracks(db, System.currentTimeMillis() / 1000L)
+        }
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             ensureLegacyDirtyColumns(db)
@@ -383,6 +390,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                 markMissing(db, "tracks", "track_uuid", seenTracks, now)
                 markMissing(db, "sessions", "session_uuid", seenSessions, now)
             }
+            dedupeTracks(db, now)
 
             val version = (meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1
             setMeta(db, "device_uid", uid)
@@ -431,6 +439,90 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
             "SELECT revision_id FROM tracks WHERE track_uuid=? AND deleted=0",
             arrayOf(trackUuid),
         ).use { if (it.moveToFirst()) it.getString(0) else null }
+    }
+
+    private fun trackFingerprint(payload: JSONObject): String {
+        val pts = payload.optJSONArray("points")?.toString().orEmpty()
+        val sec = payload.optJSONArray("sections")?.toString().orEmpty()
+        return listOf(
+            payload.optString("name", ""),
+            payload.optDouble("length_m", 0.0).toString(),
+            payload.optDouble("width", 0.0).toString(),
+            payload.optDouble("start_width", 0.0).toString(),
+            payload.optDouble("start_f", 0.0).toString(),
+            payload.optDouble("start_offset", 0.0).toString(),
+            payload.optBoolean("reverse", false).toString(),
+            payload.optBoolean("geo", false).toString(),
+            payload.optDouble("glat0", 0.0).toString(),
+            payload.optDouble("glon0", 0.0).toString(),
+            payload.optDouble("nscale", 0.0).toString(),
+            payload.optDouble("nox", 0.0).toString(),
+            payload.optDouble("noy", 0.0).toString(),
+            sec, pts,
+        ).joinToString("|")
+    }
+
+    private fun dedupeTracks(db: SQLiteDatabase, now: Long) {
+        val rows = db.rawQuery(
+            """SELECT track_uuid,local_slot,payload,version,revision_id,updated_at
+               FROM tracks WHERE deleted=0 ORDER BY updated_at DESC""",
+            null,
+        ).use { c ->
+            val out = ArrayList<Array<Any>>()
+            while (c.moveToNext()) {
+                out += arrayOf(
+                    c.getString(0), c.getInt(1), c.getString(2), c.getInt(3),
+                    c.getString(4).orEmpty(), c.getLong(5),
+                )
+            }
+            out
+        }
+        if (rows.size < 2) return
+        val groups = HashMap<String, MutableList<Array<Any>>>()
+        for (r in rows) {
+            val p = runCatching { JSONObject(r[2] as String) }.getOrNull() ?: continue
+            groups.getOrPut(trackFingerprint(p)) { ArrayList() }.add(r)
+        }
+        for (group in groups.values) {
+            if (group.size < 2) continue
+            val keep = group.maxWithOrNull(
+                compareBy<Array<Any>> { it[3] as Int }.thenBy { it[5] as Long }
+            ) ?: continue
+            val keepUuid = keep[0] as String
+            val keepSlot = keep[1] as Int
+            val keepRev = keep[4] as String
+            for (r in group) {
+                val uuid = r[0] as String
+                if (uuid == keepUuid) continue
+                db.execSQL(
+                    "UPDATE tracks SET deleted=1,dirty_device=0,dirty_cloud=1,updated_at=? WHERE track_uuid=?",
+                    arrayOf(now, uuid),
+                )
+                val sessionRows = db.rawQuery(
+                    "SELECT session_uuid,payload FROM sessions WHERE track_uuid=?",
+                    arrayOf(uuid),
+                ).use { c ->
+                    val out = ArrayList<Pair<String, String>>()
+                    while (c.moveToNext()) out += c.getString(0) to c.getString(1)
+                    out
+                }
+                for ((sessionId, payloadText) in sessionRows) {
+                    val sp = runCatching { JSONObject(payloadText) }.getOrDefault(JSONObject()).apply {
+                        put("track", keepSlot)
+                        if (keepUuid.isNotBlank()) put("track_uuid", keepUuid)
+                        if (keepRev.isNotBlank()) put("track_revision_id", keepRev)
+                    }
+                    val text = sp.toString()
+                    db.update("sessions", ContentValues().apply {
+                        put("track_uuid", keepUuid)
+                        put("track_revision_id", keepRev)
+                        put("payload", text)
+                        put("content_hash", sha256(text.toByteArray()))
+                        put("updated_at", now)
+                    }, "session_uuid=?", arrayOf(sessionId))
+                }
+            }
+        }
     }
 
     private fun markMissing(

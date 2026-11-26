@@ -1145,8 +1145,15 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
     int cur_lap = -1;
     bool first_point = true;
     int seen[RACE_LAPS] = {0};
-    float cur_sp[128];
-    uint32_t cur_tm[128];
+    float *cur_sp = (float *)heap_caps_malloc(sizeof(float) * 128,
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint32_t *cur_tm = (uint32_t *)heap_caps_malloc(sizeof(uint32_t) * 128,
+                                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!cur_sp || !cur_tm) {
+        free(cur_sp); free(cur_tm); free(b); free(tr);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
     int cur_n = 0;
     for (uint32_t i = 0; i < h.sample_count && n < 28000; i++) {
         race_sample_t sm;
@@ -1188,7 +1195,7 @@ static esp_err_t h_api_session_traces(httpd_req_t *req) {
     n += snprintf(b + n, 32768 - n, "]}");
     httpd_resp_set_type(req, "application/json");
     esp_err_t rr = httpd_resp_send(req, b, n);
-    free(b); free(tr);
+    free(cur_sp); free(cur_tm); free(b); free(tr);
     return rr;
 }
 
@@ -1455,7 +1462,7 @@ static esp_err_t h_api_track_image(httpd_req_t *req) {
 static void start_httpd(void) {
     if (s_httpd) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size = 12288;
+    cfg.stack_size = 16384;
     cfg.max_uri_handlers = 32;   /* UI + debug + race storage + satellite */
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) { s_httpd = NULL; return; }
     httpd_uri_t u1 = { .uri = "/", .method = HTTP_GET, .handler = h_index };
