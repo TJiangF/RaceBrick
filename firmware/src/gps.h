@@ -41,6 +41,7 @@ typedef struct {
     int    sats_used;
     int    sats_visible;
     float  hdop;
+    float  hacc;          /* horizontal accuracy from UBX-NAV-PVT, metres (0 = unknown) */
     double lat, lon;
     float  alt;
     bool   has_pos;

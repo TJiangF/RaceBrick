@@ -3261,7 +3261,10 @@ void screens_enter(scid_t id) {
             if (g.engine.track) {
                 if (!race_store_begin(g.engine.track->store_slot,
                                       g.engine.track->name,
-                                      id == SC_RACING ? 0 : 1))
+                                      id == SC_RACING ? 0 : 1,
+                                      &g.engine.track->id,
+                                      &g.engine.track->rev_id,
+                                      g.engine.track->revision))
                     app_toast("RACE STORAGE FULL");
             }
         }
@@ -3511,7 +3514,8 @@ void screens_update(float dt) {
             bool gnss_fix = gp->has_pos && gp->fix_type >= 1 && gp->fix_time_valid;
             if (e->real && gnss_fix && e->start_seen && !e->outlap_pending) {
                 race_store_sample(gp->lat, gp->lon, gp->speed_kmh,
-                                  e->lap, true, gp->fix_seq, gp->fix_time_us);
+                                  e->lap, true, gp->fix_seq, gp->fix_time_us,
+                                  gp->hacc, gp->sats_used, gp->fix_type);
             }
             e->speedMul = g.simSpeed;
             if (e->real) {
@@ -4441,9 +4445,13 @@ void screens_handle(const event_t *ev) {
                 t->line_lon = lon;
                 t->line_hdg = h;
             }
-            if (t->store_slot >= 0) tstore_save(t->store_slot, t);
+            int old_slot = t->store_slot;
+            if (old_slot >= 0) {
+                int commit_slot = old_slot;
+                tstore_commit(&commit_slot, t);
+            }
             for (int j = 0; j < g.ntracks; j++)
-                if (g.tracks[j].store_slot == t->store_slot) g.tracks[j] = *t;
+                if (g.tracks[j].store_slot == old_slot) g.tracks[j] = *t;
             app_toast("TRACK SETTINGS SAVED");
         }
         if (s_track_edit_from_menu) app_back();

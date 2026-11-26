@@ -571,11 +571,16 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
             pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
             if (track_project(t, q, &sdist, &ddist)) sf = sdist / (float)t->N;
         }
+        char idbuf[40], revbuf[40];
+        rb_uuid_format(&t->id, idbuf, sizeof(idbuf));
+        rb_uuid_format(&t->rev_id, revbuf, sizeof(revbuf));
         n += snprintf(b + n, 24000 - n,
-            "%s{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,"
+            "%s{\"id\":%d,\"uuid\":\"%s\",\"version\":%u,\"revision_id\":\"%s\","
+            "\"name\":\"%s\",\"geo\":%d,\"m\":%.1f,"
             "\"sections\":%d,\"width\":%.1f,\"start_width\":%.1f,"
             "\"start_f\":%.4f,\"reverse\":%d,\"offset\":%.2f}",
-            first ? "" : ",", i, t->name, t->geo ? 1 : 0,
+            first ? "" : ",", i, idbuf, (unsigned)t->revision, revbuf,
+            t->name, t->geo ? 1 : 0,
             (double)t->lengthM, t->nsec, (double)t->widthM,
             (double)t->start_width, (double)sf,
             t->reverse ? 1 : 0, (double)t->start_offset);
@@ -634,6 +639,7 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         }
         track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!t) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+        int old_slot = id;
         bool ok = tstore_load(id, t);
         char old_name[48] = {0};
         if (ok) snprintf(old_name, sizeof old_name, "%s", t->name);
@@ -688,7 +694,7 @@ static esp_err_t h_api_track(httpd_req_t *req) {
             if (!heading_updated && reverse >= 0 && old_reverse != t->reverse) {
                 t->line_hdg += (float)M_PI;
             }
-            ok = tstore_save(id, t);
+            ok = tstore_commit(&id, t);
             if (ok && has_name && strcmp(old_name, t->name) != 0) {
                 log_store_rename(old_name, t->name);
                 race_store_rename(old_name, t->name);
@@ -700,9 +706,9 @@ static esp_err_t h_api_track(httpd_req_t *req) {
             }
             if (ok) {
                 for (int j = 0; j < g.ntracks; j++) {
-                    if (g.tracks[j].store_slot == id) g.tracks[j] = *t;
+                    if (g.tracks[j].store_slot == old_slot) g.tracks[j] = *t;
                 }
-                if (g.engine_valid && g.engine.track && g.engine.track->store_slot == id)
+                if (g.engine_valid && g.engine.track && g.engine.track->store_slot == old_slot)
                     *g.engine.track = *t;
             }
         }
@@ -732,14 +738,19 @@ static esp_err_t h_api_track(httpd_req_t *req) {
         pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
         if (track_project(t, q, &sdist, &ddist)) start_f = sdist / (float)t->N;
     }
+    char idbuf[40], revbuf[40];
+    rb_uuid_format(&t->id, idbuf, sizeof(idbuf));
+    rb_uuid_format(&t->rev_id, revbuf, sizeof(revbuf));
     int n = snprintf(b, 16000,
-        "{\"id\":%d,\"name\":\"%s\",\"geo\":%d,\"length_m\":%.1f,"
+        "{\"id\":%d,\"uuid\":\"%s\",\"version\":%u,\"revision_id\":\"%s\","
+        "\"name\":\"%s\",\"geo\":%d,\"length_m\":%.1f,"
         "\"width\":%.1f,\"start_width\":%.1f,\"start_f\":%.4f,"
         "\"reverse\":%d,\"start_offset\":%.2f,"
         "\"start\":{\"lat\":%.7f,\"lon\":%.7f,\"hdg\":%.3f},"
         "\"glat0\":%.7f,\"glon0\":%.7f,\"nscale\":%.9f,"
         "\"nox\":%.6f,\"noy\":%.6f,\"sections\":[",
-        id, t->name, t->geo ? 1 : 0, (double)t->lengthM,
+        id, idbuf, (unsigned)t->revision, revbuf,
+        t->name, t->geo ? 1 : 0, (double)t->lengthM,
         (double)t->widthM, (double)t->start_width, (double)start_f,
         t->reverse ? 1 : 0, (double)t->start_offset,
         t->line_lat, t->line_lon, (double)t->line_hdg,
@@ -836,12 +847,23 @@ static esp_err_t h_api_sessions(httpd_req_t *req) {
     for (int i = 0; i < RACE_SLOTS && n < (int)sizeof(b) - 220; i++) {
         race_hdr_t h;
         if (!race_store_info(i, &h)) continue;
+        char sid[40], tid[40], rid[40];
+        rb_uuid_format(&h.session_id, sid, sizeof(sid));
+        rb_uuid_format(&h.track_id, tid, sizeof(tid));
+        rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
         n += snprintf(b + n, sizeof(b) - n,
-            "%s{\"slot\":%d,\"id\":%lu,\"track\":%u,\"track_name\":\"%s\","
-            "\"start\":%lu,\"duration_ms\":%lu,\"samples\":%lu,\"laps\":%u,\"mode\":%u}",
-            first ? "" : ",", i, (unsigned long)h.id, h.track_slot, h.track_name,
-            (unsigned long)h.start_epoch, (unsigned long)h.duration_ms,
-            (unsigned long)h.sample_count, h.lap_count, h.mode);
+            "%s{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
+            "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
+            "\"track_version\":%lu,\"track_name\":\"%s\","
+            "\"start\":%lu,\"end\":%lu,\"duration_ms\":%lu,"
+            "\"samples\":%lu,\"sample_size\":%u,\"laps\":%u,\"mode\":%u}",
+            first ? "" : ",", i, (unsigned long)h.id, sid,
+            h.track_slot, tid, rid, (unsigned long)h.track_revision,
+            h.track_name, (unsigned long)h.start_epoch,
+            (unsigned long)h.end_epoch, (unsigned long)h.duration_ms,
+            (unsigned long)h.sample_count,
+            (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
+            h.lap_count, h.mode);
         first = false;
     }
     n += snprintf(b + n, sizeof(b) - n, "]}");
@@ -861,13 +883,23 @@ static esp_err_t h_api_session(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
         return ESP_FAIL;
     }
-    char b[3072];
+    char b[3584];
+    char sid[40], tid[40], rid[40];
+    rb_uuid_format(&h.session_id, sid, sizeof(sid));
+    rb_uuid_format(&h.track_id, tid, sizeof(tid));
+    rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
     int n = snprintf(b, sizeof b,
-        "{\"slot\":%d,\"id\":%lu,\"track\":%u,\"track_name\":\"%s\","
-        "\"start\":%lu,\"duration_ms\":%lu,\"samples\":%lu,\"laps\":%u,\"deleted_laps\":%u,"
-        "\"lap_times\":[", id, (unsigned long)h.id, h.track_slot, h.track_name,
-        (unsigned long)h.start_epoch, (unsigned long)h.duration_ms,
-        (unsigned long)h.sample_count, h.lap_count, h.lap_deleted_mask);
+        "{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
+        "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
+        "\"track_version\":%lu,\"track_name\":\"%s\","
+        "\"start\":%lu,\"end\":%lu,\"duration_ms\":%lu,"
+        "\"samples\":%lu,\"sample_size\":%u,\"laps\":%u,\"deleted_laps\":%u,"
+        "\"lap_times\":[", id, (unsigned long)h.id, sid,
+        h.track_slot, tid, rid, (unsigned long)h.track_revision, h.track_name,
+        (unsigned long)h.start_epoch, (unsigned long)h.end_epoch,
+        (unsigned long)h.duration_ms, (unsigned long)h.sample_count,
+        (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
+        h.lap_count, h.lap_deleted_mask);
     for (int i = 0; i < h.lap_count && n < 2900; i++)
         n += snprintf(b + n, sizeof(b) - n, "%s%.3f", i ? "," : "", (double)h.lap_time[i]);
     n += snprintf(b + n, sizeof(b) - n, "]}");

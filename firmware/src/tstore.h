@@ -8,11 +8,13 @@
 #define TSTORE_EXT_SLOTS 256
 #define TSTORE_INT_SLOTS 5
 
-bool tstore_begin(void);              /* init flash + count valid slots */
+bool tstore_begin(void);              /* init flash + migrate + count heads */
 int  tstore_count(void);
 int  tstore_capacity(void);
 int  tstore_first_free(void);         /* -1 when full */
-int  tstore_slots(int *out, int cap); /* valid slot indices, fastest path for HTTP */
+int  tstore_slots(int *out, int cap); /* current head slots, fastest path for HTTP */
 bool tstore_load(int slot, track_t *t);
-bool tstore_save(int slot, const track_t *t);
+bool tstore_save(int slot, track_t *t);       /* new record / migration */
+bool tstore_commit(int *slot_io, track_t *t); /* create a new revision */
+int  tstore_head_slots(int *out, int cap);    /* current track heads only */
 bool tstore_delete(int slot);

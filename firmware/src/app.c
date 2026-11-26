@@ -926,7 +926,10 @@ void app_init(void) {
             }
         }
         g.ntracks = 0;
-        for (int s = 0; s < tstore_capacity() && g.ntracks < MAX_TRACKS; s++) {
+        int head_slots[TSTORE_EXT_SLOTS];
+        int nheads = tstore_head_slots(head_slots, TSTORE_EXT_SLOTS);
+        for (int k = 0; k < nheads && g.ntracks < MAX_TRACKS; k++) {
+            int s = head_slots[k];
             if (tstore_load(s, &g.tracks[g.ntracks])) {
                 g.tracks[g.ntracks].store_slot = s;
                 g.ntracks++;
@@ -943,25 +946,14 @@ void app_init(void) {
             }
         }
     }
+    /* Give legacy raw sessions stable UUIDs/track revision references without
+     * touching their 16-byte telemetry stream. */
+    race_store_migrate();
+
     if (g.log) {
-        nvs_handle_t nh;
-        int32_t merged = 0;
-        bool clear_logs = false;
-        if (nvs_open("rb", NVS_READWRITE, &nh) == ESP_OK) {
-            if (nvs_get_i32(nh, "logmerged2", &merged) != ESP_OK || merged != 1) {
-                clear_logs = true;
-                nvs_set_i32(nh, "logmerged2", 1);
-                nvs_commit(nh);
-            }
-            nvs_close(nh);
-        }
-        if (clear_logs) {
-            log_store_clear();
-            g.nlog = 0;
-            ESP_LOGI("app", "cleared legacy Race Log summaries; raw sessions are now Race Log");
-        } else {
-            g.nlog = log_store_load(g.log, HISTORY_RECORDS);
-        }
+        /* histrec is deliberately device-local: it powers the on-device
+         * RACE LOG list/detail preview. It is not uploaded to the App/Cloud. */
+        g.nlog = log_store_load(g.log, HISTORY_RECORDS);
     }
     nav_start();
     nav_set_mode(g.nav_mode, g.nav_sat);

@@ -22,6 +22,9 @@ data class RaceTrack(
     val startF: Double = 0.0,
     val startOffsetM: Double = 0.0,
     val reverse: Boolean = false,
+    val uuid: String = "",
+    val revision: Int = 0,
+    val revisionId: String = "",
 )
 
 data class TrackGeoRef(
@@ -91,6 +94,12 @@ data class RaceSession(
     val laps: Int,
     val deletedLapMask: Int = 0,
     val lapTimes: List<Double> = emptyList(),
+    val uuid: String = "",
+    val trackUuid: String = "",
+    val trackRevisionId: String = "",
+    val trackVersion: Int = 0,
+    val endEpoch: Long = 0L,
+    val sampleSize: Int = 16,
 )
 
 object RaceApi {
@@ -137,6 +146,9 @@ object RaceApi {
                 startF = o.optDouble("start_f", 0.0),
                 startOffsetM = o.optDouble("offset", 0.0),
                 reverse = o.optInt("reverse", 0) != 0,
+                uuid = o.optString("uuid", ""),
+                revision = o.optInt("version", 0),
+                revisionId = o.optString("revision_id", ""),
             )
         }
         return out
@@ -350,6 +362,12 @@ object RaceApi {
             laps = o.optInt("laps", 0),
             deletedLapMask = o.optInt("deleted_laps", 0),
             lapTimes = times,
+            uuid = o.optString("session_uuid", ""),
+            trackUuid = o.optString("track_uuid", ""),
+            trackRevisionId = o.optString("track_revision_id", ""),
+            trackVersion = o.optInt("track_version", 0),
+            endEpoch = o.optLong("end", 0L),
+            sampleSize = o.optInt("sample_size", 16),
         )
     }
 

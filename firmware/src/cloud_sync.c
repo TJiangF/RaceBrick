@@ -574,7 +574,8 @@ static void apply_track_command(int cid, int local, float sf, float width,
                         &t->line_lat, &t->line_lon);
         t->line_hdg = hdg;
     }
-    bool ok = tstore_save(local, t);
+    int old_slot = local;
+    bool ok = tstore_commit(&local, t);
     if (ok) {
         if (has_name && strcmp(old_name, t->name) != 0) {
             log_store_rename(old_name, t->name);
@@ -586,8 +587,8 @@ static void apply_track_command(int cid, int local, float sf, float width,
             }
         }
         for (int i = 0; i < g.ntracks; i++)
-            if (g.tracks[i].store_slot == local) g.tracks[i] = *t;
-        if (g.engine_valid && g.engine.track && g.engine.track->store_slot == local)
+            if (g.tracks[i].store_slot == old_slot) g.tracks[i] = *t;
+        if (g.engine_valid && g.engine.track && g.engine.track->store_slot == old_slot)
             *g.engine.track = *t;
         char path[160];
         snprintf(path, sizeof(path), "/api/device/v1/ack?uid=%s&id=%d", s_uid, cid);

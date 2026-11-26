@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "config.h"
+#include "rb_uuid.h"
 
 typedef struct { float x, y; } pt_t;
 typedef struct { float l, n; } gpt_t;   /* lateral / longitudinal g (trail) */
@@ -40,6 +41,10 @@ typedef struct {
     float  start_width;         /* start/finish line width, metres */
     int    store_slot;          /* external-flash slot (-1 = not stored); runtime only */
     int    reverse;             /* 0 = CW/forward, 1 = CCW/reverse start direction */
+    rb_uuid_t id;               /* stable track UUID, independent of slot/name */
+    rb_uuid_t rev_id;           /* UUID of this committed revision */
+    rb_uuid_t parent_rev_id;    /* parent revision UUID (zero for first revision) */
+    uint32_t revision;          /* monotonic revision number, starts at 1 */
 } track_t;
 
 void track_build_def(track_t *t, int defIndex);

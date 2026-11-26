@@ -384,6 +384,7 @@ static void ubx_navpvt(const uint8_t *p, int len) {
         s_st.fix_quality = 1;
         s_st.sats_used = num_sv;
         s_st.hdop = rd_u16(p + 76) / 100.0f;
+        s_st.hacc = rd_u32(p + 40) * 0.001f;  /* NAV-PVT hAcc is millimetres */
         s_st.speed_kmh = (float)rd_i32(p + 60) * 0.0036f;
         s_st.course = (float)rd_i32(p + 64) * 1e-5f;
     }
