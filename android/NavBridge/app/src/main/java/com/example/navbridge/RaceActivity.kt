@@ -40,6 +40,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.zip.GZIPInputStream
 
 class RaceActivity : LocalizedActivity() {
     companion object {
@@ -57,6 +58,8 @@ class RaceActivity : LocalizedActivity() {
     private var busyText: TextView? = null
 
     private val main = Handler(Looper.getMainLooper())
+    private val localDb by lazy { SyncLocalDb(this) }
+    private var localMode = false
     private val worker = Executors.newSingleThreadExecutor()
     private val satelliteWorker = Executors.newSingleThreadExecutor()
     private val satelliteUploadWorker = Executors.newSingleThreadExecutor()
@@ -156,6 +159,8 @@ class RaceActivity : LocalizedActivity() {
         if (offlineMode) {
             offlineModeUi()
             loadCachedSnapshot()
+        } else if (localDb.summary().let { it.tracks > 0 || it.sessions > 0 }) {
+            loadLocalData()
         } else {
             status("点击“连接并刷新”读取设备数据")
         }
@@ -271,7 +276,214 @@ class RaceActivity : LocalizedActivity() {
         map.reverse = t.reverse
     }
 
+    private fun loadLocalData() {
+        localMode = true
+        status("正在读取 Local App 数据…")
+        worker.execute {
+            runCatching {
+                val trackEntities = localDb.tracks()
+                val sessionEntities = localDb.sessions()
+                val trackList = ArrayList<RaceTrack>()
+                val details = HashMap<Int, TrackDetail>()
+                for (e in trackEntities) {
+                    val p = e.payload
+                    val id = e.localKey.toIntOrNull() ?: continue
+                    val sections = ArrayList<Double>()
+                    p.optJSONArray("sections")?.let { a -> for (i in 0 until a.length()) sections += a.optDouble(i, 0.0) }
+                    val points = localPoints(p)
+                    val detail = localDetail(p, points) ?: continue
+                    trackList += RaceTrack(
+                        id = id,
+                        name = p.optString("name", e.name),
+                        geo = p.optBoolean("geo", detail.geoRef != null),
+                        lengthM = p.optDouble("length_m", detail.lengthM),
+                        sections = sections.size,
+                        widthM = p.optDouble("width", 5.0),
+                        startWidthM = p.optDouble("start_width", 5.0),
+                        startF = p.optDouble("start_f", 0.0),
+                        startOffsetM = p.optDouble("start_offset", 0.0),
+                        reverse = p.optBoolean("reverse", false),
+                        uuid = p.optString("uuid", e.uuid),
+                        revision = p.optInt("version", 1),
+                        revisionId = p.optString("revision_id", ""),
+                    )
+                    details[id] = detail
+                }
+                val sessionList = ArrayList<RaceSession>()
+                val traces = HashMap<Int, Map<Int, TraceData>>()
+                for (e in sessionEntities) {
+                    val p = e.payload
+                    val slot = e.localKey.toIntOrNull() ?: continue
+                    val trackUuid = p.optString("track_uuid", "")
+                    val track = trackList.firstOrNull { trackUuid.isNotBlank() && it.uuid == trackUuid }
+                        ?: trackList.firstOrNull { it.id == p.optInt("track", -1) }
+                    val lapTimes = ArrayList<Double>()
+                    p.optJSONArray("lap_times")?.let { a -> for (i in 0 until a.length()) lapTimes += a.optDouble(i, 0.0) }
+                    val trackPayload = trackEntities.firstOrNull {
+                        it.uuid == trackUuid || (track != null && it.localKey == track.id.toString())
+                    }?.payload
+                    val lapTraces = localSessionTraces(e, trackPayload)
+                    if (lapTraces.isNotEmpty()) traces[slot] = lapTraces
+                    sessionList += RaceSession(
+                        slot = slot,
+                        id = p.optLong("id", 0L),
+                        trackSlot = track?.id ?: p.optInt("track", -1),
+                        trackName = p.optString("track_name", track?.name ?: ""),
+                        startEpoch = p.optLong("start", 0L),
+                        durationMs = p.optLong("duration_ms", 0L),
+                        samples = p.optLong("samples", 0L),
+                        laps = p.optInt("laps", lapTimes.size),
+                        deletedLapMask = p.optInt("deleted_laps", 0),
+                        lapTimes = lapTimes,
+                        uuid = p.optString("session_uuid", e.uuid),
+                        trackUuid = trackUuid,
+                        trackRevisionId = p.optString("track_revision_id", ""),
+                        trackVersion = p.optInt("track_version", 0),
+                        endEpoch = p.optLong("end", 0L),
+                        sampleSize = p.optInt("sample_size", 16),
+                        lapIds = run {
+                            val out = ArrayList<String>()
+                            p.optJSONArray("lap_ids")?.let { a -> for (i in 0 until a.length()) out += a.optString(i, "") }
+                            out
+                        },
+                    )
+                }
+                Triple(trackList, details, sessionList to traces)
+            }.onSuccess { (t, d, s) ->
+                main.post {
+                    tracks = t
+                    trackDetailCache.clear()
+                    trackDetailCache.putAll(d)
+                    sessions = s.first
+                    traceCache.clear()
+                    traceCache.putAll(s.second)
+                    sessionLapCache.clear()
+                    logs = emptyList()
+                    filterTrack = null
+                    localMode = true
+                    pbLoad.visibility = View.GONE
+                    status("Local App：${tracks.size} Tracks / ${sessions.size} Race Logs")
+                    renderTracks()
+                    val gen = ++generation
+                    loadSatellites(gen, tracks, trackDetailCache, false, null)
+                }
+            }.onFailure { e ->
+                main.post {
+                    localMode = false
+                    fail("Local 数据读取失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun localPoints(p: JSONObject): List<android.graphics.PointF> {
+        val arr = p.optJSONArray("points") ?: return emptyList()
+        val out = ArrayList<android.graphics.PointF>()
+        var i = 0
+        if (arr.length() > 0 && arr.opt(0) is JSONArray) {
+            for (j in 0 until arr.length()) {
+                val q = arr.optJSONArray(j) ?: continue
+                if (q.length() >= 2) out += android.graphics.PointF(q.optDouble(0).toFloat(), q.optDouble(1).toFloat())
+            }
+        } else {
+            while (i + 1 < arr.length()) {
+                out += android.graphics.PointF(arr.optDouble(i).toFloat(), arr.optDouble(i + 1).toFloat())
+                i += 2
+            }
+        }
+        return out
+    }
+
+    private fun localDetail(p: JSONObject, points: List<android.graphics.PointF>): TrackDetail? {
+        if (points.size < 2) return null
+        val ns = p.optDouble("nscale", 0.0)
+        val geo = if (p.optBoolean("geo", false) && ns > 1e-9) TrackGeoRef(
+            p.optDouble("glat0", 0.0), p.optDouble("glon0", 0.0), ns,
+            p.optDouble("nox", 0.0), p.optDouble("noy", 0.0),
+        ) else null
+        val sections = ArrayList<Double>()
+        p.optJSONArray("sections")?.let { a -> for (i in 0 until a.length()) sections += a.optDouble(i, 0.0) }
+        return TrackDetail(
+            name = p.optString("name", ""),
+            lengthM = p.optDouble("length_m", 0.0),
+            widthM = p.optDouble("width", 5.0),
+            startWidthM = p.optDouble("start_width", p.optDouble("width", 5.0)),
+            startF = p.optDouble("start_f", 0.0),
+            startOffsetM = p.optDouble("start_offset", 0.0),
+            reverse = p.optBoolean("reverse", false),
+            points = listOf(TrackMapView.Layer(points, 0xFF66E0D2.toInt())),
+            geoRef = geo,
+            sections = sections,
+        )
+    }
+
+    private fun localSessionTraces(e: SyncLocalDb.LocalEntity, track: JSONObject?): Map<Int, TraceData> {
+        val file = e.blobPath?.let { File(it) } ?: return emptyMap()
+        if (!file.isFile) return emptyMap()
+        val csv = runCatching {
+            GZIPInputStream(file.inputStream()).bufferedReader().use { it.readText() }
+        }.getOrNull() ?: return emptyMap()
+        val groups = LinkedHashMap<Int, MutableList<android.graphics.PointF>>()
+        val speeds = HashMap<Int, MutableList<Double>>()
+        val times = HashMap<Int, MutableList<Long>>()
+        var lat0 = Double.NaN
+        var lon0 = 0.0
+        for (line in csv.lineSequence()) {
+            val p = line.split(',')
+            if (p.size < 7) continue
+            val lap = p[2].trim().toIntOrNull() ?: continue
+            if (lap <= 0) continue
+            val elapsed = p[3].trim().toDoubleOrNull() ?: continue
+            val lat = p[4].trim().toDoubleOrNull() ?: continue
+            val lon = p[5].trim().toDoubleOrNull() ?: continue
+            val kmh = p[6].trim().toDoubleOrNull() ?: 0.0
+            if (lat == 0.0 && lon == 0.0) continue
+            if (lat0.isNaN()) { lat0 = lat; lon0 = lon }
+            val q = localGeoNorm(track, lat, lon, lat0, lon0)
+            groups.getOrPut(lap) { ArrayList() } += q
+            speeds.getOrPut(lap) { ArrayList() } += kmh
+            times.getOrPut(lap) { ArrayList() } += (elapsed * 1000.0).toLong()
+        }
+        val out = LinkedHashMap<Int, TraceData>()
+        for ((lap, pts) in groups) {
+            if (pts.size < 2) continue
+            val step = (pts.size / 360).coerceAtLeast(1)
+            val rp = ArrayList<android.graphics.PointF>()
+            val rs = ArrayList<Double>()
+            val rt = ArrayList<Long>()
+            var i = 0
+            while (i < pts.size) {
+                rp += pts[i]
+                speeds[lap]?.getOrNull(i)?.let { rs += it }
+                times[lap]?.getOrNull(i)?.let { rt += it }
+                i += step
+            }
+            if (rp.size >= 2) out[lap] = TraceData(rp, rs, rt)
+        }
+        return out
+    }
+
+    private fun localGeoNorm(track: JSONObject?, lat: Double, lon: Double, lat0: Double, lon0: Double): android.graphics.PointF {
+        if (track != null && track.optBoolean("geo", false)) {
+            val ns = track.optDouble("nscale", 0.0)
+            if (ns > 1e-9) {
+                val tl0 = track.optDouble("glat0", 0.0)
+                val to0 = track.optDouble("glon0", 0.0)
+                val mx = (lon - to0) * 111320.0 * kotlin.math.cos(Math.toRadians((lat + tl0) / 2.0))
+                val my = (lat - tl0) * 111320.0
+                return android.graphics.PointF(
+                    (mx * ns + track.optDouble("nox", 0.0)).toFloat(),
+                    (my * ns + track.optDouble("noy", 0.0)).toFloat(),
+                )
+            }
+        }
+        val x = (lon - lon0) * 111320.0 * kotlin.math.cos(Math.toRadians(lat0))
+        val y = (lat - lat0) * 111320.0
+        return android.graphics.PointF(x.toFloat(), y.toFloat())
+    }
+
     private fun loadAll() {
+        localMode = false
         direct.bindCurrentEsp()
         val gen = ++generation
         val b = base()
@@ -715,7 +927,7 @@ class RaceActivity : LocalizedActivity() {
     }
 
     private fun showSessionDetail(summary: RaceSession) {
-        if (offlineMode) {
+        if (offlineMode || localMode) {
             val laps = sessionLapCache[summary.slot].orEmpty()
             val traces = traceCache[summary.slot].orEmpty()
             val dialog = buildDetailDialog(summary, laps, traces)
@@ -1175,6 +1387,19 @@ class RaceActivity : LocalizedActivity() {
                                     (t.uuid.isBlank() && it.name == name)
                             }?.id ?: throw IllegalStateException("设备未确认保存结果")
                         }
+                        val localUuid = t.uuid.ifBlank {
+                            tracks.firstOrNull { it.id == t.id }?.uuid.orEmpty()
+                        }
+                        if (localUuid.isNotBlank()) {
+                            val newVersion = if (result.revision > 0) result.revision else t.revision
+                            runCatching {
+                                localDb.applyTrackCommit(
+                                    localUuid, newId, name, startPct / 100.0,
+                                    startWidthM, offsetM, swReverse.isChecked,
+                                    newVersion, result.revisionId,
+                                )
+                            }
+                        }
                         if (sat != null && newId != t.id) {
                             satelliteUploadWorker.execute {
                                 runCatching {
@@ -1317,6 +1542,7 @@ class RaceActivity : LocalizedActivity() {
                             tracks = tracks.filterNot { it.id == t.id }
                             trackDetailCache.remove(t.id)
                             satelliteCache.remove(t.id)
+                            localDb.markTrackDeleted(t.uuid)
                             if (filterTrack == t.id) filterTrack = null
                             markCacheDirty()
                             toast("已删除赛道")
@@ -1353,6 +1579,7 @@ class RaceActivity : LocalizedActivity() {
                 }
                 main.post {
                     val slots = list.map { it.slot }.toSet()
+                    for (s in list) localDb.markSessionDeleted(s.uuid)
                     sessions = sessions.filterNot { it.slot in slots }
                     for (slot in slots) {
                         traceCache.remove(slot)
@@ -1378,6 +1605,7 @@ class RaceActivity : LocalizedActivity() {
                 runCatching { RaceApi.deleteSession(b, s.slot) }
                     .onSuccess {
                         main.post {
+                            localDb.markSessionDeleted(s.uuid)
                             sessions = sessions.filterNot { it.slot == s.slot }
                             traceCache.remove(s.slot)
                             sessionLapCache.remove(s.slot)

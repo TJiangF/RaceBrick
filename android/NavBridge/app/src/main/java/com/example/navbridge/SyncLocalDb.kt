@@ -603,6 +603,83 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         setMeta(db, "dirty_device", if (left > 0) "1" else "0")
     }
 
+    fun applyTrackCommit(
+        uuid: String,
+        newSlot: Int,
+        name: String,
+        startF: Double,
+        startWidth: Double,
+        startOffset: Double,
+        reverse: Boolean,
+        version: Int,
+        revisionId: String,
+    ): Boolean {
+        val db = writableDatabase
+        val now = System.currentTimeMillis() / 1000L
+        val row = db.rawQuery(
+            "SELECT payload FROM tracks WHERE track_uuid=? AND deleted=0",
+            arrayOf(uuid),
+        ).use { if (it.moveToFirst()) it.getString(0) else null } ?: return false
+        val payload = runCatching { JSONObject(row) }.getOrDefault(JSONObject()).apply {
+            put("name", name.take(48))
+            put("start_f", startF.coerceIn(0.0, 0.9999))
+            put("start_width", startWidth.coerceIn(1.0, 50.0))
+            put("start_offset", startOffset.coerceIn(-50.0, 50.0))
+            put("reverse", reverse)
+            put("version", version)
+            put("revision_id", revisionId)
+        }
+        val text = payload.toString()
+        val hash = sha256(text.toByteArray())
+        db.update("tracks", ContentValues().apply {
+            put("local_slot", newSlot)
+            put("name", name.take(48))
+            put("version", version)
+            put("revision_id", revisionId)
+            put("payload", text)
+            put("content_hash", hash)
+            put("updated_at", now)
+            put("dirty_device", 0)
+            put("dirty_cloud", 1)
+        }, "track_uuid=?", arrayOf(uuid))
+        db.insertWithOnConflict("track_revisions", null, ContentValues().apply {
+            put("track_uuid", uuid)
+            put("revision_id", revisionId)
+            put("version", version)
+            putNull("parent_revision_id")
+            put("payload", text)
+            put("content_hash", hash)
+            put("created_at", now)
+            put("created_by", "device")
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+        setMeta(db, "updated_at", now.toString())
+        setMeta(db, "dirty_cloud", "1")
+        val left = db.rawQuery("SELECT COUNT(*) FROM tracks WHERE dirty_device=1 AND deleted=0", null).use {
+            if (it.moveToFirst()) it.getInt(0) else 0
+        }
+        setMeta(db, "dirty_device", if (left > 0) "1" else "0")
+        return true
+    }
+
+    fun markTrackDeleted(uuid: String) {
+        val db = writableDatabase
+        val now = System.currentTimeMillis() / 1000L
+        db.execSQL("UPDATE tracks SET deleted=1,updated_at=?,dirty_device=0,dirty_cloud=1 WHERE track_uuid=?",
+            arrayOf(now, uuid))
+        setMeta(db, "updated_at", now.toString())
+        setMeta(db, "dirty_cloud", "1")
+    }
+
+    fun markSessionDeleted(uuid: String) {
+        val db = writableDatabase
+        val now = System.currentTimeMillis() / 1000L
+        db.execSQL("UPDATE sessions SET deleted=1,updated_at=? WHERE session_uuid=?",
+            arrayOf(now, uuid))
+        db.execSQL("UPDATE lap_records SET deleted=1 WHERE session_uuid=?", arrayOf(uuid))
+        setMeta(db, "updated_at", now.toString())
+        setMeta(db, "dirty_cloud", "1")
+    }
+
     fun markAllCloudClean() {
         val db = writableDatabase
         db.execSQL("UPDATE tracks SET dirty_cloud=0")
