@@ -6,6 +6,7 @@ import android.os.Looper
 import android.text.InputType
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -133,6 +134,7 @@ class SyncActivity : AppCompatActivity() {
         content.addView(button("VIEW LOCAL DATA（雷达图）") {
             startActivity(android.content.Intent(this, LocalRecordsActivity::class.java))
         })
+        content.addView(button("CHECK DEVICE / LOCAL DIFFERENCES") { checkDifferences() })
         content.addView(button("Load RACEBRICK -> LOCAL APP") { loadDevice() })
         val dirtyCount = db.dirtyTracks().size
         content.addView(button("PUSH LOCAL TRACK CHANGES -> RACEBRICK (${dirtyCount})") { pushLocalTracks() })
@@ -183,6 +185,117 @@ class SyncActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(8) }
         setOnClickListener { action() }
+    }
+
+    private fun checkDifferences() {
+        if (busy != null) return
+        worker.execute {
+            try {
+                val device = RaceApi.manifest(base)
+                val local = db.manifest()
+                val dirty = db.dirtyTracks().map { it.uuid }.toSet()
+                val diff = DeviceDiff.compare(device, local, dirty)
+                val deviceId = device.optString("device_id", uid ?: "")
+                main.post { showDifferenceDialog(diff, deviceId) }
+            } catch (e: Exception) {
+                main.post { toast("差异检测失败：${e.message}") }
+            }
+        }
+    }
+
+    private fun showDifferenceDialog(items: List<DeviceDiffItem>, deviceId: String) {
+        if (items.isEmpty()) {
+            toast("设备与 Local App 已同步")
+            return
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        val checks = LinkedHashMap<DeviceDiffItem, CheckBox>()
+        val raw = CheckBox(this).apply {
+            text = "同时下载选中 Race Log 的 Raw Telemetry"
+            isChecked = true
+            setPadding(0, dp(8), 0, 0)
+        }
+        fun addItem(item: DeviceDiffItem) {
+            val cb = CheckBox(this).apply {
+                text = item.label
+                isChecked = !item.conflict
+                isEnabled = !item.conflict
+                setTextColor(if (item.conflict) 0xFF8A9A9A.toInt() else 0xFFE8F3F0.toInt())
+            }
+            checks[item] = cb
+            box.addView(cb)
+        }
+        items.filter { it.type == "track" }.forEach(::addItem)
+        items.filter { it.type == "session" }.forEach(::addItem)
+        box.addView(raw)
+        val scroll = ScrollView(this).apply { addView(box) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("设备 ↔ Local 差异（${items.size}）")
+            .setView(scroll)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("导入选中", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = checks.filter { it.value.isChecked && it.value.isEnabled }.keys
+                if (selected.isEmpty()) {
+                    toast("没有选择要导入的对象")
+                    return@setOnClickListener
+                }
+                val tracks = selected.mapNotNull { it.track }
+                val sessions = selected.mapNotNull { it.session }
+                dialog.dismiss()
+                importSelected(deviceId, tracks, sessions, raw.isChecked)
+            }
+        }
+        dialog.show()
+        Lang.localizeDialog(dialog)
+    }
+
+    private fun importSelected(
+        deviceId: String,
+        tracks: List<DeviceTrackRef>,
+        sessions: List<DeviceSessionRef>,
+        includeRaw: Boolean,
+    ) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        val msg = TextView(this).apply {
+            text = "准备导入…"
+            setTextColor(0xFFA9C4BE.toInt())
+        }
+        box.addView(msg)
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+        })
+        busy = AlertDialog.Builder(this).setTitle("Device -> Local").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            try {
+                val summary = DeviceSyncManager.importSelected(
+                    base, deviceId, db,
+                    DeviceSyncManager.Selection(tracks, sessions, includeRaw),
+                ) { message -> main.post { msg.text = message } }
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    uid = deviceId
+                    toast("已导入：${tracks.size} Tracks / ${sessions.size} Race Logs")
+                    renderLocal()
+                }
+            } catch (e: Exception) {
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("导入失败：${e.message}")
+                }
+            }
+        }
     }
 
     private fun loadDevice() {

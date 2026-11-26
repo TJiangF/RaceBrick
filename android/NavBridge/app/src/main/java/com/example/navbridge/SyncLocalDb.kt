@@ -219,7 +219,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         )
     }
 
-    fun importDeviceSnapshot(uid: String, body: JSONObject): Summary {
+    fun importDeviceSnapshot(uid: String, body: JSONObject, replace: Boolean = true): Summary {
         val db = writableDatabase
         val now = System.currentTimeMillis() / 1000L
         val blobDir = File(app.filesDir, "sync_blobs").apply { mkdirs() }
@@ -377,17 +377,21 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                 }
             }
 
-            markMissing(db, "tracks", "track_uuid", seenTracks, now)
-            markMissing(db, "sessions", "session_uuid", seenSessions, now)
+            if (replace) {
+                markMissing(db, "tracks", "track_uuid", seenTracks, now)
+                markMissing(db, "sessions", "session_uuid", seenSessions, now)
+            }
 
             val version = (meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1
             setMeta(db, "device_uid", uid)
             setMeta(db, "dataset_revision", version.toString())
             setMeta(db, "updated_at", now.toString())
-            setMeta(db, "dirty_device", "0")
+            if (replace) {
+                setMeta(db, "dirty_device", "0")
+                setMeta(db, "baseline_device_hash", sha256(body.toString().toByteArray()))
+                setMeta(db, "baseline_device_at", now.toString())
+            }
             setMeta(db, "dirty_cloud", "1")
-            setMeta(db, "baseline_device_hash", sha256(body.toString().toByteArray()))
-            setMeta(db, "baseline_device_at", now.toString())
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()

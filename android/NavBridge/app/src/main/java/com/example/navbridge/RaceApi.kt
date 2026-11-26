@@ -364,6 +364,9 @@ object RaceApi {
     fun status(base: String): JSONObject =
         JSONObject(get(base, "/api/status").toString(StandardCharsets.UTF_8))
 
+    fun manifest(base: String): JSONObject =
+        JSONObject(get(base, "/api/v2/manifest").toString(StandardCharsets.UTF_8))
+
     private fun parseSession(o: JSONObject): RaceSession {
         val times = ArrayList<Double>()
         val arr = o.optJSONArray("lap_times")
