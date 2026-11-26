@@ -960,8 +960,22 @@ static esp_err_t h_api_session(httpd_req_t *req) {
         (unsigned long)h.duration_ms, (unsigned long)h.sample_count,
         (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
         h.lap_count, h.lap_deleted_mask);
-    for (int i = 0; i < h.lap_count && n < 2900; i++)
+    for (int i = 0; i < h.lap_count && n < 2800; i++)
         n += snprintf(b + n, sizeof(b) - n, "%s%.3f", i ? "," : "", (double)h.lap_time[i]);
+    n += snprintf(b + n, sizeof(b) - n, "],\"lap_ids\":[");
+    for (int i = 0; i < h.lap_count && n < 3400; i++) {
+        char lid[40];
+        rb_uuid_format(&h.lap_id[i], lid, sizeof(lid));
+        n += snprintf(b + n, sizeof(b) - n, "%s\"%s\"", i ? "," : "", lid);
+    }
+    n += snprintf(b + n, sizeof(b) - n, "],\"lap_sample_start\":[");
+    for (int i = 0; i < h.lap_count && n < 3550; i++)
+        n += snprintf(b + n, sizeof(b) - n, "%s%lu", i ? "," : "",
+                      (unsigned long)h.lap_sample_start[i]);
+    n += snprintf(b + n, sizeof(b) - n, "],\"lap_sample_end\":[");
+    for (int i = 0; i < h.lap_count && n < 3550; i++)
+        n += snprintf(b + n, sizeof(b) - n, "%s%lu", i ? "," : "",
+                      (unsigned long)h.lap_sample_end[i]);
     n += snprintf(b + n, sizeof(b) - n, "]}");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, b, n);
@@ -1139,21 +1153,33 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
     int64_t l1cut = session_lap1_cutoff_ms(id, &h);
     httpd_resp_set_type(req, "text/csv");
     char line[512];
+    bool v2 = h.ver >= 2 && h.sample_size == RACE_SAMPLE_V2_SIZE;
     int n = snprintf(line, sizeof line,
         "Format,3\nSession title,\"%s\"\nSession type,Lap timing\nTrack name,\"%s\"\n"
-        "timestamp,fragment_id,lap_number,elapsed_time,latitude,longitude,speed\n"
-        "unix time,,,s,deg,deg,m/s\n"
-        ",,,,100: gps,100: gps,100: gps\n", h.track_name, h.track_name);
+        "timestamp,fragment_id,lap_number,elapsed_time,latitude,longitude,speed%s\n"
+        "unix time,,,s,deg,deg,m/s%s\n"
+        ",,,,100: gps,100: gps,100: gps%s\n", h.track_name, h.track_name,
+        v2 ? ",gps_accuracy_m,satellites,fix_type" : "",
+        v2 ? ",m,,count" : "",
+        v2 ? ",100: gps,100: gps,100: gps" : "");
     httpd_resp_send_chunk(req, line, n);
     for (uint32_t i = 0; i < h.sample_count; i++) {
-        race_sample_t sm;
-        if (!race_store_read_sample(id, (int)i, &sm)) break;
+        race_sample_v2_t sm;
+        if (!race_store_read_sample_v2(id, (int)i, &sm)) break;
         if (sm.lap == 0 || sm.lap > h.lap_count) continue;
         if (sm.lap == 1 && (int64_t)sm.t_ms < l1cut) continue;
         if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
-        n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
-                     (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
-                     sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
+        if (v2) {
+            n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f,%.2f,%u,%u\n",
+                         (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
+                         sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0,
+                         sm.accuracy_cm == 0xFFFFu ? -1.0 : sm.accuracy_cm / 100.0,
+                         sm.sats, sm.fix_type);
+        } else {
+            n = snprintf(line, sizeof line, "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
+                         (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
+                         sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
+        }
         httpd_resp_send_chunk(req, line, n);
     }
     httpd_resp_send_chunk(req, NULL, 0);

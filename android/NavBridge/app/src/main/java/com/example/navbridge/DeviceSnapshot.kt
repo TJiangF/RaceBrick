@@ -120,6 +120,7 @@ object DeviceSnapshot {
                     put("track_uuid", s.trackUuid)
                     put("track_revision_id", s.trackRevisionId)
                     put("track_version", s.trackVersion)
+                    put("lap_ids", JSONArray().also { a -> for (v in s.lapIds) a.put(v) })
                     put("laps", s.laps)
                     put("deleted_laps", s.deletedLapMask)
                     put("lap_times", JSONArray().also { a -> for (v in s.lapTimes) a.put(v) })

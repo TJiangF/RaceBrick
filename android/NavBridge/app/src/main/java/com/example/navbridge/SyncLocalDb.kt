@@ -340,10 +340,12 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                 db.insertWithOnConflict("sessions", null, sessionValues, SQLiteDatabase.CONFLICT_REPLACE)
 
                 db.delete("lap_records", "session_uuid=?", arrayOf(sessionUuid))
+                val suppliedLapIds = payload.optJSONArray("lap_ids")
                 for (idx in 0 until lapTimes.length()) {
                     val lapMs = (lapTimes.optDouble(idx, 0.0) * 1000.0).toLong()
                     if (lapMs <= 0) continue
-                    val lapId = stableUuid("lap:$sessionUuid:${idx + 1}")
+                    val suppliedId = suppliedLapIds?.optString(idx, "").orEmpty()
+                    val lapId = suppliedId.ifBlank { stableUuid("lap:$sessionUuid:${idx + 1}") }
                     val isBest = bestMs != null && lapMs == bestMs
                     db.insertWithOnConflict("lap_records", null, ContentValues().apply {
                         put("lap_id", lapId)

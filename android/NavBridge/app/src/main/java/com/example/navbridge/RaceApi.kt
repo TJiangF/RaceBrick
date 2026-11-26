@@ -100,6 +100,7 @@ data class RaceSession(
     val trackVersion: Int = 0,
     val endEpoch: Long = 0L,
     val sampleSize: Int = 16,
+    val lapIds: List<String> = emptyList(),
 )
 
 object RaceApi {
@@ -351,6 +352,9 @@ object RaceApi {
         if (arr != null) {
             for (i in 0 until arr.length()) times += arr.optDouble(i, 0.0)
         }
+        val lapIds = ArrayList<String>()
+        val ids = o.optJSONArray("lap_ids")
+        if (ids != null) for (i in 0 until ids.length()) lapIds += ids.optString(i, "")
         return RaceSession(
             slot = o.optInt("slot", -1),
             id = o.optLong("id", 0L),
@@ -368,6 +372,7 @@ object RaceApi {
             trackVersion = o.optInt("track_version", 0),
             endEpoch = o.optLong("end", 0L),
             sampleSize = o.optInt("sample_size", 16),
+            lapIds = lapIds,
         )
     }
 
