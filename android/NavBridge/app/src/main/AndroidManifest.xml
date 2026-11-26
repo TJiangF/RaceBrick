@@ -62,9 +62,6 @@
             android:name=".SyncActivity"
             android:exported="false" />
 
-        <activity
-            android:name=".LocalRecordsActivity"
-            android:exported="false" />
 
         <activity
             android:name=".SettingsActivity"

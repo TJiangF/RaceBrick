@@ -22,8 +22,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // 每次重新出包必须递增，便于区分设备上旧包/新包。
-        versionCode = 108
-        versionName = "0.9.86"
+        versionCode = 109
+        versionName = "0.9.87"
 
         buildConfigField("String", "AMAP_KEY", "\"$amapKey\"")
         buildConfigField("String", "TIANDITU_KEY", "\"$tiandituKey\"")

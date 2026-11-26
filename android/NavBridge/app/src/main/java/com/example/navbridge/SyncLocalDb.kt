@@ -187,6 +187,8 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         val blobPath: String?,
         val dirtyDevice: Boolean,
         val dirtyCloud: Boolean,
+        val version: Int = 1,
+        val revisionId: String = "",
     )
 
     private fun meta(db: SQLiteDatabase, key: String): String? =
@@ -462,8 +464,8 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
     fun tracks(): List<LocalEntity> {
         val out = ArrayList<LocalEntity>()
         readableDatabase.rawQuery(
-            """SELECT track_uuid,local_slot,name,payload,dirty_device,dirty_cloud
-               FROM tracks WHERE deleted=0 ORDER BY name, track_uuid""",
+            """SELECT track_uuid,local_slot,name,payload,dirty_device,dirty_cloud,
+                      version,revision_id FROM tracks WHERE deleted=0 ORDER BY name, track_uuid""",
             null,
         ).use { c ->
             while (c.moveToNext()) {
@@ -475,6 +477,8 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                     blobPath = null,
                     dirtyDevice = c.getInt(4) != 0,
                     dirtyCloud = c.getInt(5) != 0,
+                    version = c.getInt(6),
+                    revisionId = c.getString(7).orEmpty(),
                 )
             }
         }

@@ -90,7 +90,10 @@ object LocalCloudBackup {
         var trackCount = 0
         for (t in db.tracks()) {
             val p = JSONObject(t.payload.toString())
-            val uuid = p.optString("uuid", t.uuid)
+            val uuid = t.uuid
+            p.put("uuid", uuid)
+            p.put("version", t.version)
+            p.put("revision_id", t.revisionId)
             if (!p.has("id")) p.put("id", t.localKey.toIntOrNull() ?: -1)
             val c = cloudTracks[uuid]
             if (c != null &&

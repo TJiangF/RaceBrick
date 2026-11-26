@@ -58,18 +58,6 @@
                     android:textColor="#F2B95C" />
 
                 <Button
-                    android:id="@+id/btnOffline"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_secondary"
-                    android:backgroundTint="@null"
-                    android:minHeight="40dp"
-                    android:text="本地"
-                    android:textColor="#A78BFA" />
-
-                <Button
                     android:id="@+id/btnWifi"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"

@@ -489,10 +489,6 @@ class MainActivity : LocalizedActivity() {
         findViewById<Button>(R.id.btnRace).setOnClickListener {
             startActivity(Intent(this, RaceActivity::class.java))
         }
-        findViewById<Button>(R.id.btnOffline).setOnClickListener {
-            startActivity(Intent(this, RaceActivity::class.java)
-                .putExtra(RaceActivity.EXTRA_OFFLINE, true))
-        }
         mapStyle = MapStyles.byId(
             getSharedPreferences("navbridge", MODE_PRIVATE).getString("map_style", MapStyles.DEFAULT.id)
         )
