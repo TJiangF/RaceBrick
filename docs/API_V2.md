@@ -202,7 +202,7 @@ Manifest rules:
 
 - Tracks include only metadata; geometry is fetched by revision.
 - Sessions include metadata and telemetry availability/size; raw chunks are fetched separately.
-- Old Logs are not present; legacy `histrec` records are deleted with no compatibility path.
+- Device-local `histrec` preview is not exposed in v2 and is never synchronized to App or Cloud.
 - Device must not include full telemetry in the manifest.
 
 ---
@@ -691,8 +691,8 @@ sequenceDiagram
 - Existing Sessions get deterministic UUIDs during device migration:
   `uuidv5(device_id, "session:" + legacy_epoch_id + ":" + slot + ":" + content_hash)`.
 - Existing Tracks get generated `track_id` UUIDs and revision `v1`; the original slot is retained as `legacy_slot`.
-- Legacy `histrec` / Old Logs are deleted from device, app, and cloud. No conversion, export, or compatibility UI is retained.
-- The old device log-store region is reclaimed or reserved after deletion.
+- Device `histrec` records stay local and are excluded from v2 manifests, App storage, and Cloud backup.
+- The App must render canonical Raw RaceSessions directly; it must not depend on `/api/logs` or `histrec` for Race Log display.
 
 ---
 

@@ -19,7 +19,7 @@
 7. Cloud backup/restore is manual in the current scope: only a user-triggered upload or restore; no automatic cloud download or overwrite.
 8. Every track has a stable UUID and immutable revision history. Sessions reference the exact track revision used when recording.
 9. All transfers are checksum-verified, restart-safe, and idempotent.
-10. Legacy `histrec` Old Logs are removed entirely. The canonical Race Log is the Raw RaceSession; no compatibility layer is retained.
+10. Legacy `histrec` summaries remain **device-local only** for the RaceBrick Race Log preview. The App renders Raw RaceSessions directly; `histrec` is not synchronized to App or Cloud.
 
 ## 2. Non-goals For Phase 1
 
@@ -137,13 +137,13 @@ The device does not talk directly to the cloud. The app performs:
 - BLE is used for discovery/status/pairing assistance where available; large data transfer uses Wi-Fi or USB.
 - HTTP Range, SHA-256, idempotency keys, and explicit acknowledgments are mandatory.
 
-### AD-8: Legacy Old Logs are removed
+### AD-8: Legacy histrec stays device-local for preview
 
 - The canonical user-facing Race Log is the Raw RaceSession.
-- Legacy `histrec_t` / Old Logs are deleted from the device, app, and cloud.
-- No read-only compatibility view, export, migration, or cloud backup is retained for Old Logs.
-- The device log store and UI history paths are removed or repurposed to canonical Sessions.
-- The old external-flash log region is reclaimed or reserved after the destructive migration.
+- Legacy `histrec_t` records stay on RaceBrick for the device `RACE LOG` list/detail preview (`SC_HISTORY` / `SC_HISTORY_DETAIL`).
+- `histrec` is not exposed in the v2 device manifest, not synchronized to the App, and not uploaded to the Cloud.
+- The App displays Raw RaceSession data directly; it does not need the device summary.
+- Existing device `histrec` records are preserved. No cloud/server/app compatibility path is added.
 
 ### AD-9: Cloud storage starts modular, remains replaceable
 
@@ -479,7 +479,7 @@ External W25Q128, 16 MiB, current allocation:
 ```text
 0x000000 - 0x0FFFFF   256 x 4 KiB   Tracks
 0x100000 - 0xEFFFFF     7 x 2 MiB   Sessions
-0xF00000 - 0xFFFFFF   256 x 4 KiB   Legacy logs (removed/reclaimed)
+0xF00000 - 0xFFFFFF   256 x 4 KiB   Device-local histrec preview
 ```
 
 Proposed use:
@@ -491,7 +491,7 @@ Proposed use:
   `session_id`, `track_id`, `track_revision_id`, UTC start/end, Lap Records, telemetry chunk table/hashes, format version.
 - Raw telemetry remains inside the session slot, split into logical 64 KiB chunks; chunk hashes are stored in the 4 KiB header.
 - Lap sector data: up to 16 laps x 8 sectors. Existing sessions report empty sector arrays, not fabricated values.
-- Legacy `histrec_t` records are deleted once during migration; the old log region is reclaimed or reserved. No Old Logs compatibility path remains.
+- Legacy `histrec_t` storage remains device-local for the device Race Log preview. It is excluded from v2 sync, App local DB, and Cloud.
 
 ### 7.4 Android database
 
@@ -990,7 +990,7 @@ Publishing is separate from backup and device sync.
 
 | Phase | Main files |
 |---|---|
-| 2 | firmware `tstore.*`, `race_store.*`, `log_store.*` removal, `sim.h`, `app.h`; app `SyncLocalDb` replacement, local DB migration; server schema/repositories |
+| 2 | firmware `tstore.*`, `race_store.*`, `log_store.*` retained device-local, `sim.h`, `app.h`; app `SyncLocalDb` replacement, local DB migration; server schema/repositories |
 | 3 | firmware `netcfg.*` manifest/chunk endpoints; app `DeviceSyncManager`, `DeviceDifferenceDetector`, sync UI; protocol tests |
 | 4 | firmware atomic Track commit; app `TrackDraftManager`, `TrackEditor`, `ConflictResolver`; server Track revision APIs |
 | 5 | app `CloudSyncManager`, manual transfer workers; server cloud-sync services and storage |
@@ -1031,6 +1031,8 @@ Planned migration from current files:
 - `CloudClient`/`CloudSyncManager` -> v2 manual upload/restore manager; remove full-snapshot replacement and automatic sync paths.
 - `RaceActivity` -> local-first RACE UI; read-only Sessions/Laps; Track Draft editing.
 - `LocalCache` -> migrate into typed local DB; remove duplicate snapshot model.
+- App `/api/logs` / Old Logs UI -> removed from the sync path; App renders canonical Raw RaceSessions.
+- Firmware `SC_HISTORY` / `SC_HISTORY_DETAIL` / `log_store` -> keep as device-local preview, not part of v2 sync.
 
 ---
 
@@ -1054,7 +1056,7 @@ Exit criteria:
 Work:
 
 - Firmware v3 Track/Session/Lap/Telemetry records and UUIDs.
-- Remove legacy log store/UI/API and delete existing Old Logs.
+- Keep `log_store` for device preview; remove `/api/logs` from the App sync path and remove legacy `race_logs` from v2 App/Cloud schemas.
 - App typed database and migration.
 - App content-addressed telemetry storage.
 - Device and app manifest generation.
@@ -1065,7 +1067,7 @@ Tests:
 - UUID stability across reboot/reflash where expected.
 - Track revision hash stability across languages.
 - Session references fixed Track revision.
-- Existing raw Sessions migrate without mutation; Old Logs are deleted with no compatibility path.
+- Existing raw Sessions migrate without mutation. Device `histrec` remains local and is not included in manifests or cloud backup. App renders raw Sessions, not `histrec`.
 - Corrupt flash/header handling.
 
 ### Phase 3: RaceBrick-App synchronization
@@ -1163,7 +1165,7 @@ Each phase must pass build/tests on firmware, Android, and server before the nex
 1. **Cloud infrastructure**: keep Flask + SQLite + filesystem for the first implementation. Use repository/blob interfaces so PostgreSQL and S3-compatible storage remain replaceable later.
 2. **Device Track history**: retain current revision + 3 previous revisions.
 3. **Telemetry sample**: accept 20-byte samples at 25 Hz, about 70 minutes per 2 MiB session slot.
-4. **Legacy Old Logs**: delete them completely from device, app, and cloud. Do not retain compatibility views, exports, or migration paths.
+4. **Legacy histrec**: retain on the device for its local Race Log preview; exclude it from v2 sync, App DB, and Cloud.
 5. **Cloud sync policy**: manual only for now. Upload or download/overwrite happens only after an explicit user action. No automatic upload, automatic download, scheduler, or seven-day reminder.
 6. **Track geometry**: use A (centerline + constant width). Full boundary polygon editing is out of scope; boundary width accuracy is not a priority.
 
@@ -1181,7 +1183,7 @@ Each phase must pass build/tests on firmware, Android, and server before the nex
 - [ ] Device manifest and selective sync dialog accepted.
 - [ ] Draft and batch commit protocol accepted.
 - [ ] Manual-only cloud upload/restore accepted.
-- [ ] Legacy Old Logs removal accepted.
+- [ ] Device-local histrec preview retention accepted.
 - [ ] Conflict policy accepted.
 - [ ] API v2 accepted.
 - [ ] Roadmap/phase boundaries accepted.
