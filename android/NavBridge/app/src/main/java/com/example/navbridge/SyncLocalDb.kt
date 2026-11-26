@@ -11,7 +11,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 3) {
+class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 4) {
     private val app = context.applicationContext
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -33,6 +33,11 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         createMeta(db)
         createTypedTables(db)
         if (oldVersion < 3) migrateLegacyEntities(db)
+        if (oldVersion < 4) {
+            if (tableExists(db, "sessions") && "device_hash" !in columns(db, "sessions")) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN device_hash TEXT")
+            }
+        }
     }
 
     private fun createMeta(db: SQLiteDatabase) {
@@ -101,6 +106,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
             content_hash TEXT,
             laps_hash TEXT,
             telemetry_hash TEXT,
+            device_hash TEXT,
             imported_at INTEGER,
             updated_at INTEGER,
             deleted INTEGER NOT NULL DEFAULT 0
@@ -343,6 +349,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                     put("content_hash", contentHash)
                     put("laps_hash", lapsHash)
                     if (telemetryHash != null) put("telemetry_hash", telemetryHash) else putNull("telemetry_hash")
+                    put("device_hash", payload.optString("content_hash", ""))
                     put("imported_at", now)
                     put("deleted", 0)
                 }
@@ -678,6 +685,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                 .put("laps", p.optInt("laps", 0))
                 .put("samples", p.optLong("samples", 0L))
                 .put("sample_size", p.optInt("sample_size", 16))
+                .put("content_hash", p.optString("content_hash", ""))
                 .put("telemetry", JSONObject()
                     .put("available", s.blobPath != null)
                     .put("size_bytes", chunk?.first ?: 0L)
@@ -867,6 +875,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
                         put("content_hash", hash)
                         put("laps_hash", sha256(lapTimes.toString().toByteArray()))
                         if (telemetryHash != null) put("telemetry_hash", telemetryHash) else putNull("telemetry_hash")
+                        put("device_hash", payload.optString("content_hash", ""))
                         put("imported_at", now)
                         put("deleted", 0)
                     }, SQLiteDatabase.CONFLICT_IGNORE)

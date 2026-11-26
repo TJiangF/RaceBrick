@@ -957,6 +957,7 @@ void app_init(void) {
     /* Give legacy raw sessions stable UUIDs/track revision references without
      * touching their 16-byte telemetry stream. */
     race_store_migrate();
+    race_store_hash_migrate();
 
     if (g.log) {
         /* histrec is deliberately device-local: it powers the on-device

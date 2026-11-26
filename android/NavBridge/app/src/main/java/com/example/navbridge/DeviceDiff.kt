@@ -18,6 +18,7 @@ data class DeviceSessionRef(
     val start: Long,
     val laps: Int,
     val rawAvailable: Boolean,
+    val contentHash: String = "",
 )
 
 data class DeviceDiffItem(
@@ -95,6 +96,7 @@ object DeviceDiff {
                     start = o.optLong("start", 0L),
                     laps = o.optInt("laps", 0),
                     rawAvailable = o.optBoolean("telemetry_available", true),
+                    contentHash = o.optString("content_hash", ""),
                 )
                 if (ref.sessionId.isBlank()) continue
                 val localSession = localSessions[ref.sessionId]
@@ -108,11 +110,21 @@ object DeviceDiff {
                 } else {
                     val localRaw = localSession.optJSONObject("telemetry")
                         ?.optBoolean("available", false) == true
+                    val localHash = localSession.optString("content_hash", "")
                     if (ref.rawAvailable && !localRaw) {
                         out += DeviceDiffItem(
                             type = "session",
                             label = "[Race Log] ${ref.trackName} · ${formatDate(ref.start)} · " +
                                 "${ref.laps} 圈 · Local 缺少 RAW",
+                            session = ref,
+                        )
+                    } else if (localHash.isNotBlank() && ref.contentHash.isNotBlank() &&
+                        localHash != ref.contentHash
+                    ) {
+                        out += DeviceDiffItem(
+                            type = "session",
+                            label = "[Race Log] ${ref.trackName} · ${formatDate(ref.start)} · " +
+                                "${ref.laps} 圈 · Session 内容 hash 不同",
                             session = ref,
                         )
                     }

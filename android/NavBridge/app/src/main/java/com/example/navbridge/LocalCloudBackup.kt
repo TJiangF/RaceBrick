@@ -67,6 +67,51 @@ object LocalCloudBackup {
         return RestoreResult(tracks, sessions)
     }
 
+    fun restoreSnapshot(db: SyncLocalDb, uid: String, snapshot: JSONObject): RestoreResult {
+        val tracksOut = JSONArray()
+        var tracks = 0
+        snapshot.optJSONArray("tracks")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val t = arr.optJSONObject(i) ?: continue
+                val payload = t.optJSONObject("payload") ?: continue
+                tracksOut.put(JSONObject()
+                    .put("local_id", t.optInt("local_id", -1))
+                    .put("payload", payload))
+                tracks++
+            }
+        }
+        val sessionsOut = JSONArray()
+        var sessions = 0
+        snapshot.optJSONArray("sessions")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val s = arr.optJSONObject(i) ?: continue
+                val payload = s.optJSONObject("payload") ?: continue
+                val item = JSONObject()
+                    .put("local_slot", s.optInt("local_slot", payload.optInt("slot", -1)))
+                    .put("payload", payload)
+                val gz = s.optString("csv_gzip_b64", "")
+                if (gz.isNotBlank()) {
+                    item.put("csv_gzip_b64", gz)
+                } else {
+                    val csv = s.optString("csv", "")
+                    if (csv.isNotBlank()) {
+                        val compressed = ByteArrayOutputStream()
+                        GZIPOutputStream(compressed).use { it.write(csv.toByteArray(StandardCharsets.UTF_8)) }
+                        item.put("csv_gzip_b64",
+                            Base64.encodeToString(compressed.toByteArray(), Base64.NO_WRAP))
+                    }
+                }
+                sessionsOut.put(item)
+                sessions++
+            }
+        }
+        db.importDeviceSnapshot(uid, JSONObject()
+            .put("tracks", tracksOut)
+            .put("sessions", sessionsOut)
+            .put("logs", JSONArray()), replace = false)
+        return RestoreResult(tracks, sessions)
+    }
+
     fun backup(db: SyncLocalDb, uid: String, token: String): Result {
         val api = CloudApi()
         val cloud = api.deviceManifest(uid, token)

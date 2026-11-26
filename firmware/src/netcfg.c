@@ -574,6 +574,8 @@ static esp_err_t h_api_status(httpd_req_t *req) {
     return r;
 }
 
+static void sha_hex(const uint8_t *data, char *out, int cap);
+
 static esp_err_t h_api_v2_manifest(httpd_req_t *req) {
     char *b = (char *)heap_caps_malloc(32768, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!b) {
@@ -609,21 +611,22 @@ static esp_err_t h_api_v2_manifest(httpd_req_t *req) {
     for (int i = 0; i < RACE_SLOTS && n < 30000; i++) {
         race_hdr_t h;
         if (!race_store_info(i, &h)) continue;
-        char sid[40], tid[40], rid[40];
+        char sid[40], tid[40], rid[40], sha[65];
         rb_uuid_format(&h.session_id, sid, sizeof(sid));
         rb_uuid_format(&h.track_id, tid, sizeof(tid));
         rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
+        sha_hex(h.data_hash, sha, sizeof(sha));
         n += snprintf(b + n, 32768 - n,
             "%s{\"session_id\":\"%s\",\"local_slot\":%d,\"track_id\":\"%s\","
             "\"track_revision_id\":\"%s\",\"track_version\":%lu,"
             "\"track_name\":\"%s\",\"start\":%lu,\"end\":%lu,"
             "\"duration_ms\":%lu,\"laps\":%u,\"samples\":%lu,"
-            "\"sample_size\":%u,\"telemetry_available\":true}",
+            "\"sample_size\":%u,\"content_hash\":\"%s\",\"telemetry_available\":true}",
             first ? "" : ",", sid, i, tid, rid, (unsigned long)h.track_revision,
             h.track_name, (unsigned long)h.start_epoch, (unsigned long)h.end_epoch,
             (unsigned long)h.duration_ms, h.lap_count,
             (unsigned long)h.sample_count,
-            (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE));
+            (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE), sha);
         first = false;
     }
     n += snprintf(b + n, 32768 - n, "]}");
@@ -959,6 +962,12 @@ static esp_err_t h_api_log_rename(httpd_req_t *req) {
     return httpd_resp_send(req, b, HTTPD_RESP_USE_STRLEN);
 }
 
+static void sha_hex(const uint8_t *data, char *out, int cap) {
+    if (cap < 65) { if (cap) out[0] = 0; return; }
+    for (int i = 0; i < 32; i++) snprintf(out + i * 2, 3, "%02x", data[i]);
+    out[64] = 0;
+}
+
 static esp_err_t h_api_sessions(httpd_req_t *req) {
     const int cap = 8192;
     char *b = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -968,23 +977,25 @@ static esp_err_t h_api_sessions(httpd_req_t *req) {
     for (int i = 0; i < RACE_SLOTS && n < cap - 240; i++) {
         race_hdr_t h;
         if (!race_store_info(i, &h)) continue;
-        char sid[40], tid[40], rid[40];
+        char sid[40], tid[40], rid[40], sha[65];
         rb_uuid_format(&h.session_id, sid, sizeof(sid));
         rb_uuid_format(&h.track_id, tid, sizeof(tid));
         rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
+        sha_hex(h.data_hash, sha, sizeof(sha));
         n += snprintf(b + n, cap - n,
             "%s{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
             "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
             "\"track_version\":%lu,\"track_name\":\"%s\","
             "\"start\":%lu,\"end\":%lu,\"duration_ms\":%lu,"
-            "\"samples\":%lu,\"sample_size\":%u,\"laps\":%u,\"mode\":%u}",
+            "\"samples\":%lu,\"sample_size\":%u,\"laps\":%u,\"mode\":%u,"
+            "\"content_hash\":\"%s\"}",
             first ? "" : ",", i, (unsigned long)h.id, sid,
             h.track_slot, tid, rid, (unsigned long)h.track_revision,
             h.track_name, (unsigned long)h.start_epoch,
             (unsigned long)h.end_epoch, (unsigned long)h.duration_ms,
             (unsigned long)h.sample_count,
             (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
-            h.lap_count, h.mode);
+            h.lap_count, h.mode, sha);
         first = false;
     }
     n += snprintf(b + n, cap - n, "]}");
@@ -1009,22 +1020,23 @@ static esp_err_t h_api_session(httpd_req_t *req) {
     const int cap = 4096;
     char *b = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!b) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
-    char sid[40], tid[40], rid[40];
+    char sid[40], tid[40], rid[40], sha[65];
     rb_uuid_format(&h.session_id, sid, sizeof(sid));
     rb_uuid_format(&h.track_id, tid, sizeof(tid));
     rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
+    sha_hex(h.data_hash, sha, sizeof(sha));
     int n = snprintf(b, cap,
         "{\"slot\":%d,\"id\":%lu,\"session_uuid\":\"%s\","
         "\"track\":%u,\"track_uuid\":\"%s\",\"track_revision_id\":\"%s\","
         "\"track_version\":%lu,\"track_name\":\"%s\","
         "\"start\":%lu,\"end\":%lu,\"duration_ms\":%lu,"
         "\"samples\":%lu,\"sample_size\":%u,\"laps\":%u,\"deleted_laps\":%u,"
-        "\"lap_times\":[", id, (unsigned long)h.id, sid,
+        "\"content_hash\":\"%s\",\"lap_times\":[", id, (unsigned long)h.id, sid,
         h.track_slot, tid, rid, (unsigned long)h.track_revision, h.track_name,
         (unsigned long)h.start_epoch, (unsigned long)h.end_epoch,
         (unsigned long)h.duration_ms, (unsigned long)h.sample_count,
         (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE),
-        h.lap_count, h.lap_deleted_mask);
+        h.lap_count, h.lap_deleted_mask, sha);
     for (int i = 0; i < h.lap_count && n < cap - 1280; i++)
         n += snprintf(b + n, cap - n, "%s%.3f", i ? "," : "", (double)h.lap_time[i]);
     n += snprintf(b + n, cap - n, "],\"lap_ids\":[");

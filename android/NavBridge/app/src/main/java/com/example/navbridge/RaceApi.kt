@@ -118,6 +118,7 @@ data class RaceSession(
     val endEpoch: Long = 0L,
     val sampleSize: Int = 16,
     val lapIds: List<String> = emptyList(),
+    val contentHash: String = "",
 )
 
 object RaceApi {
@@ -442,6 +443,7 @@ object RaceApi {
             endEpoch = o.optLong("end", 0L),
             sampleSize = o.optInt("sample_size", 16),
             lapIds = lapIds,
+            contentHash = o.optString("content_hash", ""),
         )
     }
 

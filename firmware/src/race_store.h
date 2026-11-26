@@ -57,6 +57,7 @@ typedef struct {
     uint8_t  lap_sector_count[RACE_LAPS];
     uint8_t  pad2[3];
     uint32_t hash2;
+    uint8_t  data_hash[32];     /* SHA-256 over header metadata + raw samples */
 } race_hdr_t;
 
 typedef struct {
@@ -91,6 +92,7 @@ bool race_store_active(void);
 void race_store_abort(void);
 
 void race_store_migrate(void);
+void race_store_hash_migrate(void);
 int  race_store_count(void);
 bool race_store_info(int slot, race_hdr_t *out);
 bool race_store_read_sample(int slot, int index, race_sample_t *out);

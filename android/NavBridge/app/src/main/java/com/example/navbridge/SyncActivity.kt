@@ -135,6 +135,7 @@ class SyncActivity : AppCompatActivity() {
         content.addView(button("FULL IMPORT RACEBRICK -> LOCAL APP") { loadDevice() })
         content.addView(button("BACKUP LOCAL -> CLOUD（手动）") { backupLocal() })
         content.addView(button("RESTORE CLOUD -> LOCAL（手动）") { restoreLocal() })
+        content.addView(button("CLOUD BACKUP HISTORY") { cloudHistory() })
         content.addView(button(if (CloudStore.token(this) == null) "LOGIN CLOUD" else "REFRESH CLOUD") {
             if (CloudStore.token(this) == null) loginDialog() else refresh()
         })
@@ -475,6 +476,7 @@ class SyncActivity : AppCompatActivity() {
                     } else {
                         toast("已备份：${r.tracks} Tracks / ${r.sessions} Race Logs（版本 ${r.dataVersion}）")
                     }
+                    db.markAllCloudClean()
                     refresh()
                 }
             } catch (e: Exception) {
@@ -552,6 +554,93 @@ class SyncActivity : AppCompatActivity() {
                     busy?.dismiss()
                     busy = null
                     toast("云端恢复失败：${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun cloudHistory() {
+        if (busy != null) return
+        val uidNow = uid?.takeIf { it.isNotBlank() } ?: db.summary().uid
+        val token = CloudStore.token(this)
+        if (uidNow.isNullOrBlank() || token.isNullOrBlank()) {
+            toast("请先登录云端")
+            if (token.isNullOrBlank()) loginDialog()
+            return
+        }
+        worker.execute {
+            try {
+                val arr = CloudApi().history(uidNow, token)
+                main.post {
+                    if (arr.length() == 0) {
+                        toast("没有云端历史备份")
+                        return@post
+                    }
+                    val labels = ArrayList<String>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        val ts = o.optLong("created_at", 0L)
+                        val date = if (ts > 0) SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ts * 1000L)) else "?"
+                        labels += "$date · ${o.optInt("track_count")}T / ${o.optInt("session_count")}S"
+                    }
+                    val d = AlertDialog.Builder(this)
+                        .setTitle("Cloud backup history")
+                        .setItems(labels.toTypedArray()) { _, which ->
+                            val o = arr.optJSONObject(which) ?: return@setItems
+                            confirmHistoryRestore(uidNow, token, o.optInt("id", 0), labels[which])
+                        }
+                        .setNegativeButton("关闭", null)
+                        .create()
+                    d.show()
+                    Lang.localizeDialog(d)
+                }
+            } catch (e: Exception) {
+                main.post { toast("读取历史失败：${e.message}") }
+            }
+        }
+    }
+
+    private fun confirmHistoryRestore(uidNow: String, token: String, id: Int, label: String) {
+        val d = AlertDialog.Builder(this)
+            .setTitle("Restore cloud backup")
+            .setMessage("恢复 $label 到 Local App？\n不会自动写设备。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("恢复") { _, _ -> restoreHistory(uidNow, token, id) }
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
+    private fun restoreHistory(uidNow: String, token: String, id: Int) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        box.addView(TextView(this).apply {
+            text = "正在恢复历史备份…"
+            setTextColor(0xFFA9C4BE.toInt())
+        })
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+        })
+        busy = AlertDialog.Builder(this).setTitle("Cloud history -> Local").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            try {
+                val detail = CloudApi().historyDetail(uidNow, id, token)
+                val snap = detail.optJSONObject("snapshot") ?: throw IllegalStateException("snapshot missing")
+                val r = LocalCloudBackup.restoreSnapshot(db, uidNow, snap)
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("历史备份已恢复：${r.tracks} Tracks / ${r.sessions} Race Logs")
+                    refresh()
+                }
+            } catch (e: Exception) {
+                main.post {
+                    busy?.dismiss()
+                    busy = null
+                    toast("历史恢复失败：${e.message}")
                 }
             }
         }

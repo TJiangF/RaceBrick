@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "psa/crypto.h"
 
 static const char *TAG = "racestore";
 #define RACE_MAGIC 0x52534331u  /* 'RSC1' */
@@ -54,7 +55,7 @@ static bool read_hdr(int slot, race_hdr_t *h) {
     if (!ext_flash_read(slot_base(slot), h, sizeof(*h))) return false;
     if (h->magic != RACE_MAGIC || h->valid != 1) return false;
     if (h->ver == 1) return h->hash == hdr_hash(h);
-    if (h->ver == 2) return h->hash2 == hdr_hash2(h);
+    if (h->ver == 2 || h->ver == 3) return h->hash2 == hdr_hash2(h);
     return false;
 }
 
@@ -65,6 +66,67 @@ static bool write_hdr(int slot, race_hdr_t *h) {
     else h->hash = hdr_hash(h);
     if (!ext_flash_erase_sector(slot_base(slot))) return false;
     return ext_flash_write(slot_base(slot), h, sizeof(*h));
+}
+
+static bool compute_data_hash(int slot, race_hdr_t *h, uint8_t out[32]) {
+    if (!h || slot < 0 || slot >= RACE_SLOTS) return false;
+    int sample_size = (h->ver >= 2 && h->sample_size == RACE_SAMPLE_V2_SIZE)
+        ? RACE_SAMPLE_V2_SIZE : RACE_SAMPLE_SIZE;
+    race_hdr_t tmp = *h;
+    tmp.hash = 0;
+    tmp.hash2 = 0;
+    memset(tmp.data_hash, 0, sizeof(tmp.data_hash));
+    psa_crypto_init();
+    psa_hash_operation_t op = PSA_HASH_OPERATION_INIT;
+    if (psa_hash_setup(&op, PSA_ALG_SHA_256) != PSA_SUCCESS) return false;
+    psa_status_t st = psa_hash_update(&op, (const uint8_t *)&tmp, sizeof(tmp));
+    size_t total = (size_t)h->sample_count * (size_t)sample_size;
+    size_t done = 0;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        psa_hash_abort(&op);
+        return false;
+    }
+    while (st == PSA_SUCCESS && done < total) {
+        size_t n = total - done;
+        if (n > 4096) n = 4096;
+        if (!ext_flash_read(slot_base(slot) + RACE_HDR_SIZE + done, buf, n)) {
+            st = PSA_ERROR_GENERIC_ERROR;
+            break;
+        }
+        st = psa_hash_update(&op, buf, n);
+        done += n;
+    }
+    free(buf);
+    if (st != PSA_SUCCESS) {
+        psa_hash_abort(&op);
+        return false;
+    }
+    size_t out_len = 0;
+    st = psa_hash_finish(&op, out, 32, &out_len);
+    if (st != PSA_SUCCESS || out_len != 32) return false;
+    return true;
+}
+
+void race_store_hash_migrate(void) {
+    race_hdr_t *h = (race_hdr_t *)heap_caps_malloc(sizeof(race_hdr_t),
+                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!h) return;
+    for (int i = 0; i < RACE_SLOTS; i++) {
+        if (!read_hdr(i, h)) continue;
+        bool zero = true;
+        for (int k = 0; k < 32; k++) if (h->data_hash[k]) { zero = false; break; }
+        if (h->ver >= 3 && !zero) continue;
+        h->ver = 3;
+        uint8_t hash[32];
+        if (!compute_data_hash(i, h, hash)) {
+            ESP_LOGW(TAG, "session hash failed slot=%d", i);
+            continue;
+        }
+        memcpy(h->data_hash, hash, 32);
+        if (write_hdr(i, h)) ESP_LOGI(TAG, "session hash migrated slot=%d", i);
+    }
+    free(h);
 }
 
 void race_store_migrate(void) {
@@ -170,7 +232,7 @@ bool race_store_begin(int track_slot, const char *track_name, int mode,
     hdr_cache_invalidate();
     memset(&s_hdr, 0, sizeof(s_hdr));
     s_hdr.magic = RACE_MAGIC;
-    s_hdr.ver = 2;
+    s_hdr.ver = 3;
     s_hdr.valid = 0;
     s_hdr.id = (uint32_t)time(NULL);
     s_hdr.track_slot = (uint16_t)track_slot;
@@ -280,6 +342,9 @@ void race_store_end(const engine_t *e) {
     if (s_hdr.duration_ms && s_hdr.sample_count) {
         s_hdr.sample_rate_hz = (uint16_t)((s_hdr.sample_count * 1000u) / s_hdr.duration_ms);
     }
+    s_hdr.ver = 3;
+    uint8_t dh[32];
+    if (compute_data_hash(s_slot, &s_hdr, dh)) memcpy(s_hdr.data_hash, dh, 32);
     bool ok = write_hdr(s_slot, &s_hdr);
     ESP_LOGI(TAG, "session end slot=%d samples=%u laps=%u ok=%d",
              s_slot, s_hdr.sample_count, s_hdr.lap_count, ok);

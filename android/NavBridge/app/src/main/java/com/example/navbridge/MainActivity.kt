@@ -1343,8 +1343,40 @@ class MainActivity : LocalizedActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, Lang.tr(msg), Toast.LENGTH_SHORT).show()
 
+    private fun maybeBackupReminder() {
+        val local = SyncLocalDb(this)
+        val summary = local.summary()
+        if (summary.tracks == 0 && summary.sessions == 0) return
+        val token = CloudStore.token(this)
+        if (token.isNullOrBlank()) return
+        val uid = summary.uid ?: return
+        val now = System.currentTimeMillis() / 1000L
+        val lastSync = CloudStore.lastSyncAt(this, uid)
+        val updated = summary.updatedAt
+        val pending = lastSync <= 0L || updated > lastSync || summary.dirtyCloud
+        if (!pending) return
+        val baseline = if (lastSync > 0L) lastSync else updated
+        if (baseline <= 0L || now - baseline < 7L * 24L * 60L * 60L) return
+        val lastReminder = CloudStore.lastReminder(this, uid)
+        if (lastReminder > 0L && now - lastReminder < 24L * 60L * 60L) return
+        CloudStore.saveReminder(this, uid, now)
+        val d = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("云备份提醒")
+            .setMessage("Local 数据已超过 7 天没有成功备份。现在手动备份吗？")
+            .setNegativeButton("稍后", null)
+            .setPositiveButton("去备份") { _, _ ->
+                startActivity(Intent(this, SyncActivity::class.java)
+                    .putExtra(SyncActivity.EXTRA_BASE, RaceApi.baseUrl(this))
+                    .putExtra(SyncActivity.EXTRA_UID, uid))
+            }
+            .create()
+        d.show()
+        Lang.localizeDialog(d)
+    }
+
     override fun onResume() {
         super.onResume()
+        main.postDelayed({ maybeBackupReminder() }, 1200L)
         if (MediaControl.hasAccess(this)) mediaPrompted = false
         lastMediaState = null
         sendMediaState()

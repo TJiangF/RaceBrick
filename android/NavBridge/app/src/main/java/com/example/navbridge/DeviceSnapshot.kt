@@ -116,6 +116,7 @@ object DeviceSnapshot {
                     put("duration_ms", s.durationMs)
                     put("samples", s.samples)
                     put("sample_size", s.sampleSize)
+                    put("content_hash", s.contentHash)
                     put("session_uuid", s.uuid)
                     put("track_uuid", s.trackUuid)
                     put("track_revision_id", s.trackRevisionId)

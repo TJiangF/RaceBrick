@@ -51,6 +51,13 @@ object CloudStore {
             .putLong("sync_bytes_$uid", bytes)
             .apply()
     }
+
+    fun lastReminder(context: Context, uid: String): Long =
+        prefs(context).getLong("reminder_at_$uid", 0L)
+
+    fun saveReminder(context: Context, uid: String, at: Long) {
+        prefs(context).edit().putLong("reminder_at_$uid", at).apply()
+    }
 }
 
 data class CloudAccount(val username: String, val token: String, val admin: Boolean)
@@ -114,6 +121,9 @@ class CloudApi {
     fun history(uid: String, token: String): JSONArray =
         request("GET", "/api/phone/v1/devices/${path(uid)}/history", token, null)
             .optJSONArray("history") ?: JSONArray()
+
+    fun historyDetail(uid: String, historyId: Int, token: String): JSONObject =
+        request("GET", "/api/platform/devices/${path(uid)}/sync-history/$historyId", token, null)
 
     private fun path(uid: String): String =
         URLEncoder.encode(uid, StandardCharsets.UTF_8.name())
