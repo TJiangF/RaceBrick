@@ -1,3 +1,9 @@
+> **Superseded 2026-11-26.** The active design is in
+> [`THREE_TIER_ARCHITECTURE.md`](THREE_TIER_ARCHITECTURE.md) and
+> [`API_V2.md`](API_V2.md). The new specification allows automatic cloud
+> backup (but never automatic device sync) and limits app edits to Track
+> Drafts. This file is kept for historical context only.
+
 # RaceBrick Sync Agent Prompt
 
 Copy the prompt below into the coding agent. Edit this file directly when the
