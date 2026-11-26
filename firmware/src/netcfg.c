@@ -25,6 +25,7 @@
 #include "geo.h"
 #include <math.h>
 #include <time.h>
+#include "psa/crypto.h"
 
 static const char *TAG = "netcfg";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -1239,32 +1240,56 @@ static esp_err_t h_api_session_chunk(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "X-Sample-Total", hdr);
     snprintf(hdr, sizeof(hdr), "%d", seq);
     httpd_resp_set_hdr(req, "X-Chunk-Seq", hdr);
-    httpd_resp_set_type(req, "text/csv");
+
+    size_t cap = (size_t)size * 128u + 1024u;
+    char *out = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!out) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
     bool v2 = h.ver >= 2 && h.sample_size == RACE_SAMPLE_V2_SIZE;
+    int n = 0;
     char line[320];
-    for (uint32_t i = start; i < end; i++) {
+    for (uint32_t i = start; i < end && (size_t)n < cap - 340; i++) {
         race_sample_v2_t sm;
         if (!race_store_read_sample_v2(id, (int)i, &sm)) break;
         if (sm.lap == 0 || sm.lap > h.lap_count) continue;
         if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
-        int n;
+        int ln;
         if (v2) {
-            n = snprintf(line, sizeof(line),
+            ln = snprintf(line, sizeof(line),
                 "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f,%.2f,%u,%u\n",
                 (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
                 sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0,
                 sm.accuracy_cm == 0xFFFFu ? -1.0 : sm.accuracy_cm / 100.0,
                 sm.sats, sm.fix_type);
         } else {
-            n = snprintf(line, sizeof(line),
+            ln = snprintf(line, sizeof(line),
                 "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
                 (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
                 sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
         }
-        if (httpd_resp_send_chunk(req, line, n) != ESP_OK) return ESP_FAIL;
+        memcpy(out + n, line, (size_t)ln);
+        n += ln;
     }
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
+    unsigned char digest[32];
+    size_t digest_len = 0;
+    psa_crypto_init();
+    psa_status_t hs = psa_hash_compute(PSA_ALG_SHA_256, (const uint8_t *)out,
+                                       (size_t)n, digest, sizeof(digest), &digest_len);
+    if (hs != PSA_SUCCESS || digest_len != sizeof(digest)) {
+        free(out);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "sha256");
+        return ESP_FAIL;
+    }
+    char hex[65];
+    for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    hex[64] = 0;
+    httpd_resp_set_hdr(req, "X-Chunk-SHA256", hex);
+    httpd_resp_set_type(req, "text/csv");
+    esp_err_t r = httpd_resp_send(req, out, n);
+    free(out);
+    return r;
 }
 
 static esp_err_t h_api_control(httpd_req_t *req) {

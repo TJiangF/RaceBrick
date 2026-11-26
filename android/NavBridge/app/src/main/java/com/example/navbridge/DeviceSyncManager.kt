@@ -9,10 +9,14 @@ import java.io.File
 import java.util.zip.GZIPOutputStream
 
 object DeviceSyncManager {
+    data class SessionPick(
+        val ref: DeviceSessionRef,
+        val includeRaw: Boolean,
+    )
+
     data class Selection(
         val tracks: List<DeviceTrackRef>,
-        val sessions: List<DeviceSessionRef>,
-        val includeRaw: Boolean,
+        val sessions: List<SessionPick>,
     )
 
     fun importSelected(
@@ -35,10 +39,11 @@ object DeviceSyncManager {
         }
 
         val sessionsOut = JSONArray()
-        for ((i, ref) in selection.sessions.withIndex()) {
+        for ((i, pick) in selection.sessions.withIndex()) {
+            val ref = pick.ref
             progress("读取 Race Log ${i + 1}/${selection.sessions.size}")
             val s = RaceApi.session(base, ref.slot)
-            val csv = if (selection.includeRaw && ref.rawAvailable) {
+            val csv = if (pick.includeRaw && ref.rawAvailable) {
                 downloadCsvChunked(context, base, s, cleanup) { message -> progress(message) }
             } else null
             val csvB64 = if (csv != null) {
@@ -112,7 +117,12 @@ object DeviceSyncManager {
             var bytes: ByteArray? = null
             for (attempt in 1..3) {
                 try {
-                    bytes = RaceApi.sessionChunk(base, s.slot, seq, chunkSize)
+                    val chunk = RaceApi.sessionChunk(base, s.slot, seq, chunkSize)
+                    if (chunk.sha256.isNotBlank() &&
+                        SyncLocalDb.sha256(chunk.bytes) != chunk.sha256) {
+                        throw IllegalStateException("chunk SHA-256 mismatch")
+                    }
+                    bytes = chunk.bytes
                     break
                 } catch (e: Exception) {
                     last = e

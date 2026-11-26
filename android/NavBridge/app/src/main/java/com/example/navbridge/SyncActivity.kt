@@ -131,13 +131,8 @@ class SyncActivity : AppCompatActivity() {
             textSize = 12f
             setPadding(0, dp(8), 0, dp(8))
         })
-        content.addView(button("VIEW LOCAL DATA（雷达图）") {
-            startActivity(android.content.Intent(this, LocalRecordsActivity::class.java))
-        })
         content.addView(button("CHECK DEVICE / LOCAL DIFFERENCES") { checkDifferences() })
-        content.addView(button("Load RACEBRICK -> LOCAL APP") { loadDevice() })
-        val dirtyCount = db.dirtyTracks().size
-        content.addView(button("PUSH LOCAL TRACK CHANGES -> RACEBRICK (${dirtyCount})") { pushLocalTracks() })
+        content.addView(button("FULL IMPORT RACEBRICK -> LOCAL APP") { loadDevice() })
         content.addView(button("BACKUP LOCAL -> CLOUD（待增量 API）") { toast("增量云备份尚未实现") })
         content.addView(button("RESTORE CLOUD -> LOCAL（待版本校验）") { toast("云端恢复尚未实现") })
         content.addView(button(if (CloudStore.token(this) == null) "LOGIN CLOUD" else "REFRESH CLOUD") {
@@ -213,12 +208,8 @@ class SyncActivity : AppCompatActivity() {
             setPadding(dp(18), dp(8), dp(18), dp(8))
         }
         val checks = LinkedHashMap<DeviceDiffItem, CheckBox>()
-        val raw = CheckBox(this).apply {
-            text = "同时下载选中 Race Log 的 Raw Telemetry"
-            isChecked = true
-            setPadding(0, dp(8), 0, 0)
-        }
-        fun addItem(item: DeviceDiffItem) {
+        val rawChecks = LinkedHashMap<DeviceDiffItem, CheckBox>()
+        fun addTrack(item: DeviceDiffItem) {
             val cb = CheckBox(this).apply {
                 text = item.label
                 isChecked = !item.conflict
@@ -228,9 +219,36 @@ class SyncActivity : AppCompatActivity() {
             checks[item] = cb
             box.addView(cb)
         }
-        items.filter { it.type == "track" }.forEach(::addItem)
-        items.filter { it.type == "session" }.forEach(::addItem)
-        box.addView(raw)
+        fun addSession(item: DeviceDiffItem) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val cb = CheckBox(this).apply {
+                text = item.label
+                isChecked = !item.conflict
+                isEnabled = !item.conflict
+                setTextColor(if (item.conflict) 0xFF8A9A9A.toInt() else 0xFFE8F3F0.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val raw = CheckBox(this).apply {
+                text = "RAW"
+                isChecked = item.session?.rawAvailable == true
+                isEnabled = cb.isChecked && item.session?.rawAvailable == true
+                textSize = 11f
+                setTextColor(0xFFF2B95C.toInt())
+            }
+            cb.setOnCheckedChangeListener { _, checked ->
+                raw.isEnabled = checked && item.session?.rawAvailable == true
+            }
+            checks[item] = cb
+            rawChecks[item] = raw
+            row.addView(cb)
+            row.addView(raw)
+            box.addView(row)
+        }
+        items.filter { it.type == "track" }.forEach(::addTrack)
+        items.filter { it.type == "session" }.forEach(::addSession)
         val scroll = ScrollView(this).apply { addView(box) }
         val dialog = AlertDialog.Builder(this)
             .setTitle("设备 ↔ Local 差异（${items.size}）")
@@ -246,9 +264,16 @@ class SyncActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 val tracks = selected.mapNotNull { it.track }
-                val sessions = selected.mapNotNull { it.session }
+                val sessions = selected.mapNotNull { item ->
+                    item.session?.let { ref ->
+                        DeviceSyncManager.SessionPick(
+                            ref,
+                            rawChecks[item]?.isChecked == true && ref.rawAvailable,
+                        )
+                    }
+                }
                 dialog.dismiss()
-                importSelected(deviceId, tracks, sessions, raw.isChecked)
+                importSelected(deviceId, tracks, sessions)
             }
         }
         dialog.show()
@@ -258,8 +283,7 @@ class SyncActivity : AppCompatActivity() {
     private fun importSelected(
         deviceId: String,
         tracks: List<DeviceTrackRef>,
-        sessions: List<DeviceSessionRef>,
-        includeRaw: Boolean,
+        sessions: List<DeviceSyncManager.SessionPick>,
     ) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -279,7 +303,7 @@ class SyncActivity : AppCompatActivity() {
             try {
                 val summary = DeviceSyncManager.importSelected(
                     this@SyncActivity, base, deviceId, db,
-                    DeviceSyncManager.Selection(tracks, sessions, includeRaw),
+                    DeviceSyncManager.Selection(tracks, sessions),
                 ) { message -> main.post { msg.text = message } }
                 main.post {
                     busy?.dismiss()

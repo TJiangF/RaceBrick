@@ -60,6 +60,7 @@ class RaceActivity : LocalizedActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val localDb by lazy { SyncLocalDb(this) }
     private var localMode = false
+    private var localUpdatedAt = 0L
     private val worker = Executors.newSingleThreadExecutor()
     private val satelliteWorker = Executors.newSingleThreadExecutor()
     private val satelliteUploadWorker = Executors.newSingleThreadExecutor()
@@ -205,6 +206,10 @@ class RaceActivity : LocalizedActivity() {
             directWithPermission()
         }
         if (offlineMode) return
+        if (localMode) {
+            val updated = localDb.summary().updatedAt
+            if (updated > localUpdatedAt) loadLocalData()
+        }
         hotspotWatching = true
         hotspotHandler.removeCallbacks(hotspotTick)
         hotspotHandler.postDelayed(hotspotTick, 1200)
@@ -361,6 +366,7 @@ class RaceActivity : LocalizedActivity() {
                     logs = emptyList()
                     filterTrack = null
                     localMode = true
+                    localUpdatedAt = localDb.summary().updatedAt
                     pbLoad.visibility = View.GONE
                     status("Local App：${tracks.size} Tracks / ${sessions.size} Race Logs")
                     renderTracks()
