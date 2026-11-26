@@ -409,6 +409,12 @@ object RaceApi {
     fun manifest(base: String): JSONObject =
         JSONObject(get(base, "/api/v2/manifest").toString(StandardCharsets.UTF_8))
 
+    fun transferBusy(base: String, active: Boolean) {
+        runCatching {
+            post(base, "/api/transfer?state=${if (active) "begin" else "end"}")
+        }
+    }
+
     private fun parseSession(o: JSONObject): RaceSession {
         val times = ArrayList<Double>()
         val arr = o.optJSONArray("lap_times")

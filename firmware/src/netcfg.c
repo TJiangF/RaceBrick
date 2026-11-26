@@ -33,6 +33,28 @@ static int s_cmd = 0;
 static int s_goto = -1;
 static int s_goto_enter = 0;
 static int s_key = 0;
+static volatile bool s_transfer_busy = false;
+static volatile int64_t s_transfer_until_us = 0;
+
+void netcfg_transfer_begin(void) {
+    s_transfer_until_us = esp_timer_get_time() + 120000000LL;
+    s_transfer_busy = true;
+}
+
+void netcfg_transfer_end(void) {
+    s_transfer_busy = false;
+    s_transfer_until_us = 0;
+}
+
+bool netcfg_transfer_active(void) {
+    if (!s_transfer_busy) return false;
+    if (esp_timer_get_time() > s_transfer_until_us) {
+        s_transfer_busy = false;
+        s_transfer_until_us = 0;
+        return false;
+    }
+    return true;
+}
 
 int netcfg_take_cmd(void) {
     int c;
@@ -1323,6 +1345,17 @@ static esp_err_t h_api_session_chunk(httpd_req_t *req) {
     return r;
 }
 
+static esp_err_t h_api_transfer(httpd_req_t *req) {
+    char q[64] = {0}, v[16] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
+        httpd_query_key_value(q, "state", v, sizeof v) == ESP_OK) {
+        if (!strcmp(v, "begin")) netcfg_transfer_begin();
+        else if (!strcmp(v, "end")) netcfg_transfer_end();
+    }
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, "{\"ok\":1}", HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t h_api_control(httpd_req_t *req) {
     char body[64];
     int len = req->content_len;
@@ -1493,6 +1526,7 @@ static void start_httpd(void) {
     httpd_uri_t u26 = { .uri = "/api/track/image", .method = HTTP_POST, .handler = h_api_track_image };
     httpd_uri_t u27 = { .uri = "/api/v2/manifest", .method = HTTP_GET, .handler = h_api_v2_manifest };
     httpd_uri_t u28 = { .uri = "/api/session/chunk", .method = HTTP_GET, .handler = h_api_session_chunk };
+    httpd_uri_t u29 = { .uri = "/api/transfer", .method = HTTP_POST, .handler = h_api_transfer };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1521,6 +1555,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u26);
     httpd_register_uri_handler(s_httpd, &u27);
     httpd_register_uri_handler(s_httpd, &u28);
+    httpd_register_uri_handler(s_httpd, &u29);
 }
 
 void netcfg_start_ap(void) {

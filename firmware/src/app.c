@@ -240,6 +240,7 @@ static void confirm_handle(const event_t *ev) {
 }
 
 void app_dispatch(const event_t *ev) {
+    if (netcfg_transfer_active()) return;
     if (g.overlay_active) confirm_handle(ev);
     else screens_handle(ev);
 }
@@ -615,6 +616,13 @@ void app_render(void) {
 
     gfx_reset_view();
     screens_chrome();
+    if (netcfg_transfer_active()) {
+        const int bw = 190, bh = 42;
+        int bx = (LCD_W - bw) / 2, by = (LCD_H - bh) / 2;
+        gfx_pxbox(bx, by, bw, bh, PAL.yellow, 1, PAL.statusbg);
+        gfx_text_center(bx + bw / 2, by + 10, "PHONE TRANSFER", PAL.yellow, 1);
+        gfx_text_center(bx + bw / 2, by + 24, "PLEASE WAIT", PAL.white, 1);
+    }
     bool phone_img = (g.cur == SC_PHONE && g.entered && btmap_has_frame());
     if (!phone_img) {
         render_status_overlay();

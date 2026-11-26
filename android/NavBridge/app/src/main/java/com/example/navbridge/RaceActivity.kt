@@ -489,6 +489,7 @@ class RaceActivity : LocalizedActivity() {
         val b = base()
         val directBound = direct.isConnected
         val internetNetwork = direct.internetNetwork
+        runCatching { RaceApi.transferBusy(b, true) }
         showBusy("正在同步设备数据", "正在读取赛道、Race Log 和原始场次，请稍候…", progress = true)
         pbLoad.visibility = View.VISIBLE
         pbLoad.progress = 0
@@ -543,6 +544,7 @@ class RaceActivity : LocalizedActivity() {
             }.onFailure { e ->
                 main.post {
                     if (gen != generation) return@post
+                    runCatching { RaceApi.transferBusy(b, false) }
                     hideBusy()
                     pbLoad.visibility = View.GONE
                     fail("连接失败：${e.message}")
@@ -621,6 +623,7 @@ class RaceActivity : LocalizedActivity() {
 
     private fun finishSatelliteLoad(gen: Int, loaded: Int, total: Int, error: String?) {
         if (gen != generation) return
+        runCatching { RaceApi.transferBusy(base(), false) }
         hideBusy()
         if (!offlineMode && discoveredDevice != null) autoUploadSatellites()
         pbLoad.progress = 100

@@ -27,6 +27,9 @@ bool netcfg_wifi_connect_saved(const char *ssid);
 bool netcfg_wifi_forget(const char *ssid);
 /* Disable/enable WiFi modem sleep for low-latency frame fetch (nav screen). */
 void netcfg_set_low_latency(bool on);
+void netcfg_transfer_begin(void);
+void netcfg_transfer_end(void);
+bool netcfg_transfer_active(void);
 
 /* Remote commands from the phone, polled by the main loop:
  * 1 = HOME, 2 = PERFORMANCE, 3 = START RACE, 4 = GPS DEBUG, 5 = NAV, 0 = none. */

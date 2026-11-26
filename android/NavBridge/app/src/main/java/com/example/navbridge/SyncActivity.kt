@@ -186,13 +186,16 @@ class SyncActivity : AppCompatActivity() {
         if (busy != null) return
         worker.execute {
             try {
+                RaceApi.transferBusy(base, true)
                 val device = RaceApi.manifest(base)
                 val local = db.manifest()
                 val dirty = db.dirtyTracks().map { it.uuid }.toSet()
                 val diff = DeviceDiff.compare(device, local, dirty)
                 val deviceId = device.optString("device_id", uid ?: "")
+                RaceApi.transferBusy(base, false)
                 main.post { showDifferenceDialog(diff, deviceId) }
             } catch (e: Exception) {
+                runCatching { RaceApi.transferBusy(base, false) }
                 main.post { toast("差异检测失败：${e.message}") }
             }
         }
@@ -308,10 +311,12 @@ class SyncActivity : AppCompatActivity() {
             .setCancelable(false).create().also { it.show() }
         worker.execute {
             try {
+                RaceApi.transferBusy(base, true)
                 val result = DeviceSyncManager.importSelected(
                     this@SyncActivity, base, deviceId, db,
                     DeviceSyncManager.Selection(tracks, sessions),
                 ) { message -> main.post { msg.text = message } }
+                RaceApi.transferBusy(base, false)
                 main.post {
                     busy?.dismiss()
                     busy = null
@@ -324,6 +329,7 @@ class SyncActivity : AppCompatActivity() {
                     renderLocal()
                 }
             } catch (e: Exception) {
+                runCatching { RaceApi.transferBusy(base, false) }
                 main.post {
                     busy?.dismiss()
                     busy = null
