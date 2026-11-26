@@ -494,6 +494,31 @@ class SyncActivity : AppCompatActivity() {
             loginDialog()
             return
         }
+        worker.execute {
+            try {
+                val manifest = CloudApi().deviceManifest(uidNow, token)
+                val tracks = manifest.optJSONArray("tracks")?.length() ?: 0
+                val sessions = manifest.optJSONArray("sessions")?.length() ?: 0
+                main.post {
+                    val d = AlertDialog.Builder(this)
+                        .setTitle("Cloud -> Local")
+                        .setMessage(
+                            "云端：$tracks Tracks / $sessions Race Logs。\n\n" +
+                                "恢复会更新 Local 同名数据，但不会自动写设备。继续？"
+                        )
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("恢复") { _, _ -> doRestore(uidNow, token) }
+                        .create()
+                    d.show()
+                    Lang.localizeDialog(d)
+                }
+            } catch (e: Exception) {
+                main.post { toast("读取云端失败：${e.message}") }
+            }
+        }
+    }
+
+    private fun doRestore(uidNow: String, token: String) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(16))
