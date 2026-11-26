@@ -249,7 +249,7 @@ track_id              UUID (immutable)
 name                  string
 location              JSON {label, lat, lon}
 layout                JSON {points, closed, length_m}
-track_geometry        JSON {type, points, width_m}   // centerline+width or polygon
+track_geometry        JSON {type:"centerline_width", points, width_m}
 start_finish_line     JSON {f, offset_m, width_m, heading, lat, lon}
 sector_lines          JSON [{index, f, start, end}]
 version               integer (latest committed version)
@@ -260,7 +260,7 @@ updated_at            UTC timestamp
 deleted               bool
 ```
 
-`track_geometry` is optional for existing tracks. When absent, consumers use the centerline plus `width_m` fallback. A missing boundary must be shown as “boundary unavailable”, not synthesized silently.
+Track editing uses the confirmed **A model**: a centerline plus a constant width. The boundary is derived for display only; there is no arbitrary boundary polygon editor. `track_geometry` records the centerline/width representation, not a separately edited freeform polygon.
 
 #### TrackRevision
 
@@ -1165,16 +1165,12 @@ Each phase must pass build/tests on firmware, Android, and server before the nex
 3. **Telemetry sample**: accept 20-byte samples at 25 Hz, about 70 minutes per 2 MiB session slot.
 4. **Legacy Old Logs**: delete them completely from device, app, and cloud. Do not retain compatibility views, exports, or migration paths.
 5. **Cloud sync policy**: manual only for now. Upload or download/overwrite happens only after an explicit user action. No automatic upload, automatic download, scheduler, or seven-day reminder.
+6. **Track geometry**: use A (centerline + constant width). Full boundary polygon editing is out of scope; boundary width accuracy is not a priority.
 
 ### Remaining
 
-1. **Track geometry editor scope**
-   - A: centerline + constant width (current model).
-   - B: centerline + per-point left/right width, with a derived boundary polygon.
-   - C: full outer/inner boundary polygon editor with arbitrary geometry.
-   - Recommendation: B for the first phase; it provides a real boundary and variable width without a freeform CAD-style editor.
-2. **Pairing**: use a one-time device code and a device-scoped token while retaining the AP password? Any requirement for BLE-only pairing?
-3. **Session time source**: standardize on GNSS UTC plus `time_source`/`time_uncertainty_ms`; use an explicit unknown-time state when no valid time source exists.
+1. **Pairing**: use a one-time device code and a device-scoped token while retaining the AP password? Any requirement for BLE-only pairing?
+2. **Session time source**: standardize on GNSS UTC plus `time_source`/`time_uncertainty_ms`; use an explicit unknown-time state when no valid time source exists.
 
 ## 18. Review Checklist
 
