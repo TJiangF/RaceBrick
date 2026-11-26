@@ -26,6 +26,7 @@
 #include "btmap.h"
 #include "china_map.h"
 #include "home_logos.h"
+#include "f1_home_logos.h"
 #include "race_store.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -167,6 +168,30 @@ static void draw_home_logo(int x, int y, int idx) {
 }
 
 
+static void draw_f1_logo(int x, int y, int idx) {
+    if (idx < 0 || idx >= 4) return;
+    const f1_logo_t *logo = &F1_HOME_LOGOS[idx];
+    for (int py = 0; py < F1_LOGO_SIZE; py++) {
+        for (int px = 0; px < F1_LOGO_SIZE; px++) {
+            uint8_t v = logo->idx[py * F1_LOGO_SIZE + px];
+            if (v) gfx_pixel(x + px, y + py, logo->pal[v]);
+        }
+    }
+}
+
+static bool blink_fast(void) {
+    return ((int)(g.now / 350.0f) & 1) != 0;
+}
+
+static void blink_box(int x, int y, int w, int h, const char *text, uint16_t accent) {
+    if (blink_fast()) {
+        gfx_pxbox(x, y, w, h, accent, 1, PAL.seltint);
+        gfx_text_center(x + w / 2, y + (h - 7) / 2, text, accent, 1);
+    } else {
+        gfx_rect(x, y, w, h, PAL.line);
+    }
+}
+
 /* ================= Formula 1 visual language ================= */
 static bool f1_ui(void) { return g.ui_style != 0; }
 
@@ -271,7 +296,7 @@ static void render_home_f1(void) {
         int y = ys[row];
         bool on = i == g.homeIndex;
         f1_panel(x, y, w, h, on, accents[i]);
-        f1_icon(i, x + 7, y + 12, accents[i]);
+        draw_f1_logo(x + 8, y + 12, i);
         gfx_text(x + 72, y + 10, nums[i], accents[i], 2);
         gfx_text(x + 72, y + 33, items[i], on ? PAL.white : PAL.text, 2);
         gfx_text(x + 72, y + 55, on ? "SELECTED" : "STANDBY", on ? accents[i] : PAL.dim, 0);
@@ -1828,9 +1853,11 @@ static void render_track_detail(void) {
     if (!s_map_ready) { map_init(&s_map, 0, 0, 184, 226); map_set_track(&s_map, t); s_map_ready = true; }
     map_begin(&s_map);
     map_centerline(&s_map, PAL.yellow, 6);
-    pt_t sp = track_point_at(t, 0);
-    pt_t st = track_tangent_at(t, 0);
-    map_start_checker_at(&s_map, sp, st, PAL.white);
+    pt_t line_p, line_d;
+    if (track_line_norm(t, &line_p, &line_d)) {
+        map_start_line_arrow_m(&s_map, line_p, line_d, t->start_width,
+                               t->reverse ? PAL.orange : PAL.red);
+    }
     title_c("TRACK", 3);
     gfx_text_center(CW / 2, 174, t->name, PAL.cyan, 1);
     gfx_text(190, 4, "BEST LAP", PAL.dim, 0);
@@ -1864,7 +1891,20 @@ static void render_track_detail(void) {
             gfx_text_right(314, y + 6, b, PAL.orange, 0);
         } else gfx_text_right(306, y + 6, "--", PAL.dim, 0);
     }
-    gfx_text_center(CW / 2, 204, "PUSH EDIT START - BACK EXIT", PAL.dim, 0);
+    float start_pct = 0.0f;
+    if (t->geo && t->nscale > 1e-9f) {
+        geo_ref_t gr = { t->glat0, t->glon0 };
+        float mx, my, sd, dd;
+        geo_meters(&gr, t->line_lat, t->line_lon, &mx, &my);
+        pt_t q = { mx * t->nscale + t->nox, my * t->nscale + t->noy };
+        if (track_project(t, q, &sd, &dd)) start_pct = sd / (float)t->N;
+    }
+    char startbuf[40];
+    snprintf(startbuf, sizeof startbuf, "START %.1f%%  %s", start_pct * 100.0f,
+             t->reverse ? "CCW" : "CW");
+    gfx_text(188, 168, startbuf, PAL.dim, 0);
+    blink_box(188, 184, 126, 22, "PUSH EDIT", PAL.cyan);
+    gfx_text_center(CW / 2, HINT_Y, "BACK EXIT", PAL.dim, 0);
 }
 
 /* ================= START LINE EDIT ================= */
@@ -1902,8 +1942,8 @@ static void render_track_start(void) {
     }
     gfx_text(rx, 158, "UP/DN FIELD", PAL.dim, 0);
     gfx_text(rx, 172, "L/R ADJUST", PAL.dim, 0);
-    gfx_text(rx, 190, "PUSH SAVE", PAL.green, 1);
-    gfx_text(rx, 208, "BACK CANCEL", PAL.dim, 0);
+    blink_box(rx, 184, CW - rx - 8, 22, "CONFIRM", PAL.green);
+    gfx_text(rx, 210, "BACK CANCEL", PAL.dim, 0);
 }
 
 #define HIST_PREVIEW_PTS 96
@@ -2005,8 +2045,8 @@ static void render_history(void) {
         int y = 20 + (i - start) * 46;
         bool on = i == g.hist_sel;
         histrec_t *r = &g.log[g.nlog - 1 - i];
-        gfx_pxbox(140, y, 176, 43, on ? PAL.white : vehicle_color(r->vehicle), 1,
-                  vehicle_dark(r->vehicle));
+        gfx_pxbox(140, y, 176, 43, on ? PAL.cyan : vehicle_color(r->vehicle), 1,
+                  on ? PAL.seltint : PAL.panel);
         vehicle_badge(144, y + 5, 28, 33, r->vehicle, true);
         char laps[12];
         snprintf(laps, sizeof laps, "%dL", r->lapCount);
