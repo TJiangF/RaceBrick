@@ -361,6 +361,9 @@ object RaceApi {
     fun sessionCsv(base: String, slot: Int): ByteArray =
         get(base, "/api/session/file?id=$slot")
 
+    fun sessionChunk(base: String, slot: Int, seq: Int, size: Int): ByteArray =
+        get(base, "/api/session/chunk?id=$slot&seq=$seq&size=$size")
+
     fun status(base: String): JSONObject =
         JSONObject(get(base, "/api/status").toString(StandardCharsets.UTF_8))
 

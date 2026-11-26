@@ -278,7 +278,7 @@ class SyncActivity : AppCompatActivity() {
         worker.execute {
             try {
                 val summary = DeviceSyncManager.importSelected(
-                    base, deviceId, db,
+                    this@SyncActivity, base, deviceId, db,
                     DeviceSyncManager.Selection(tracks, sessions, includeRaw),
                 ) { message -> main.post { msg.text = message } }
                 main.post {

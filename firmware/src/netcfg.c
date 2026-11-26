@@ -1210,6 +1210,63 @@ static esp_err_t h_api_session_file(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t h_api_session_chunk(httpd_req_t *req) {
+    int id = query_int(req, "id", -1);
+    int seq = query_int(req, "seq", 0);
+    int size = query_int(req, "size", 2000);
+    race_hdr_t h;
+    if (id < 0 || !race_store_info(id, &h)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "session not found");
+        return ESP_FAIL;
+    }
+    if (seq < 0 || size < 1 || size > 8192) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad chunk");
+        return ESP_FAIL;
+    }
+    uint32_t start = (uint32_t)seq * (uint32_t)size;
+    if (start >= h.sample_count) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "beyond end");
+        return ESP_FAIL;
+    }
+    uint32_t end = start + (uint32_t)size;
+    if (end > h.sample_count) end = h.sample_count;
+    char hdr[48];
+    snprintf(hdr, sizeof(hdr), "%lu", (unsigned long)start);
+    httpd_resp_set_hdr(req, "X-Sample-Start", hdr);
+    snprintf(hdr, sizeof(hdr), "%lu", (unsigned long)end);
+    httpd_resp_set_hdr(req, "X-Sample-End", hdr);
+    snprintf(hdr, sizeof(hdr), "%lu", (unsigned long)h.sample_count);
+    httpd_resp_set_hdr(req, "X-Sample-Total", hdr);
+    snprintf(hdr, sizeof(hdr), "%d", seq);
+    httpd_resp_set_hdr(req, "X-Chunk-Seq", hdr);
+    httpd_resp_set_type(req, "text/csv");
+    bool v2 = h.ver >= 2 && h.sample_size == RACE_SAMPLE_V2_SIZE;
+    char line[320];
+    for (uint32_t i = start; i < end; i++) {
+        race_sample_v2_t sm;
+        if (!race_store_read_sample_v2(id, (int)i, &sm)) break;
+        if (sm.lap == 0 || sm.lap > h.lap_count) continue;
+        if (h.lap_deleted_mask & (1u << (sm.lap - 1))) continue;
+        int n;
+        if (v2) {
+            n = snprintf(line, sizeof(line),
+                "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f,%.2f,%u,%u\n",
+                (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
+                sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0,
+                sm.accuracy_cm == 0xFFFFu ? -1.0 : sm.accuracy_cm / 100.0,
+                sm.sats, sm.fix_type);
+        } else {
+            n = snprintf(line, sizeof(line),
+                "%.3f,0,%u,%.3f,%.7f,%.7f,%.3f\n",
+                (double)h.start_epoch + sm.t_ms / 1000.0, sm.lap, sm.t_ms / 1000.0,
+                sm.lat_e7 / 1e7, sm.lon_e7 / 1e7, sm.speed10 / 36.0);
+        }
+        if (httpd_resp_send_chunk(req, line, n) != ESP_OK) return ESP_FAIL;
+    }
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t h_api_control(httpd_req_t *req) {
     char body[64];
     int len = req->content_len;
@@ -1379,6 +1436,7 @@ static void start_httpd(void) {
     httpd_uri_t u25 = { .uri = "/api/session/traces", .method = HTTP_GET, .handler = h_api_session_traces };
     httpd_uri_t u26 = { .uri = "/api/track/image", .method = HTTP_POST, .handler = h_api_track_image };
     httpd_uri_t u27 = { .uri = "/api/v2/manifest", .method = HTTP_GET, .handler = h_api_v2_manifest };
+    httpd_uri_t u28 = { .uri = "/api/session/chunk", .method = HTTP_GET, .handler = h_api_session_chunk };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1406,6 +1464,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u25);
     httpd_register_uri_handler(s_httpd, &u26);
     httpd_register_uri_handler(s_httpd, &u27);
+    httpd_register_uri_handler(s_httpd, &u28);
 }
 
 void netcfg_start_ap(void) {

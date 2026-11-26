@@ -1,9 +1,11 @@
 package com.example.navbridge
 
+import android.content.Context
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.zip.GZIPOutputStream
 
 object DeviceSyncManager {
@@ -14,12 +16,14 @@ object DeviceSyncManager {
     )
 
     fun importSelected(
+        context: Context,
         base: String,
         uid: String,
         db: SyncLocalDb,
         selection: Selection,
         progress: (String) -> Unit = {},
     ): SyncLocalDb.Summary {
+        val cleanup = ArrayList<File>()
         val tracksOut = JSONArray()
         for ((i, ref) in selection.tracks.withIndex()) {
             progress("读取 Track ${i + 1}/${selection.tracks.size}")
@@ -35,7 +39,7 @@ object DeviceSyncManager {
             progress("读取 Race Log ${i + 1}/${selection.sessions.size}")
             val s = RaceApi.session(base, ref.slot)
             val csv = if (selection.includeRaw && ref.rawAvailable) {
-                RaceApi.sessionCsv(base, ref.slot)
+                downloadCsvChunked(context, base, s, cleanup) { message -> progress(message) }
             } else null
             val csvB64 = if (csv != null) {
                 val compressed = ByteArrayOutputStream()
@@ -55,7 +59,98 @@ object DeviceSyncManager {
             put("logs", JSONArray())
         }
         progress("写入 Local App")
-        return db.importDeviceSnapshot(uid, body, replace = false)
+        val summary = db.importDeviceSnapshot(uid, body, replace = false)
+        for (f in cleanup) runCatching { f.delete() }
+        return summary
+    }
+
+    private fun downloadCsvChunked(
+        context: Context,
+        base: String,
+        s: RaceSession,
+        cleanup: MutableList<File>,
+        progress: (String) -> Unit,
+    ): ByteArray {
+        if (s.samples <= 0) return RaceApi.sessionCsv(base, s.slot)
+        val safe = s.uuid.ifBlank { "slot-${s.slot}" }
+        val dir = File(context.filesDir, "sync_transfers").apply { mkdirs() }
+        val part = File(dir, "$safe.csv.part")
+        val stateFile = File(dir, "$safe.csv.state")
+        val chunkSize = 2000
+        val total = s.samples
+        var nextSeq = 0
+        if (part.isFile && stateFile.isFile) {
+            val state = runCatching { JSONObject(stateFile.readText()) }.getOrNull()
+            if (state != null &&
+                state.optString("session") == safe &&
+                state.optLong("total", -1) == total &&
+                state.optInt("chunk", -1) == chunkSize
+            ) {
+                nextSeq = state.optInt("next", 0)
+                val expected = state.optLong("bytes", -1L)
+                if (expected < 0L || part.length() < expected) {
+                    nextSeq = 0
+                } else if (part.length() > expected) {
+                    java.io.RandomAccessFile(part, "rw").use { it.setLength(expected) }
+                }
+            } else {
+                part.delete()
+                stateFile.delete()
+            }
+        } else {
+            part.delete()
+            stateFile.delete()
+        }
+        if (nextSeq == 0) {
+            part.writeText(csvHeader(s))
+        }
+        cleanup += part
+        cleanup += stateFile
+        val chunks = ((total + chunkSize - 1) / chunkSize).toInt()
+        for (seq in nextSeq until chunks) {
+            var last: Exception? = null
+            var bytes: ByteArray? = null
+            for (attempt in 1..3) {
+                try {
+                    bytes = RaceApi.sessionChunk(base, s.slot, seq, chunkSize)
+                    break
+                } catch (e: Exception) {
+                    last = e
+                    if (attempt < 3) Thread.sleep(400L * attempt)
+                }
+            }
+            if (bytes == null) throw last ?: IllegalStateException("chunk failed")
+            part.appendBytes(bytes)
+            stateFile.writeText(JSONObject()
+                .put("session", safe)
+                .put("total", total)
+                .put("chunk", chunkSize)
+                .put("next", seq + 1)
+                .put("bytes", part.length())
+                .toString())
+            progress("Raw Telemetry ${seq + 1}/$chunks")
+        }
+        return part.readBytes()
+    }
+
+    private fun csvHeader(s: RaceSession): String {
+        val v2 = s.sampleSize == 20
+        val name = s.trackName.replace("\"", "\"\"")
+        return buildString {
+            append("Format,3\n")
+            append("Session title,\"$name\"\n")
+            append("Session type,Lap timing\n")
+            append("Track name,\"$name\"\n")
+            append("timestamp,fragment_id,lap_number,elapsed_time,latitude,longitude,speed")
+            if (v2) append(",gps_accuracy_m,satellites,fix_type")
+            append("\n")
+            append("unix time,,,s,deg,deg,m/s")
+            if (v2) append(",m,,count")
+            append("\n")
+            append(",,,,100: gps,100: gps,100: gps")
+            if (v2) append(",100: gps,100: gps,100: gps")
+            append("\n")
+        }
     }
 
     private fun trackPayload(ref: DeviceTrackRef, d: TrackDetail): JSONObject = JSONObject().apply {
