@@ -11,7 +11,7 @@
 ### 1.1 Roles
 
 - **Device API**: RaceBrick local HTTP endpoint, reached over the device AP or the same LAN.
-- **Cloud API**: account/backup API, reached over HTTPS.
+- **Cloud API**: account and manual cloud-sync API, reached over HTTPS.
 - **App**: the only coordinator between them.
 
 ### 1.2 Encoding
@@ -194,13 +194,6 @@ Read-only. No business data is changed.
       },
       "deleted": false
     }
-  ],
-  "legacy_logs": [
-    {
-      "legacy_id": "histrec:6",
-      "hash": "sha256:…",
-      "read_only": true
-    }
   ]
 }
 ```
@@ -209,7 +202,7 @@ Manifest rules:
 
 - Tracks include only metadata; geometry is fetched by revision.
 - Sessions include metadata and telemetry availability/size; raw chunks are fetched separately.
-- Legacy logs are explicitly marked read-only and outside the canonical Session model.
+- Old Logs are not present; legacy `histrec` records are deleted with no compatibility path.
 - Device must not include full telemetry in the manifest.
 
 ---
@@ -555,41 +548,36 @@ Restore:
 
 Rules:
 
-- Session/Lap/Telemetry uploads are backup/restore only; no client may alter an existing original.
+- Session/Lap/Telemetry uploads are manual cloud backup only; no client may alter an existing original.
 - Re-upload with the same hash is idempotent.
 - Same ID + different hash returns `409 object_exists`.
 - No normal app deletion of Sessions/Laps.
 - Device-originated tombstones are relayed separately and marked with origin `device`.
 
-### 7.5 Backup
+### 7.5 Manual cloud sync
+
+Cloud upload and restore are user-triggered only. There is no background scheduler, automatic upload, automatic download, or automatic overwrite.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/backups/run` | enqueue a backup run |
-| GET | `/backups/status` | last success, pending, reminder state |
-| GET | `/backups/manifest` | objects/chunks the cloud currently has |
-| POST | `/backups/reminder` | record remind-later |
-| POST | `/backups/restore/preview` | dry-run restore summary |
-| POST | `/backups/restore` | explicit restore |
-| GET | `/backups/jobs` | job list/status |
-| GET | `/backups/jobs/{job_id}` | job detail |
+| POST | `/cloud-sync/upload` | user-triggered incremental upload |
+| GET | `/cloud-sync/status` | last upload/restore, queued objects, last error |
+| GET | `/cloud-sync/manifest` | objects/chunks the cloud currently has |
+| POST | `/cloud-sync/restore/preview` | dry-run restore summary |
+| POST | `/cloud-sync/restore` | explicit restore after confirmation |
+| GET | `/cloud-sync/jobs` | job list/status |
+| GET | `/cloud-sync/jobs/{job_id}` | job detail |
 
 Status example:
 
 ```json
 {
-  "last_successful_backup_at": "2026-11-20T10:00:00Z",
-  "pending_backup_count": 14,
-  "last_backup_reminder_at": "2026-11-25T08:00:00Z",
-  "backup_failure_status": "retry_wait",
-  "pending_bytes": 18234123
+  "last_successful_upload_at": "2026-11-20T10:00:00Z",
+  "last_restore_at": null,
+  "pending_object_count": 14,
+  "pending_bytes": 18234123,
+  "last_error": null
 }
-```
-
-Reminder request:
-
-```json
-{"action": "remind_later", "remind_at": "2026-11-27T08:00:00Z"}
 ```
 
 Restore preview:
@@ -601,11 +589,18 @@ Restore preview:
   "sessions": 7,
   "laps": 61,
   "telemetry_bytes": 18234123,
-  "conflicts": []
+  "conflicts": [],
+  "replaces_local": true
 }
 ```
 
-Restore never writes to the device. It restores app-local objects and marks Track heads needing an explicit Draft/commit if the user wants them on RaceBrick.
+Restore rules:
+
+- The app must show the preview and obtain explicit confirmation before replacing local data.
+- The app should keep a local rollback snapshot until the restored state is verified.
+- Restore never writes to RaceBrick.
+- Restoring a Track revision creates a new Track head locally; pushing it to RaceBrick still uses Draft/commit.
+- There is no seven-day reminder and no automatic restore/upload in the current scope.
 
 ### 7.6 Cloud manifest
 
@@ -690,15 +685,14 @@ sequenceDiagram
 
 - V1 endpoints remain during migration.
 - No v1 full-snapshot replacement may be used by the new app.
-- Device v2 records must preserve legacy IDs as compatibility fields:
+- Device v2 records retain legacy slot/epoch fields only for one-time migration:
   - `legacy_slot`
-  - `legacy_index`
   - `legacy_epoch_id`
 - Existing Sessions get deterministic UUIDs during device migration:
   `uuidv5(device_id, "session:" + legacy_epoch_id + ":" + slot + ":" + content_hash)`.
 - Existing Tracks get generated `track_id` UUIDs and revision `v1`; the original slot is retained as `legacy_slot`.
-- Legacy histrec remains read-only and is not assigned canonical Session/Lap IDs.
-- App local migration must not delete legacy local data until the new DB has verified copies.
+- Legacy `histrec` / Old Logs are deleted from device, app, and cloud. No conversion, export, or compatibility UI is retained.
+- The old device log-store region is reclaimed or reserved after deletion.
 
 ---
 
@@ -712,6 +706,6 @@ sequenceDiagram
 - Transfer writes are atomic: temporary file/chunk + verify + rename.
 - Device commit is atomic across header/index/data slot.
 - App preserves Drafts across restart, network loss, and commit failure.
-- Cloud backup queue survives app restart.
+- Manual cloud-sync tasks survive app restart.
 - Idempotency keys are retained long enough to cover retry windows.
 - Request bodies and raw telemetry are not written to logs.

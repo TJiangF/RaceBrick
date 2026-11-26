@@ -16,10 +16,10 @@
 4. Session, Raw Telemetry, and Lap Records are immutable originals created by RaceBrick.
 5. The app may only edit Track data. Session/lap/telemetry deletion or modification in the app is prohibited.
 6. Device synchronization is explicit and selective. Connecting a device only performs read-only discovery and difference detection.
-7. Cloud backup runs automatically in the background, incrementally and resumably, with a seven-day reminder when backups are pending.
+7. Cloud backup/restore is manual in the current scope: only a user-triggered upload or restore; no automatic cloud download or overwrite.
 8. Every track has a stable UUID and immutable revision history. Sessions reference the exact track revision used when recording.
 9. All transfers are checksum-verified, restart-safe, and idempotent.
-10. Legacy data remains viewable but is not mixed with canonical Race Log data.
+10. Legacy `histrec` Old Logs are removed entirely. The canonical Race Log is the Raw RaceSession; no compatibility layer is retained.
 
 ## 2. Non-goals For Phase 1
 
@@ -57,7 +57,7 @@
 - `LocalCache` and `SyncLocalDb` are duplicate storage paths.
 - There are no Track Drafts, field-level modified state, batch commit, persistent transfer tasks, or conflict resolver.
 - There is no typed local Track revision history or telemetry chunk storage.
-- There is no WorkManager backup queue or seven-day backup reminder.
+- There is no persistent manual cloud-sync task queue.
 - The old cloud sync path uses full-snapshot replacement and must not be reused for the new protocol.
 
 ### 3.3 Cloud server
@@ -66,7 +66,7 @@
 - Tracks/sessions/logs are keyed by device-local slot/index, not stable UUIDs.
 - There are no Track revision records, track revision references in sessions, Lap tables, or telemetry chunk tables.
 - Sessions are uploaded as full CSV; there is no chunked/resumable transfer.
-- There is no account-level backup task queue, restore workflow, or seven-day reminder.
+- There is no account-level manual sync task queue, restore workflow, or cloud backup scheduling.
 - Direct device-to-cloud synchronization is disabled (`410`); the app relay remains the required path.
 
 ### 3.4 Data model gap summary
@@ -82,7 +82,7 @@
 | Raw telemetry | fixed 16 B, relative time | versioned chunks, quality/aux fields |
 | App edits | direct device calls | local Draft, atomic batch commit |
 | Device sync | full/undifferentiated | manifest, diff, user-selected |
-| Cloud backup | full snapshot | persistent incremental queue |
+| Cloud sync | full snapshot | manual incremental upload/restore |
 | Deletion | often physical/none | tombstones, explicit authorization |
 
 ---
@@ -100,7 +100,7 @@ The device does not talk directly to the cloud. The app performs:
 - device discovery and read-only manifest comparison;
 - selective device import/export;
 - Track Draft management and batch commit;
-- persistent cloud backup and restore.
+- manual cloud upload and restore.
 
 ### AD-3: Ownership follows data type
 
@@ -115,17 +115,19 @@ The device does not talk directly to the cloud. The app performs:
 - Every Session references the exact Track revision active at recording start.
 - Sessions/laps use stable IDs and immutable content hashes.
 
-### AD-5: Explicit device sync, automatic cloud backup
+### AD-5: Explicit device sync, manual cloud sync
 
 - Device synchronization requires a difference report and explicit user selection.
-- Cloud backup is automatic, incremental, background, retryable, and resumable.
-- Automatic backup never edits Track data and never overwrites a local Draft.
+- Cloud upload/restore runs only when the user explicitly starts it.
+- There is no automatic cloud download and no automatic local overwrite in the current scope.
+- Manual cloud transfers are incremental, checksum-verified, retryable, and resumable.
+- Manual sync never uploads a Track Draft as an official revision.
 
 ### AD-6: Bounded device history, complete app/cloud history
 
 - RaceBrick remembers the current Track revision plus a bounded set of prior revisions.
 - The app and cloud retain complete Track revision history.
-- Recommended device retention: current + 3 previous revisions per Track, with the limit configurable.
+- Device retention is fixed at current + 3 previous revisions per Track.
 - If the device history limit is reached, a commit must not silently delete history. The app must archive the revision first, or the commit is rejected with `track_history_full`.
 
 ### AD-7: Protocol v2 over HTTP with explicit binary chunks
@@ -135,17 +137,18 @@ The device does not talk directly to the cloud. The app performs:
 - BLE is used for discovery/status/pairing assistance where available; large data transfer uses Wi-Fi or USB.
 - HTTP Range, SHA-256, idempotency keys, and explicit acknowledgments are mandatory.
 
-### AD-8: Legacy Race Logs are read-only compatibility objects
+### AD-8: Legacy Old Logs are removed
 
 - The canonical user-facing Race Log is the Raw RaceSession.
-- Legacy `histrec_t` records remain under `Old Logs`, read-only, and are not converted into new Track/Session revisions.
-- They may be backed up as legacy blobs but do not participate in the new lap/telemetry model.
+- Legacy `histrec_t` / Old Logs are deleted from the device, app, and cloud.
+- No read-only compatibility view, export, migration, or cloud backup is retained for Old Logs.
+- The device log store and UI history paths are removed or repurposed to canonical Sessions.
+- The old external-flash log region is reclaimed or reserved after the destructive migration.
 
 ### AD-9: Cloud storage starts modular, remains replaceable
 
-- The existing Flask monolith and SQLite may be retained for the first implementation stage.
-- All cloud data access goes through repository/storage interfaces so PostgreSQL and S3-compatible object storage can replace SQLite/filesystem without changing API contracts.
-- This is an open decision for review; see Section 17.
+- Confirmed for the first implementation stage: keep the existing Flask monolith, SQLite, and filesystem.
+- All cloud data access goes through repository/storage interfaces so PostgreSQL and S3-compatible object storage can replace SQLite/filesystem later without changing API contracts.
 
 ---
 
@@ -170,8 +173,8 @@ flowchart LR
         A2["Track Drafts"]
         A3["Telemetry chunk files"]
         A4["Device Sync Manager"]
-        A5["Backup Manager + task queue"]
-        A6["RACE UI<br/>Tracks / Race Logs / Old Logs"]
+        A5["Manual cloud sync + task queue"]
+        A6["RACE UI<br/>Tracks / Race Logs"]
         A1 <--> A2
         A1 <--> A3
         A1 <--> A4
@@ -185,11 +188,11 @@ flowchart LR
         C2["Track revisions and manifests"]
         C3["Session/Lap metadata"]
         C4["Telemetry object storage"]
-        C5["Backup/restore task service"]
+        C5["Manual cloud upload/restore service"]
     end
 
     D4 <-->|"discovery, manifest,<br/>Track commit, chunks"| A4
-    A5 <-->|"HTTPS incremental backup"| C5
+    A5 <-->|"HTTPS manual upload/restore"| C5
     C2 <-->|"Track revisions"| A1
     C3 <-->|"Session/lap metadata"| A1
     C4 <-->|"telemetry chunks"| A3
@@ -199,8 +202,8 @@ flowchart LR
 
 1. RaceBrick -> App: user-selected Track/Session/Lap/Telemetry import.
 2. App -> RaceBrick: Track Draft batch commit only.
-3. App -> Cloud: automatic backup of committed Tracks, Sessions, Laps, Raw Telemetry.
-4. Cloud -> App: user-selected restore/download, never an automatic overwrite.
+3. App -> Cloud: manual upload of committed Tracks, Sessions, Laps, Raw Telemetry, only after user action.
+4. Cloud -> App: user-selected restore/download, with explicit overwrite confirmation; never automatic.
 5. RaceBrick -> Cloud directly: not allowed for business data.
 
 ---
@@ -257,7 +260,7 @@ updated_at            UTC timestamp
 deleted               bool
 ```
 
-`track_geometry` is optional for existing tracks. When absent, consumers use the centerline plus `width_m` fallback. A missing boundary must be shown as “legacy geometry”, not synthesized silently.
+`track_geometry` is optional for existing tracks. When absent, consumers use the centerline plus `width_m` fallback. A missing boundary must be shown as “boundary unavailable”, not synthesized silently.
 
 #### TrackRevision
 
@@ -376,7 +379,7 @@ last_synced_at        UTC
 ```text
 task_id               UUID
 task_type             track_commit | track_import | session_import |
-                      telemetry_download | cloud_backup | cloud_restore
+                      telemetry_download | cloud_upload | cloud_restore
 object_id             UUID
 source                device | app | cloud
 destination           device | app | cloud
@@ -476,19 +479,19 @@ External W25Q128, 16 MiB, current allocation:
 ```text
 0x000000 - 0x0FFFFF   256 x 4 KiB   Tracks
 0x100000 - 0xEFFFFF     7 x 2 MiB   Sessions
-0xF00000 - 0xFFFFFF   256 x 4 KiB   Legacy logs
+0xF00000 - 0xFFFFFF   256 x 4 KiB   Legacy logs (removed/reclaimed)
 ```
 
 Proposed use:
 
 - Track slot stores one immutable Track revision, keyed by `(track_id, revision_id)`.
 - Track directory/manifest is reconstructed by scanning valid slots, but each slot contains stable UUIDs and version metadata.
-- Recommended device retention: current + 3 previous revisions per Track. Full history lives in App and Cloud.
+- Device retention is current + 3 previous revisions per Track. Full history lives in App and Cloud.
 - Session header v3 includes:
   `session_id`, `track_id`, `track_revision_id`, UTC start/end, Lap Records, telemetry chunk table/hashes, format version.
 - Raw telemetry remains inside the session slot, split into logical 64 KiB chunks; chunk hashes are stored in the 4 KiB header.
 - Lap sector data: up to 16 laps x 8 sectors. Existing sessions report empty sector arrays, not fabricated values.
-- Legacy `histrec_t` storage remains untouched and read-only.
+- Legacy `histrec_t` records are deleted once during migration; the old log region is reclaimed or reserved. No Old Logs compatibility path remains.
 
 ### 7.4 Android database
 
@@ -503,9 +506,8 @@ lap_records
 telemetry_chunks
 sync_metadata
 sync_tasks
-backup_state
+cloud_sync_state
 app_analysis
-legacy_logs
 ```
 
 Files:
@@ -523,7 +525,7 @@ Minimum tables:
 users, auth_tokens, devices
 tracks, track_revisions
 sessions, lap_records, telemetry_chunks
-sync_state, backup_jobs, backup_objects, backup_reminders
+sync_state, cloud_sync_jobs, cloud_sync_objects
 leaderboard_entries, audit_log
 ```
 
@@ -556,7 +558,7 @@ flowchart TB
 
     D -->|"import / download"| A
     A -->|"explicit batch commit"| D
-    A -->|"automatic backup of committed revision"| C
+    A -->|"manual upload of committed revision"| C
     C -->|"manual restore / selected download"| A
     C -->|"never direct"| D
 
@@ -568,7 +570,7 @@ flowchart TB
 
 1. The App compares Track `version`, `revision_id`, and `content_hash` before any transfer.
 2. Cloud is not assumed newest.
-3. A Track Draft is not a committed revision and never participates in device commit or cloud backup.
+3. A Track Draft is not a committed revision and never participates in device commit or manual cloud upload.
 4. If the target head differs from the Draft's base revision, the commit is rejected with a conflict.
 5. A committed Track revision is immutable. Corrections create a new revision.
 6. Sessions keep the `track_revision_id` used at recording; editing a Track later never rewrites history.
@@ -748,7 +750,7 @@ sequenceDiagram
         D-->>A: new revision_id, version, content_hash
         A->>A: Verify hash; update committed data
         A->>A: Clear only the fields included in this commit
-        A->>C: Enqueue committed revision for cloud backup
+        A->>C: Queue committed revision for manual cloud upload
         A-->>U: Success or per-field failure
     end
 ```
@@ -757,33 +759,37 @@ If the response is lost, the app retries the same idempotency key; the device re
 
 ---
 
-## 11. Cloud Backup And Seven-Day Reminder
+## 11. Manual Cloud Backup And Restore
 
-Cloud backup is independent of device synchronization and is automatic in the background.
+Cloud synchronization is manual only in the current scope. There is no background scheduler, automatic upload, automatic download, or automatic local overwrite.
 
-### 11.1 Backup state machine
+### 11.1 Manual sync state machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Scanning: scheduler/network trigger
-    Scanning --> Queued: missing objects enqueued
-    Queued --> Uploading: worker starts
-    Uploading --> Verifying: chunks/object uploaded
-    Verifying --> Success: hashes and manifest match
-    Verifying --> RetryWait: hash/network/server failure
-    Uploading --> RetryWait: interruption
-    RetryWait --> Uploading: backoff expires
+    Idle --> Preparing: user starts Upload or Restore
+    Preparing --> Preview: compute objects and sizes
+    Preview --> Transferring: user confirms
+    Transferring --> Verifying: transfer complete
+    Verifying --> Applied: hashes and manifest verified
+    Applied --> Idle
+    Transferring --> RetryWait: network/server interruption
+    RetryWait --> Transferring: retry/backoff
     RetryWait --> Failed: retry limit/auth expired
-    Failed --> Queued: manual retry/login
-    Success --> Idle
+    Failed --> Preparing: user retries
+    Preview --> Idle: user cancels
     Idle --> AuthRequired: token expired
     Idle --> Offline: no network
 ```
 
-### 11.2 Backup scope
+No state transition may be triggered by a timer or network event alone. A user action is required to start every upload or restore.
 
-Automatically back up:
+### 11.2 Manual upload
+
+The user explicitly chooses `Upload to Cloud`.
+
+Upload scope:
 
 - committed Track revisions and the current Track head;
 - Session metadata;
@@ -791,63 +797,42 @@ Automatically back up:
 - Raw Telemetry chunks;
 - relevant user settings.
 
-Never back up:
+Rules:
 
-- uncommitted Track Drafts as official revisions;
-- temporary caches;
-- partial downloads;
-- app-only throwaway files.
-
-### 11.3 Incremental and resumable rules
-
-- Initial backup: manifest of all objects, then missing objects/chunks.
-- Incremental backup: compare local manifest to cloud manifest by object ID/version/hash.
+- Uncommitted Track Drafts are never uploaded as official revisions.
+- Temporary caches, partial downloads, and throwaway files are excluded.
+- Compare local and cloud manifests by object ID/version/hash; upload only missing objects/chunks.
 - Each object has an idempotency key.
-- Chunks are content-addressed and only uploaded once.
-- Verify object hash and final manifest before marking success.
+- Chunks are content-addressed and uploaded once.
+- Verify object and final manifest hashes before marking success.
 - Persist task state across app restarts.
-- Use WorkManager/foreground service for large transfers.
+- Do not automatically retry after the app is backgrounded; resume only when the user returns or explicitly retries.
 
-### 11.4 Seven-day reminder workflow
+### 11.3 Manual restore / overwrite
 
-```mermaid
-flowchart TD
-    S["Automatic backup attempt"] --> R{"Successful?"}
-    R -->|yes| U["Update last_successful_backup_at<br/>pending_backup_count=0"]
-    R -->|no| P["Keep pending_backup_count>0<br/>record failure status"]
-    U --> N{"pending>0?"}
-    P --> N
-    N -->|no| X["No reminder"]
-    N -->|yes| D{"now - last_successful_backup_at >= 7 days?"}
-    D -->|no| Y["No reminder yet"]
-    D -->|yes| M{"last_backup_reminder_at<br/>older than reminder window?"}
-    M -->|no| X
-    M -->|yes| Z["Show: Manual Backup / Remind Me Later"]
-```
+The user explicitly chooses `Restore from Cloud`.
 
-Store:
+1. Show a preview with object counts, versions, sizes, and conflicts.
+2. Require explicit confirmation before any local overwrite.
+3. Create a local rollback snapshot.
+4. Download missing/corrupt objects and chunks.
+5. Verify every hash.
+6. Apply to app-local storage.
+7. Leave Track Drafts untouched; if a restored Track head conflicts with a Draft, enter Draft conflict resolution.
 
-- `last_successful_backup_at`
-- `pending_backup_count`
-- `last_backup_reminder_at`
-- `backup_failure_status`
+Restore never writes to RaceBrick. If the user wants a restored Track on the device, it must go through the normal Draft/commit flow.
 
-Reminder rules:
+### 11.4 Resumable transfer rules
 
-1. Attempt backup when appropriate, not only when the user opens the app.
-2. Retry transient failures with exponential backoff.
-3. Show a reminder only when a successful backup has not occurred for seven days **and** pending backup data exists.
-4. Offer Manual Backup and Remind Me Later.
-5. Clear completed tasks only after server acknowledgment and verification.
-6. No reminders when there is no pending data.
+- Manual upload/download uses chunk manifests and HTTP Range.
+- Interrupted operations resume from the last verified chunk.
+- Token expiry, cancellation, and process death preserve the task record.
+- No object is marked successful before its hash is verified.
+- Failed objects are independently retryable.
 
-### 11.5 Restore
+### 11.5 Deferred automatic backup
 
-- Restore is user-initiated and previewed.
-- Never silently overwrite local data.
-- Show object counts, versions, sizes, and conflicts.
-- Restore writes to app-local storage only; it does not write to RaceBrick.
-- Restoring a Track revision creates a new Track head locally and can be pushed to the device only through the normal Draft/commit flow.
+Automatic background backup, a seven-day reminder, and automatic restore are explicitly deferred. They are not part of Phase 5 and no reminder UI is implemented in the current scope.
 
 ---
 
@@ -914,7 +899,7 @@ Detailed wire contracts are in [API_V2.md](API_V2.md).
 - Track revision upload/download/restore with `If-Match`/409.
 - Session/Lap metadata upload (immutable).
 - Telemetry chunk upload/restore.
-- Backup job/manifest/status/reminder APIs.
+- Manual cloud upload/restore job, manifest, and status APIs.
 - Account-level isolation for every object.
 - Manual leaderboard endpoint separate from private backup APIs.
 
@@ -950,7 +935,7 @@ Cloud
 ├── TrackService
 ├── SessionService
 ├── LapService
-├── BackupService
+├── CloudSyncService
 ├── SyncService
 └── LeaderboardService
 ```
@@ -963,7 +948,7 @@ Cloud
 | TrackService | Track heads, immutable revisions, restore, conflicts |
 | SessionService | immutable Session metadata and tombstones |
 | LapService | immutable Lap Records and validation |
-| BackupService | backup jobs, object manifests, chunks, restore preview/execution |
+| CloudSyncService | manual upload/restore jobs, object manifests, chunks, restore preview/execution |
 | SyncService | idempotency records, persistent tasks, acknowledgments, retries |
 | LeaderboardService | manual publication, validation, public ranking queries |
 
@@ -1005,10 +990,10 @@ Publishing is separate from backup and device sync.
 
 | Phase | Main files |
 |---|---|
-| 2 | firmware `tstore.*`, `race_store.*`, `sim.h`, `app.h`; app `SyncLocalDb` replacement, local DB migration; server schema/repositories |
+| 2 | firmware `tstore.*`, `race_store.*`, `log_store.*` removal, `sim.h`, `app.h`; app `SyncLocalDb` replacement, local DB migration; server schema/repositories |
 | 3 | firmware `netcfg.*` manifest/chunk endpoints; app `DeviceSyncManager`, `DeviceDifferenceDetector`, sync UI; protocol tests |
 | 4 | firmware atomic Track commit; app `TrackDraftManager`, `TrackEditor`, `ConflictResolver`; server Track revision APIs |
-| 5 | app `BackupManager`, WorkManager workers, `BackupReminderManager`; server backup/sync services and storage |
+| 5 | app `CloudSyncManager`, manual transfer workers; server cloud-sync services and storage |
 | 6 | app `LapAnalysis`, `DataExportManager`, telemetry viewer; server LeaderboardService |
 
 Each runtime phase must include unit tests, integration tests against a real device/emulator, and failure-recovery tests listed in Section 16.
@@ -1031,8 +1016,7 @@ Android
 ├── DeviceCommunicationManager
 ├── DeviceDifferenceDetector
 ├── DeviceSyncManager
-├── CloudSyncManager / BackupManager
-├── BackupReminderManager
+├── CloudSyncManager
 ├── PersistentTaskQueue
 ├── ConflictResolver
 └── RACE UI
@@ -1044,7 +1028,7 @@ Planned migration from current files:
 - `LocalRecordsActivity` -> merge local Tracks/Race Logs into `RaceActivity`; remove standalone local page.
 - `SyncActivity` -> status, difference/sync dialog, backup status; no local data browsing.
 - `RaceApi` -> `DeviceProtocolV2`; v1 retained only for migration/fallback.
-- `CloudClient`/`CloudSyncManager` -> v2 backup/restore manager; remove full-snapshot replacement path.
+- `CloudClient`/`CloudSyncManager` -> v2 manual upload/restore manager; remove full-snapshot replacement and automatic sync paths.
 - `RaceActivity` -> local-first RACE UI; read-only Sessions/Laps; Track Draft editing.
 - `LocalCache` -> migrate into typed local DB; remove duplicate snapshot model.
 
@@ -1070,6 +1054,7 @@ Exit criteria:
 Work:
 
 - Firmware v3 Track/Session/Lap/Telemetry records and UUIDs.
+- Remove legacy log store/UI/API and delete existing Old Logs.
 - App typed database and migration.
 - App content-addressed telemetry storage.
 - Device and app manifest generation.
@@ -1080,7 +1065,7 @@ Tests:
 - UUID stability across reboot/reflash where expected.
 - Track revision hash stability across languages.
 - Session references fixed Track revision.
-- Legacy data migration does not mutate originals.
+- Existing raw Sessions migrate without mutation; Old Logs are deleted with no compatibility path.
 - Corrupt flash/header handling.
 
 ### Phase 3: RaceBrick-App synchronization
@@ -1122,25 +1107,25 @@ Tests:
 - Session track revision remains unchanged.
 - Device history-full rejection.
 
-### Phase 5: Cloud integration and backup
+### Phase 5: Manual cloud integration
 
 Work:
 
 - V2 auth/device APIs.
 - Track revision upload/restore.
-- Session/lap/telemetry backup.
-- Persistent backup queue.
-- Background scheduling and seven-day reminder.
-- Restore preview.
+- Session/lap/telemetry upload.
+- Persistent manual transfer queue.
+- Restore preview and explicit overwrite confirmation.
+- No scheduler, no automatic download, no automatic overwrite.
 
 Tests:
 
-- Incremental backup uploads only missing objects.
-- Resume after network interruption.
-- Token expiry keeps queue.
-- No reminder without pending data.
-- Seven-day reminder exact boundary.
-- Restore never overwrites without confirmation.
+- Manual upload sends only missing objects.
+- Manual transfer resumes after network interruption.
+- Token expiry keeps queued tasks.
+- No cloud request occurs without explicit user action.
+- Restore preview is required before overwrite.
+- Restore creates a local rollback snapshot before applying.
 - Account isolation.
 
 ### Phase 6: Analysis and publishing
@@ -1162,28 +1147,34 @@ Tests:
 
 - Phase 1: documentation only.
 - Phase 2: schema/storage only, no sync UI.
-- Phase 3: device-app sync, no cloud backup.
-- Phase 4: Track drafts/commit, no cloud auto backup.
-- Phase 5: cloud backup/restore.
+- Phase 3: device-app sync, no cloud upload.
+- Phase 4: Track drafts/commit, no cloud upload.
+- Phase 5: manual cloud upload/restore only; no auto backup.
 - Phase 6: analysis/publishing.
 
 Each phase must pass build/tests on firmware, Android, and server before the next phase.
 
 ---
 
-## 17. Open Decisions For Review
+## 17. Resolved Decisions And Remaining Questions
 
-1. **Cloud storage**: keep Flask + SQLite + filesystem for Phase 5, with repository interfaces, or migrate to PostgreSQL + S3-compatible storage immediately?
-   - Recommendation: keep SQLite/filesystem for the first implementation, isolate storage behind interfaces, migrate only when scale requires it.
-2. **Device Track history depth**: recommended current + 3 previous revisions (4 total) per Track. Is that sufficient?
-3. **Telemetry v3 sample size**: 20-byte samples preserve GPS accuracy/satellite fields at 25 Hz but reduce per-slot duration to about 70 minutes. Acceptable, or prefer a separate auxiliary accuracy stream?
-4. **Track geometry editor scope**: centerline + width + start/sector lines first, or full boundary polygon editing from day one?
-5. **Pairing**: use a one-time code/token for device sync, while retaining the AP password? Any requirement for BLE-only pairing?
-6. **Legacy histrec**: keep read-only under Old Logs and exclude from canonical sync; confirm.
-7. **Automatic cloud backup vs earlier no-auto policy**: this document follows the new requirement for automatic backup (not automatic device sync). Confirm.
-8. **Session timestamps**: standardize on GNSS UTC plus time-source/uncertainty metadata; confirm devices without a fix use an explicit unknown-time state rather than local fake time.
+### Resolved
 
----
+1. **Cloud infrastructure**: keep Flask + SQLite + filesystem for the first implementation. Use repository/blob interfaces so PostgreSQL and S3-compatible storage remain replaceable later.
+2. **Device Track history**: retain current revision + 3 previous revisions.
+3. **Telemetry sample**: accept 20-byte samples at 25 Hz, about 70 minutes per 2 MiB session slot.
+4. **Legacy Old Logs**: delete them completely from device, app, and cloud. Do not retain compatibility views, exports, or migration paths.
+5. **Cloud sync policy**: manual only for now. Upload or download/overwrite happens only after an explicit user action. No automatic upload, automatic download, scheduler, or seven-day reminder.
+
+### Remaining
+
+1. **Track geometry editor scope**
+   - A: centerline + constant width (current model).
+   - B: centerline + per-point left/right width, with a derived boundary polygon.
+   - C: full outer/inner boundary polygon editor with arbitrary geometry.
+   - Recommendation: B for the first phase; it provides a real boundary and variable width without a freeform CAD-style editor.
+2. **Pairing**: use a one-time device code and a device-scoped token while retaining the AP password? Any requirement for BLE-only pairing?
+3. **Session time source**: standardize on GNSS UTC plus `time_source`/`time_uncertainty_ms`; use an explicit unknown-time state when no valid time source exists.
 
 ## 18. Review Checklist
 
@@ -1193,7 +1184,8 @@ Each phase must pass build/tests on firmware, Android, and server before the nex
 - [ ] Raw telemetry chunk/sample format accepted.
 - [ ] Device manifest and selective sync dialog accepted.
 - [ ] Draft and batch commit protocol accepted.
-- [ ] Cloud automatic backup and seven-day reminder accepted.
+- [ ] Manual-only cloud upload/restore accepted.
+- [ ] Legacy Old Logs removal accepted.
 - [ ] Conflict policy accepted.
 - [ ] API v2 accepted.
 - [ ] Roadmap/phase boundaries accepted.
