@@ -54,7 +54,8 @@ class DeviceDiffTest {
         manifest.put("tracks", JSONArray().put(JSONObject()
             .put("track_id", "t1").put("version", 2).put("revision_id", "r2")))
         manifest.put("sessions", JSONArray().put(JSONObject()
-            .put("session_id", "s1").put("start", 1795000000)))
+            .put("session_id", "s1").put("start", 1795000000)
+            .put("telemetry", JSONObject().put("available", true))))
         assertEquals(0, DeviceDiff.compare(manifest, manifest, emptySet()).size)
     }
 }

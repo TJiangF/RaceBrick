@@ -54,7 +54,7 @@ object DeviceDiff {
                 if (l == null) {
                     out += DeviceDiffItem(
                         type = "track",
-                        label = "[Track] ${ref.name} · 设备新增 v${ref.version}",
+                        label = "[Track] ${ref.name} · 设备 v${ref.version} > Local 缺失",
                         track = ref,
                     )
                     continue
@@ -63,10 +63,10 @@ object DeviceDiff {
                 val lr = l.optString("revision_id", "")
                 if (lv == ref.version && lr == ref.revisionId) continue
                 val dirty = ref.trackId in dirtyTracks
-                val detail = if (lv > ref.version) {
-                    "本地 v$lv 较新"
-                } else {
-                    "设备 v${ref.version} / 本地 v$lv"
+                val detail = when {
+                    lv > ref.version -> "Local v$lv > 设备 v${ref.version}"
+                    lv == ref.version && lr != ref.revisionId -> "版本相同但 revision 不同"
+                    else -> "设备 v${ref.version} > Local v$lv"
                 }
                 out += DeviceDiffItem(
                     type = "track",
@@ -76,11 +76,11 @@ object DeviceDiff {
                 )
             }
         }
-        val localSessions = HashSet<String>()
+        val localSessions = HashMap<String, JSONObject>()
         local.optJSONArray("sessions")?.let { arr ->
             for (i in 0 until arr.length()) {
                 arr.optJSONObject(i)?.let {
-                    localSessions += it.optString("session_id", "")
+                    localSessions[it.optString("session_id", "")] = it
                 }
             }
         }
@@ -96,13 +96,27 @@ object DeviceDiff {
                     laps = o.optInt("laps", 0),
                     rawAvailable = o.optBoolean("telemetry_available", true),
                 )
-                if (ref.sessionId.isBlank() || ref.sessionId in localSessions) continue
-                out += DeviceDiffItem(
-                    type = "session",
-                    label = "[Race Log] ${ref.trackName} · ${formatDate(ref.start)} · ${ref.laps} 圈" +
-                        if (ref.rawAvailable) " · RAW" else "",
-                    session = ref,
-                )
+                if (ref.sessionId.isBlank()) continue
+                val localSession = localSessions[ref.sessionId]
+                if (localSession == null) {
+                    out += DeviceDiffItem(
+                        type = "session",
+                        label = "[Race Log] ${ref.trackName} · ${formatDate(ref.start)} · ${ref.laps} 圈" +
+                            if (ref.rawAvailable) " · 设备有 RAW · Local 缺失" else " · Local 缺失",
+                        session = ref,
+                    )
+                } else {
+                    val localRaw = localSession.optJSONObject("telemetry")
+                        ?.optBoolean("available", false) == true
+                    if (ref.rawAvailable && !localRaw) {
+                        out += DeviceDiffItem(
+                            type = "session",
+                            label = "[Race Log] ${ref.trackName} · ${formatDate(ref.start)} · " +
+                                "${ref.laps} 圈 · Local 缺少 RAW",
+                            session = ref,
+                        )
+                    }
+                }
             }
         }
         return out

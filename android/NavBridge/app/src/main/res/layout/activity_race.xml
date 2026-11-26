@@ -157,7 +157,7 @@
                     android:layout_weight="1"
                     android:background="@drawable/btn_primary"
                     android:backgroundTint="@null"
-                    android:text="连接并刷新"
+                    android:text="连接设备（仅查看）"
                     android:textColor="#F2FFFB" />
 
                 <Button

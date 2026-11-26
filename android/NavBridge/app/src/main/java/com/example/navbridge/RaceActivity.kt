@@ -635,7 +635,10 @@ class RaceActivity : LocalizedActivity() {
             total == 0 -> "（无 GPS 基准赛道）"
             else -> ""
         }
-        status("赛道 ${tracks.size} 条，Race Log ${sessions.size} 条，卫星图 $loaded/$total 张$suffix")
+        status(
+            "赛道 ${tracks.size} 条，Race Log ${sessions.size} 条，卫星图 $loaded/$total 张$suffix" +
+                if (localMode) " · Local App" else " · 设备视图（未写入 Local）"
+        )
         main.postDelayed({ if (gen == generation) pbLoad.visibility = View.GONE }, 1200)
     }
 

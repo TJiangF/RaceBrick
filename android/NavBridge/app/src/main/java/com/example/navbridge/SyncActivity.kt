@@ -207,6 +207,13 @@ class SyncActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
         }
+        box.addView(TextView(this).apply {
+            text = "比较对象：设备 Manifest ↔ Local DB。\n" +
+                "RACE 的“连接设备”只更新当前设备视图，不会写入 Local；所以这里仍会列出未导入 Local 的对象。"
+            setTextColor(0xFFE0A040.toInt())
+            textSize = 11f
+            setPadding(0, 0, 0, dp(6))
+        })
         val checks = LinkedHashMap<DeviceDiffItem, CheckBox>()
         val rawChecks = LinkedHashMap<DeviceDiffItem, CheckBox>()
         fun addTrack(item: DeviceDiffItem) {
