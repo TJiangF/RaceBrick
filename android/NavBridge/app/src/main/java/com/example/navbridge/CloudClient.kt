@@ -101,6 +101,9 @@ class CloudApi {
     fun snapshot(uid: String, token: String): JSONObject =
         request("GET", "/api/phone/v1/devices/${path(uid)}/snapshot", token, null)
 
+    fun deviceManifest(uid: String, token: String): JSONObject =
+        request("GET", "/api/v2/devices/${path(uid)}/manifest", token, null)
+
     fun changes(uid: String, since: Int, token: String): JSONObject =
         request("GET", "/api/phone/v1/devices/${path(uid)}/changes?since=$since", token, null)
 

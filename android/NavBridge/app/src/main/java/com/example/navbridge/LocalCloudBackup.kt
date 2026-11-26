@@ -68,19 +68,46 @@ object LocalCloudBackup {
     }
 
     fun backup(db: SyncLocalDb, uid: String, token: String): Result {
+        val api = CloudApi()
+        val cloud = api.deviceManifest(uid, token)
+        val cloudTracks = HashMap<String, JSONObject>()
+        cloud.optJSONArray("tracks")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                arr.optJSONObject(i)?.let {
+                    cloudTracks[it.optString("track_id", "")] = it
+                }
+            }
+        }
+        val cloudSessions = HashSet<String>()
+        cloud.optJSONArray("sessions")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                arr.optJSONObject(i)?.let {
+                    cloudSessions += it.optString("session_id", "")
+                }
+            }
+        }
         val tracksOut = JSONArray()
-        val tracks = db.tracks()
-        for (t in tracks) {
+        var trackCount = 0
+        for (t in db.tracks()) {
             val p = JSONObject(t.payload.toString())
+            val uuid = p.optString("uuid", t.uuid)
             if (!p.has("id")) p.put("id", t.localKey.toIntOrNull() ?: -1)
+            val c = cloudTracks[uuid]
+            if (c != null &&
+                c.optInt("version", -1) == p.optInt("version", 1) &&
+                c.optString("revision_id", "") == p.optString("revision_id", "")
+            ) continue
             tracksOut.put(JSONObject()
                 .put("local_id", t.localKey.toIntOrNull() ?: -1)
                 .put("payload", p))
+            trackCount++
         }
         val sessionsOut = JSONArray()
-        val sessions = db.sessions()
-        for (s in sessions) {
+        var sessionCount = 0
+        for (s in db.sessions()) {
             val p = JSONObject(s.payload.toString())
+            val sessionId = p.optString("session_uuid", s.uuid)
+            if (sessionId in cloudSessions) continue
             if (!p.has("slot")) p.put("slot", s.localKey.toIntOrNull() ?: -1)
             val item = JSONObject()
                 .put("local_slot", s.localKey.toIntOrNull() ?: -1)
@@ -91,6 +118,16 @@ object LocalCloudBackup {
                     Base64.encodeToString(blob.readBytes(), Base64.NO_WRAP))
             }
             sessionsOut.put(item)
+            sessionCount++
+        }
+        if (trackCount == 0 && sessionCount == 0) {
+            return Result(
+                revision = cloud.optInt("revision", 0),
+                dataVersion = cloud.optInt("data_version", 0),
+                tracks = 0,
+                sessions = 0,
+                bytes = 0,
+            )
         }
         val body = JSONObject()
             .put("replace", false)
@@ -98,14 +135,14 @@ object LocalCloudBackup {
             .put("sessions", sessionsOut)
             .put("logs", JSONArray())
         val text = body.toString()
-        val r = CloudApi().sync(uid, body, token)
+        val r = api.sync(uid, body, token)
         val revision = r.optInt("revision", 0)
         val dataVersion = r.optInt("data_version", 0)
         return Result(
             revision = revision,
             dataVersion = dataVersion,
-            tracks = tracks.size,
-            sessions = sessions.size,
+            tracks = trackCount,
+            sessions = sessionCount,
             bytes = text.toByteArray(Charsets.UTF_8).size,
         )
     }
