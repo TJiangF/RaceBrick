@@ -18,6 +18,7 @@
 #include "btmap.h"
 #include "cloud_sync.h"
 #include "discovery.h"
+#include "boot_logo.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -53,9 +54,16 @@ static void selftest(void) {
 
 static void boot_splash(void) {
     gfx_clear(0);
-    gfx_text_center(LCD_W / 2, 84, "RACEBRICK", RGB565(0xf2, 0xf2, 0xf5), 3);
-    gfx_text_center(LCD_W / 2, 128, "BOOTING", RGB565(0x76, 0x7b, 0x84), 1);
-    gfx_text_center(LCD_W / 2, 164, "PLEASE WAIT", RGB565(0x66, 0xe0, 0xd2), 1);
+    int lx = (LCD_W - BOOT_LOGO_W) / 2;
+    int ly = 14;
+    for (int y = 0; y < BOOT_LOGO_H; y++) {
+        for (int x = 0; x < BOOT_LOGO_W; x++) {
+            gfx_pixel(lx + x, ly + y, BOOT_LOGO_PX[y * BOOT_LOGO_W + x]);
+        }
+    }
+    gfx_text_center(LCD_W / 2, 138, "RACEBRICK", RGB565(0xf2, 0xf2, 0xf5), 2);
+    gfx_text_center(LCD_W / 2, 166, "BOOTING", RGB565(0x76, 0x7b, 0x84), 1);
+    gfx_text_center(LCD_W / 2, 190, "PLEASE WAIT", RGB565(0x66, 0xe0, 0xd2), 1);
     lcd_flush(gfx_fb());
     lcd_set_brightness(START_BRIGHTNESS);
 }

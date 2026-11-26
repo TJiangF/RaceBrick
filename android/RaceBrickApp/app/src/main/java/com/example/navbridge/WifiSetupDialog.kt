@@ -137,6 +137,17 @@ class WifiSetupDialog(
             ViewGroup.LayoutParams.MATCH_PARENT, px(300)
         ).apply { topMargin = px(8) })
 
+        val close = Button(activity).apply {
+            text = "关闭"
+            textSize = 13f
+            setTextColor(0xFFD7E7E4.toInt())
+            background = rounded(0xFF183037.toInt(), 10f)
+            setOnClickListener { dismiss() }
+        }
+        root.addView(close, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = px(10) })
+
         dialog.setContentView(root)
         dialog.setCanceledOnTouchOutside(true)
         dialog.window?.setLayout(

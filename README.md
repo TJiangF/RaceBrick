@@ -28,14 +28,14 @@ python3 -m http.server 8000
 
 ---
 
-## 手机 BLE 导航投屏（NavBridge）
+## 手机 App（RaceBrickApp）
 
-Android 工程已合入 [`android/NavBridge/`](android/NavBridge/)，和固件的 **`PHONE MAP`** 页面配合使用：手机端保留现有高德地图 + 路线 + 车标 + HUD 渲染，把 **320×240 整帧**压缩后通过 BLE 发给 RaceBrick，设备只负责收包、解码、全屏显示。
+Android 工程已合入 [`android/RaceBrickApp/`](android/RaceBrickApp/)，和固件的 **`PHONE MAP`** 页面配合使用：手机端保留现有高德地图 + 路线 + 车标 + HUD 渲染，把 **320×240 整帧**压缩后通过 BLE 发给 RaceBrick，设备只负责收包、解码、全屏显示。
 
 ### 工作方式
 
 ```
-手机 NavBridge（高德 SDK）
+手机 RaceBrickApp（高德 SDK）
   渲染 320×240 全帧
         │ 16 色量化 + RLE
         ▼
@@ -69,7 +69,7 @@ ESP32-S3：BLE 外设 → 分片重组 → RLE 解码到 PSRAM → PHONE MAP 全
 ### 使用步骤
 
 1. 刷入本仓库固件；Settings 里确认 **BLUETOOTH = ON**。
-2. 手机安装 `android/NavBridge` 编译出的 APK，授予定位/蓝牙/通知权限。
+2. 手机安装 `android/RaceBrickApp` 编译出的 APK，授予定位/蓝牙/通知权限。
 3. App 点“连接设备”（实际搜索 `RaceBrick`），系统配对框确认。
 4. 输入目的地并选中；点“开始导航”走真实手机 GPS 导航，点“模拟导航”则从当前手机定位模拟到目的地。整帧发送始终开启，不需要设置。
 5. 设备 HOME 页按 UP/DOWN 切到 **`PHONE MAP`**，PUSH 进入即可看到手机画面。
@@ -94,16 +94,16 @@ App 需要一次 **通知使用权**（媒体会话控制）：首页有“媒�
 要求 **JDK 21**（Gradle 8.10.2 不支持 JDK 25）：
 
 ```bash
-cd android/NavBridge
+cd android/RaceBrickApp
 export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
 # 首次编译：cp local.properties.example local.properties，填 sdk.dir / AMAP_KEY
 ./gradlew assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-高德 Key 绑定包名 `com.example.navbridge` + 签名 SHA1，申请方法见 [`android/NavBridge/README.md`](android/NavBridge/README.md)。
+高德 Key 绑定包名 `com.example.navbridge` + 签名 SHA1，申请方法见 [`android/RaceBrickApp/README.md`](android/RaceBrickApp/README.md)。
 
-> 每次重新出包请递增 `android/NavBridge/app/build.gradle.kts` 里的 `versionCode` 并更新 `versionName`；设置页会显示版本号，便于区分设备上装的是哪一版。
+> 每次重新出包请递增 `android/RaceBrickApp/app/build.gradle.kts` 里的 `versionCode` 并更新 `versionName`；设置页会显示版本号，便于区分设备上装的是哪一版。
 >
 > APK 约 54 MB 主要是高德导航/3D 地图/定位/搜索 SDK 的 arm64 原生库，不是业务代码；当前功能依赖这些库，改 UI 不会明显减小。
 

@@ -1,4 +1,4 @@
-# NavBridge
+# RaceBrickApp
 
 Android MVP：用高德 SDK 算路/导航，把 320×240 全帧（地图 + 路线 + 车标 + HUD）通过 BLE 推给 RaceBrick。
 也保留 MotoNav 圆屏的底图/路线协议。
@@ -182,7 +182,7 @@ export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
 ## 五、使用
 
 1. 圆屏刷 MotoNav 1.75 固件并开机。
-2. 手机打开 NavBridge，授予定位、蓝牙、通知权限。
+2. 手机打开 RaceBrickApp，授予定位、蓝牙、通知权限。
 3. 点“连接圆屏”，在系统配对框输入圆屏上显示的 6 位数字。
 4. 在“输入目的地”框输入地名，点联想结果选中目的地，点“开始导航”。
 5. 圆屏开始显示底图、路线、车标、转向提示。

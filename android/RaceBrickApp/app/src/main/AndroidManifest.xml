@@ -33,7 +33,7 @@
         android:allowBackup="false"
         android:largeHeap="true"
         android:usesCleartextTraffic="true"
-        android:icon="@android:drawable/ic_menu_mylocation"
+        android:icon="@drawable/racebrick_logo"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.NavBridge">
@@ -43,16 +43,21 @@
             android:value="${AMAP_KEY}" />
 
         <activity
-            android:name=".MainActivity"
+            android:name=".HomeActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize">
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".RaceActivity"

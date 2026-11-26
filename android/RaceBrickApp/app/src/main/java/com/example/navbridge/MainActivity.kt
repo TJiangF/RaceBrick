@@ -40,6 +40,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 class MainActivity : LocalizedActivity() {
+    companion object {
+        const val EXTRA_OPEN_WIFI = "open_wifi"
+    }
 
     private lateinit var mainScroll: View
     private lateinit var connectGate: View
@@ -47,6 +50,7 @@ class MainActivity : LocalizedActivity() {
     private lateinit var btnGateConnect: Button
     private lateinit var tvGateStatus: TextView
     private var sessionActive = false
+    private var openWifiOnReady = false
 
     private lateinit var tvStatus: TextView
     private lateinit var tvLog: TextView
@@ -266,6 +270,10 @@ class MainActivity : LocalizedActivity() {
         floatingStatus = findViewById(R.id.floatingStatus)
         btnGateConnect = findViewById(R.id.btnGateConnect)
         tvGateStatus = findViewById(R.id.tvGateStatus)
+        openWifiOnReady = intent.getBooleanExtra(EXTRA_OPEN_WIFI, false)
+        findViewById<Button>(R.id.btnGateSkip).setOnClickListener {
+            setSessionActive(true)
+        }
         tvStatus = findViewById(R.id.tvStatus)
         tvLog = findViewById(R.id.tvLog)
         etKeyword = findViewById(R.id.etKeyword)
@@ -297,6 +305,11 @@ class MainActivity : LocalizedActivity() {
             onReady = {
                 runOnUiThread {
                     setSessionActive(true)
+                    if (openWifiOnReady) {
+                        openWifiOnReady = false
+                        if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, ble)
+                        wifiSetup?.show()
+                    }
                     MediaKeepAliveService.start(this)
                     log("RaceBrick 通过验证，开始同步")
                     lastSentGen = -1L

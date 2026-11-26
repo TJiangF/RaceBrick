@@ -329,6 +329,17 @@
             android:textColor="#F2FFFB"
             android:textSize="16sp" />
 
+        <Button
+            android:id="@+id/btnGateSkip"
+            android:layout_width="220dp"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="跳过连接，直接进入导航"
+            android:textColor="#A9C4BE"
+            android:textSize="13sp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

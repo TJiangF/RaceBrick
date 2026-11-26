@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NavBridge"
+rootProject.name = "RaceBrickApp"
 include(":app")

@@ -35,7 +35,7 @@
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:minHeight="40dp"
-                android:text="NAV"
+                android:text="BACK"
                 android:textColor="#D7E7E4" />
 
             <Button
