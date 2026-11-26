@@ -4,44 +4,166 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 2) {
+class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.db", null, 3) {
     private val app = context.applicationContext
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("""CREATE TABLE meta (
+        createMeta(db)
+        createTypedTables(db)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            ensureLegacyDirtyColumns(db)
+        }
+        createMeta(db)
+        createTypedTables(db)
+        if (oldVersion < 3) migrateLegacyEntities(db)
+    }
+
+    private fun createMeta(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )""")
-        db.execSQL("""CREATE TABLE entities (
-            uuid TEXT PRIMARY KEY,
-            type TEXT NOT NULL,
-            local_key TEXT NOT NULL,
-            parent_uuid TEXT,
+    }
+
+    private fun createTypedTables(db: SQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS tracks (
+            track_uuid TEXT PRIMARY KEY,
+            local_slot INTEGER,
             name TEXT NOT NULL,
-            revision INTEGER NOT NULL,
-            hash TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            revision_id TEXT,
+            parent_revision_id TEXT,
+            payload TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
             created_at INTEGER,
             updated_at INTEGER,
             deleted INTEGER NOT NULL DEFAULT 0,
             dirty_device INTEGER NOT NULL DEFAULT 0,
             dirty_cloud INTEGER NOT NULL DEFAULT 0,
-            origin TEXT NOT NULL,
-            payload TEXT NOT NULL,
-            blob_path TEXT,
-            UNIQUE(type, local_key)
+            origin TEXT NOT NULL DEFAULT 'device'
         )""")
-        db.execSQL("CREATE INDEX idx_entities_type ON entities(type, deleted)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tracks_slot ON tracks(local_slot, deleted)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS track_revisions (
+            track_uuid TEXT NOT NULL,
+            revision_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            parent_revision_id TEXT,
+            payload TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            created_at INTEGER,
+            created_by TEXT NOT NULL DEFAULT 'device',
+            PRIMARY KEY(track_uuid, revision_id)
+        )""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS track_drafts (
+            track_uuid TEXT PRIMARY KEY,
+            base_revision_id TEXT,
+            base_data TEXT NOT NULL,
+            draft_data TEXT NOT NULL,
+            modified_fields TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at INTEGER,
+            updated_at INTEGER
+        )""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS sessions (
+            session_uuid TEXT PRIMARY KEY,
+            local_slot INTEGER,
+            track_uuid TEXT,
+            track_revision_id TEXT,
+            track_version INTEGER,
+            device_id TEXT,
+            start_time INTEGER,
+            end_time INTEGER,
+            session_type TEXT NOT NULL DEFAULT 'race',
+            total_laps INTEGER NOT NULL DEFAULT 0,
+            best_lap_ms INTEGER,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            raw_available INTEGER NOT NULL DEFAULT 0,
+            raw_format INTEGER NOT NULL DEFAULT 16,
+            sample_size INTEGER NOT NULL DEFAULT 16,
+            payload TEXT NOT NULL,
+            content_hash TEXT,
+            laps_hash TEXT,
+            telemetry_hash TEXT,
+            imported_at INTEGER,
+            updated_at INTEGER,
+            deleted INTEGER NOT NULL DEFAULT 0
+        )""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_sessions_track ON sessions(track_uuid, deleted)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS lap_records (
+            lap_id TEXT PRIMARY KEY,
+            session_uuid TEXT NOT NULL,
+            lap_number INTEGER NOT NULL,
+            lap_time_ms INTEGER NOT NULL,
+            sector_times_ms TEXT NOT NULL DEFAULT '[]',
+            start_time INTEGER,
+            end_time INTEGER,
+            best_lap INTEGER NOT NULL DEFAULT 0,
+            telemetry_reference TEXT NOT NULL DEFAULT '{}',
+            content_hash TEXT,
+            deleted INTEGER NOT NULL DEFAULT 0
+        )""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_laps_session ON lap_records(session_uuid, lap_number)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS telemetry_chunks (
+            chunk_id TEXT PRIMARY KEY,
+            session_uuid TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            byte_offset INTEGER NOT NULL DEFAULT 0,
+            size INTEGER NOT NULL DEFAULT 0,
+            sha256 TEXT NOT NULL,
+            local_path TEXT NOT NULL,
+            uploaded_cloud INTEGER NOT NULL DEFAULT 0,
+            imported_at INTEGER
+        )""")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_chunks_session ON telemetry_chunks(session_uuid, seq)")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS sync_metadata (
+            object_id TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            local_version INTEGER,
+            device_version INTEGER,
+            cloud_version INTEGER,
+            local_hash TEXT,
+            device_hash TEXT,
+            cloud_hash TEXT,
+            sync_status TEXT NOT NULL DEFAULT 'clean',
+            last_synced_at INTEGER,
+            PRIMARY KEY(object_id, object_type)
+        )""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS sync_tasks (
+            task_id TEXT PRIMARY KEY,
+            task_type TEXT NOT NULL,
+            object_id TEXT,
+            source TEXT NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT NOT NULL,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            idempotency_key TEXT,
+            created_at INTEGER,
+            updated_at INTEGER,
+            error_message TEXT
+        )""")
+        db.execSQL("""CREATE TABLE IF NOT EXISTS cloud_sync_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )""")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 2) {
+    private fun ensureLegacyDirtyColumns(db: SQLiteDatabase) {
+        if (!tableExists(db, "entities")) return
+        val cols = columns(db, "entities")
+        if ("dirty_device" !in cols) {
             db.execSQL("ALTER TABLE entities ADD COLUMN dirty_device INTEGER NOT NULL DEFAULT 0")
+        }
+        if ("dirty_cloud" !in cols) {
             db.execSQL("ALTER TABLE entities ADD COLUMN dirty_cloud INTEGER NOT NULL DEFAULT 0")
         }
     }
@@ -57,6 +179,16 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         val uid: String?,
     )
 
+    data class LocalEntity(
+        val uuid: String,
+        val localKey: String,
+        val name: String,
+        val payload: JSONObject,
+        val blobPath: String?,
+        val dirtyDevice: Boolean,
+        val dirtyCloud: Boolean,
+    )
+
     private fun meta(db: SQLiteDatabase, key: String): String? =
         db.rawQuery("SELECT value FROM meta WHERE key=?", arrayOf(key)).use {
             if (it.moveToFirst()) it.getString(0) else null
@@ -64,20 +196,21 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
 
     private fun setMeta(db: SQLiteDatabase, key: String, value: String) {
         db.insertWithOnConflict("meta", null, ContentValues().apply {
-            put("key", key); put("value", value)
+            put("key", key)
+            put("value", value)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun summary(): Summary {
         val db = readableDatabase
-        fun count(type: String): Int =
-            db.rawQuery("SELECT COUNT(*) FROM entities WHERE type=? AND deleted=0", arrayOf(type)).use {
+        fun count(table: String): Int =
+            db.rawQuery("SELECT COUNT(*) FROM $table WHERE deleted=0", null).use {
                 if (it.moveToFirst()) it.getInt(0) else 0
             }
         return Summary(
-            tracks = count("track"),
-            sessions = count("session"),
-            logs = count("race_log"),
+            tracks = count("tracks"),
+            sessions = count("sessions"),
+            logs = 0,
             dirtyDevice = meta(db, "dirty_device") == "1",
             dirtyCloud = meta(db, "dirty_cloud") == "1",
             datasetRevision = meta(db, "dataset_revision")?.toIntOrNull() ?: 0,
@@ -92,91 +225,158 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         val blobDir = File(app.filesDir, "sync_blobs").apply { mkdirs() }
         db.beginTransaction()
         try {
-            val seen = HashSet<String>()
-            fun upsert(type: String, key: String, name: String, payload: JSONObject,
-                       parent: String?, blob: File? = null) {
-                val identity = "$type:$key"
-                seen += identity
-                val payloadText = payload.toString()
-                val digest = sha256(payloadText.toByteArray() + (blob?.readBytes() ?: ByteArray(0)))
-                var oldUuid: String? = null
-                var oldHash: String? = null
-                var oldRevision = 0
-                var oldCreated = now
-                db.rawQuery(
-                    "SELECT uuid,hash,revision,created_at FROM entities WHERE type=? AND local_key=?",
-                    arrayOf(type, key),
-                ).use {
-                    if (it.moveToFirst()) {
-                        oldUuid = it.getString(0)
-                        oldHash = it.getString(1)
-                        oldRevision = it.getInt(2)
-                        oldCreated = it.getLong(3)
-                    }
-                }
-                val uuid = oldUuid ?: UUID.randomUUID().toString()
-                val revision = if (oldUuid == null || oldHash != digest) oldRevision + 1 else oldRevision
-                val created = oldCreated
-                val values = ContentValues().apply {
-                    put("uuid", uuid); put("type", type); put("local_key", key)
-                    if (parent != null) put("parent_uuid", parent) else putNull("parent_uuid")
-                    put("name", name)
-                    put("revision", revision); put("hash", digest)
-                    put("created_at", created); put("updated_at", now)
-                    put("deleted", 0); put("origin", "device")
-                    put("dirty_device", 0); put("dirty_cloud", 0)
-                    put("payload", payloadText)
-                    if (blob != null) put("blob_path", blob.absolutePath) else putNull("blob_path")
-                }
-                db.insertWithOnConflict("entities", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-            }
+            val seenTracks = HashSet<String>()
+            val seenSessions = HashSet<String>()
 
-            val trackIds = HashMap<Int, String>()
             val tracks = body.optJSONArray("tracks") ?: JSONArray()
             for (i in 0 until tracks.length()) {
                 val item = tracks.optJSONObject(i) ?: continue
-                val key = item.optInt("local_id").toString()
+                val localId = item.optInt("local_id", -1)
                 val payload = item.optJSONObject("payload") ?: JSONObject()
-                upsert("track", key, payload.optString("name"), payload, null)
-                db.rawQuery("SELECT uuid FROM entities WHERE type='track' AND local_key=?", arrayOf(key)).use {
-                    if (it.moveToFirst()) trackIds[item.optInt("local_id")] = it.getString(0)
+                val existingBySlot = trackUuidBySlot(db, localId)
+                val trackUuid = payload.optString("uuid", "")
+                    .ifBlank { existingBySlot ?: stableUuid("track:$uid:$localId") }
+                seenTracks += trackUuid
+                val version = payload.optInt("version", 1).coerceAtLeast(1)
+                val revisionId = payload.optString("revision_id", "")
+                    .ifBlank { stableUuid("trev:$trackUuid:$version") }
+                val parent = payload.optString("parent_revision_id", "").ifBlank { null }
+                val name = payload.optString("name", "")
+                val hash = sha256(payload.toString().toByteArray())
+                val existing = queryTrack(db, trackUuid)
+                if (existing != null && existing.dirtyDevice && existing.hash != hash) {
+                    /* Preserve a local working edit. Phase 3 conflict UI will resolve it. */
+                    continue
                 }
+                val values = ContentValues().apply {
+                    put("track_uuid", trackUuid)
+                    put("local_slot", localId)
+                    put("name", name)
+                    put("version", version)
+                    put("revision_id", revisionId)
+                    if (parent != null) put("parent_revision_id", parent) else putNull("parent_revision_id")
+                    put("payload", payload.toString())
+                    put("content_hash", hash)
+                    put("created_at", existing?.createdAt ?: now)
+                    put("updated_at", now)
+                    put("deleted", 0)
+                    put("dirty_device", 0)
+                    put("dirty_cloud", 0)
+                    put("origin", "device")
+                }
+                db.insertWithOnConflict("tracks", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+                val revValues = ContentValues().apply {
+                    put("track_uuid", trackUuid)
+                    put("revision_id", revisionId)
+                    put("version", version)
+                    if (parent != null) put("parent_revision_id", parent) else putNull("parent_revision_id")
+                    put("payload", payload.toString())
+                    put("content_hash", hash)
+                    put("created_at", now)
+                    put("created_by", "device")
+                }
+                db.insertWithOnConflict("track_revisions", null, revValues, SQLiteDatabase.CONFLICT_IGNORE)
             }
 
             val sessions = body.optJSONArray("sessions") ?: JSONArray()
             for (i in 0 until sessions.length()) {
                 val item = sessions.optJSONObject(i) ?: continue
-                val key = item.optInt("local_slot").toString()
+                val localSlot = item.optInt("local_slot", -1)
                 val payload = item.optJSONObject("payload") ?: JSONObject()
                 val b64 = item.optString("csv_gzip_b64", "")
                 var blob: File? = null
+                var blobBytes: ByteArray? = null
                 if (b64.isNotEmpty()) {
-                    blob = File(blobDir, "session-$key-${System.nanoTime()}.gz")
-                    blob.writeBytes(android.util.Base64.decode(b64, android.util.Base64.NO_WRAP))
+                    val bytes = Base64.decode(b64, Base64.NO_WRAP)
+                    blobBytes = bytes
+                    blob = File(blobDir, "session-$localSlot-${System.nanoTime()}.gz")
+                    blob.writeBytes(bytes)
                 }
-                upsert("session", key, payload.optString("track_name"), payload,
-                    trackIds[payload.optInt("track", -1)], blob)
+                val sessionUuid = payload.optString("session_uuid", "")
+                    .ifBlank { stableUuid("session:$uid:$localSlot:${sha256(payload.toString().toByteArray())}") }
+                seenSessions += sessionUuid
+                val trackSlot = payload.optInt("track", -1)
+                val trackUuid = payload.optString("track_uuid", "")
+                    .ifBlank { trackUuidBySlot(db, trackSlot) }
+                val trackRevisionId = payload.optString("track_revision_id", "")
+                    .ifBlank { trackRevisionId(db, trackUuid) }
+                val sampleSize = payload.optInt("sample_size", 16).coerceAtLeast(16)
+                val start = payload.optLong("start", 0L)
+                val durationMs = payload.optLong("duration_ms", 0L)
+                val end = payload.optLong("end", if (start > 0) start + durationMs / 1000L else 0L)
+                val lapTimes = payload.optJSONArray("lap_times") ?: JSONArray()
+                val totalLaps = payload.optInt("laps", lapTimes.length())
+                val bestMs = (0 until lapTimes.length())
+                    .mapNotNull { idx -> lapTimes.optDouble(idx, 0.0).takeIf { it > 0.0 } }
+                    .minOrNull()?.times(1000.0)?.toLong()
+                val hashInput = payload.toString().toByteArray() + (blobBytes ?: ByteArray(0))
+                val contentHash = sha256(hashInput)
+                val lapsHash = sha256(lapTimes.toString().toByteArray())
+                val telemetryHash = blobBytes?.let { sha256(it) }
+                val metaText = payload.optJSONObject("metadata")?.toString() ?: "{}"
+                val sessionValues = ContentValues().apply {
+                    put("session_uuid", sessionUuid)
+                    put("local_slot", localSlot)
+                    if (trackUuid != null) put("track_uuid", trackUuid) else putNull("track_uuid")
+                    if (trackRevisionId != null) put("track_revision_id", trackRevisionId) else putNull("track_revision_id")
+                    put("track_version", payload.optInt("track_version", 0))
+                    put("device_id", uid)
+                    put("start_time", start)
+                    put("end_time", end)
+                    put("session_type", payload.optString("session_type", "race"))
+                    put("total_laps", totalLaps)
+                    if (bestMs != null) put("best_lap_ms", bestMs) else putNull("best_lap_ms")
+                    put("metadata", metaText)
+                    put("raw_available", if (blob != null) 1 else 0)
+                    put("raw_format", sampleSize)
+                    put("sample_size", sampleSize)
+                    put("payload", payload.toString())
+                    put("content_hash", contentHash)
+                    put("laps_hash", lapsHash)
+                    if (telemetryHash != null) put("telemetry_hash", telemetryHash) else putNull("telemetry_hash")
+                    put("imported_at", now)
+                    put("deleted", 0)
+                }
+                db.insertWithOnConflict("sessions", null, sessionValues, SQLiteDatabase.CONFLICT_REPLACE)
+
+                db.delete("lap_records", "session_uuid=?", arrayOf(sessionUuid))
+                for (idx in 0 until lapTimes.length()) {
+                    val lapMs = (lapTimes.optDouble(idx, 0.0) * 1000.0).toLong()
+                    if (lapMs <= 0) continue
+                    val lapId = stableUuid("lap:$sessionUuid:${idx + 1}")
+                    val isBest = bestMs != null && lapMs == bestMs
+                    db.insertWithOnConflict("lap_records", null, ContentValues().apply {
+                        put("lap_id", lapId)
+                        put("session_uuid", sessionUuid)
+                        put("lap_number", idx + 1)
+                        put("lap_time_ms", lapMs)
+                        put("sector_times_ms", "[]")
+                        put("best_lap", if (isBest) 1 else 0)
+                        put("telemetry_reference", "{}")
+                        put("content_hash", sha256("$sessionUuid:$lapId:$lapMs".toByteArray()))
+                        put("deleted", 0)
+                    }, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+
+                if (blob != null && blobBytes != null) {
+                    db.delete("telemetry_chunks", "session_uuid=?", arrayOf(sessionUuid))
+                    val chunkId = stableUuid("chunk:$sessionUuid:0")
+                    db.insertWithOnConflict("telemetry_chunks", null, ContentValues().apply {
+                        put("chunk_id", chunkId)
+                        put("session_uuid", sessionUuid)
+                        put("seq", 0)
+                        put("byte_offset", 0)
+                        put("size", blobBytes.size)
+                        put("sha256", sha256(blobBytes))
+                        put("local_path", blob.absolutePath)
+                        put("uploaded_cloud", 0)
+                        put("imported_at", now)
+                    }, SQLiteDatabase.CONFLICT_REPLACE)
+                }
             }
 
-            val logs = body.optJSONArray("logs") ?: JSONArray()
-            for (i in 0 until logs.length()) {
-                val item = logs.optJSONObject(i) ?: continue
-                val key = item.optInt("local_index").toString()
-                val payload = item.optJSONObject("payload") ?: JSONObject()
-                upsert("race_log", key, payload.optString("track_name"), payload, null)
-            }
-
-            val old = db.rawQuery("SELECT uuid,type,local_key FROM entities WHERE deleted=0", null).use {
-                val list = ArrayList<Triple<String, String, String>>()
-                while (it.moveToNext()) list += Triple(it.getString(0), it.getString(1), it.getString(2))
-                list
-            }
-            for ((uuid, type, key) in old) {
-                if ("$type:$key" !in seen) {
-                    db.execSQL("UPDATE entities SET deleted=1,revision=revision+1,updated_at=? WHERE uuid=?",
-                        arrayOf(now, uuid))
-                }
-            }
+            markMissing(db, "tracks", "track_uuid", seenTracks, now)
+            markMissing(db, "sessions", "session_uuid", seenSessions, now)
 
             val version = (meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1
             setMeta(db, "device_uid", uid)
@@ -193,32 +393,106 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         return summary()
     }
 
-
-    data class LocalEntity(
-        val uuid: String,
-        val localKey: String,
-        val name: String,
-        val payload: JSONObject,
-        val blobPath: String?,
+    private data class TrackRow(
+        val hash: String,
+        val createdAt: Long,
         val dirtyDevice: Boolean,
-        val dirtyCloud: Boolean,
     )
 
+    private fun queryTrack(db: SQLiteDatabase, uuid: String): TrackRow? =
+        db.rawQuery(
+            "SELECT content_hash,created_at,dirty_device FROM tracks WHERE track_uuid=?",
+            arrayOf(uuid),
+        ).use {
+            if (it.moveToFirst()) TrackRow(
+                hash = it.getString(0),
+                createdAt = it.getLong(1),
+                dirtyDevice = it.getInt(2) != 0,
+            ) else null
+        }
+
+    private fun trackUuidBySlot(db: SQLiteDatabase, slot: Int): String? =
+        db.rawQuery(
+            "SELECT track_uuid FROM tracks WHERE local_slot=? AND deleted=0 ORDER BY updated_at DESC LIMIT 1",
+            arrayOf(slot.toString()),
+        ).use { if (it.moveToFirst()) it.getString(0) else null }
+
+    private fun trackRevisionId(db: SQLiteDatabase, trackUuid: String?): String? {
+        if (trackUuid.isNullOrBlank()) return null
+        return db.rawQuery(
+            "SELECT revision_id FROM tracks WHERE track_uuid=? AND deleted=0",
+            arrayOf(trackUuid),
+        ).use { if (it.moveToFirst()) it.getString(0) else null }
+    }
+
+    private fun markMissing(
+        db: SQLiteDatabase,
+        table: String,
+        key: String,
+        present: Set<String>,
+        now: Long,
+    ) {
+        if (present.isEmpty()) {
+            db.execSQL("UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0",
+                arrayOf<Any?>(now))
+            return
+        }
+        val placeholders = present.joinToString(",") { "?" }
+        val args = ArrayList<Any?>()
+        args.add(now)
+        args.addAll(present)
+        db.execSQL(
+            "UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0 AND $key NOT IN ($placeholders)",
+            args.toTypedArray(),
+        )
+    }
+
     fun entities(type: String): List<LocalEntity> {
+        if (type == "track") return tracks()
+        if (type == "session") return sessions()
+        return emptyList()
+    }
+
+    fun tracks(): List<LocalEntity> {
         val out = ArrayList<LocalEntity>()
         readableDatabase.rawQuery(
-            "SELECT uuid,local_key,name,payload,blob_path,dirty_device,dirty_cloud FROM entities WHERE type=? AND deleted=0 ORDER BY CAST(local_key AS INTEGER)",
-            arrayOf(type),
+            """SELECT track_uuid,local_slot,name,payload,dirty_device,dirty_cloud
+               FROM tracks WHERE deleted=0 ORDER BY name, track_uuid""",
+            null,
         ).use { c ->
             while (c.moveToNext()) {
                 out += LocalEntity(
                     uuid = c.getString(0),
-                    localKey = c.getString(1),
+                    localKey = c.getInt(1).toString(),
                     name = c.getString(2),
                     payload = runCatching { JSONObject(c.getString(3)) }.getOrElse { JSONObject() },
-                    blobPath = c.getString(4),
-                    dirtyDevice = c.getInt(5) != 0,
-                    dirtyCloud = c.getInt(6) != 0,
+                    blobPath = null,
+                    dirtyDevice = c.getInt(4) != 0,
+                    dirtyCloud = c.getInt(5) != 0,
+                )
+            }
+        }
+        return out
+    }
+
+    fun sessions(): List<LocalEntity> {
+        val out = ArrayList<LocalEntity>()
+        readableDatabase.rawQuery(
+            """SELECT s.session_uuid,s.local_slot,s.payload,
+                      (SELECT local_path FROM telemetry_chunks c
+                       WHERE c.session_uuid=s.session_uuid ORDER BY c.seq LIMIT 1)
+               FROM sessions s WHERE s.deleted=0 ORDER BY s.start_time DESC""",
+            null,
+        ).use { c ->
+            while (c.moveToNext()) {
+                out += LocalEntity(
+                    uuid = c.getString(0),
+                    localKey = c.getInt(1).toString(),
+                    name = runCatching { JSONObject(c.getString(2)).optString("track_name") }.getOrElse { "" },
+                    payload = runCatching { JSONObject(c.getString(2)) }.getOrElse { JSONObject() },
+                    blobPath = c.getString(3),
+                    dirtyDevice = false,
+                    dirtyCloud = false,
                 )
             }
         }
@@ -226,18 +500,19 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
     }
 
     fun trackByLocalKey(localKey: Int): LocalEntity? =
-        entities("track").firstOrNull { it.localKey == localKey.toString() }
+        tracks().firstOrNull { it.localKey == localKey.toString() }
 
-
+    fun trackByUuid(uuid: String): LocalEntity? = tracks().firstOrNull { it.uuid == uuid }
 
     fun updateTrack(uuid: String, name: String, startF: Double, startWidth: Double,
                     startOffset: Double, reverse: Boolean): Boolean {
         val db = writableDatabase
         val now = System.currentTimeMillis() / 1000L
-        val row = db.rawQuery("SELECT payload,revision FROM entities WHERE uuid=? AND type='track'", arrayOf(uuid)).use {
-            if (it.moveToFirst()) it.getString(0) to it.getInt(1) else null
-        } ?: return false
-        val payload = runCatching { JSONObject(row.first) }.getOrDefault(JSONObject()).apply {
+        val row = db.rawQuery(
+            "SELECT payload FROM tracks WHERE track_uuid=? AND deleted=0",
+            arrayOf(uuid),
+        ).use { if (it.moveToFirst()) it.getString(0) else null } ?: return false
+        val payload = runCatching { JSONObject(row) }.getOrDefault(JSONObject()).apply {
             put("name", name.take(48))
             put("start_f", startF.coerceIn(0.0, 0.9999))
             put("start_width", startWidth.coerceIn(1.0, 50.0))
@@ -246,25 +521,28 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         }
         val text = payload.toString()
         val hash = sha256(text.toByteArray())
-        val values = ContentValues().apply {
-            put("name", name.take(48)); put("payload", text); put("hash", hash)
-            put("revision", row.second + 1); put("updated_at", now)
-            put("dirty_device", 1); put("dirty_cloud", 1)
-        }
-        db.update("entities", values, "uuid=?", arrayOf(uuid))
+        db.update("tracks", ContentValues().apply {
+            put("name", name.take(48))
+            put("payload", text)
+            put("content_hash", hash)
+            put("updated_at", now)
+            put("dirty_device", 1)
+            put("dirty_cloud", 1)
+        }, "track_uuid=?", arrayOf(uuid))
         setMeta(db, "dirty_device", "1")
         setMeta(db, "dirty_cloud", "1")
         setMeta(db, "updated_at", now.toString())
-        setMeta(db, "dataset_revision", ((meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1).toString())
+        setMeta(db, "dataset_revision",
+            ((meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1).toString())
         return true
     }
 
-    fun dirtyTracks(): List<LocalEntity> = entities("track").filter { it.dirtyDevice }
+    fun dirtyTracks(): List<LocalEntity> = tracks().filter { it.dirtyDevice }
 
     fun markTrackDeviceClean(uuid: String) {
         val db = writableDatabase
-        db.execSQL("UPDATE entities SET dirty_device=0 WHERE uuid=?", arrayOf(uuid))
-        val left = db.rawQuery("SELECT COUNT(*) FROM entities WHERE dirty_device=1 AND deleted=0", null).use {
+        db.execSQL("UPDATE tracks SET dirty_device=0 WHERE track_uuid=?", arrayOf(uuid))
+        val left = db.rawQuery("SELECT COUNT(*) FROM tracks WHERE dirty_device=1 AND deleted=0", null).use {
             if (it.moveToFirst()) it.getInt(0) else 0
         }
         setMeta(db, "dirty_device", if (left > 0) "1" else "0")
@@ -272,13 +550,155 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
 
     fun markAllCloudClean() {
         val db = writableDatabase
-        db.execSQL("UPDATE entities SET dirty_cloud=0")
+        db.execSQL("UPDATE tracks SET dirty_cloud=0")
+        db.execSQL("UPDATE telemetry_chunks SET uploaded_cloud=1")
         setMeta(db, "dirty_cloud", "0")
+    }
+
+    private fun migrateLegacyEntities(db: SQLiteDatabase) {
+        if (!tableExists(db, "entities")) return
+        val cols = columns(db, "entities")
+        val dirtyDevice = if ("dirty_device" in cols) "dirty_device" else "0"
+        val dirtyCloud = if ("dirty_cloud" in cols) "dirty_cloud" else "0"
+        val now = System.currentTimeMillis() / 1000L
+        db.rawQuery(
+            """SELECT uuid,type,local_key,parent_uuid,name,revision,hash,created_at,
+                      updated_at,origin,payload,blob_path,$dirtyDevice,$dirtyCloud
+               FROM entities WHERE deleted=0""",
+            null,
+        ).use { c ->
+            while (c.moveToNext()) {
+                val uuid = c.getString(0)
+                val type = c.getString(1)
+                val localKey = c.getInt(2)
+                val parentUuid = c.getString(3)
+                val name = c.getString(4)
+                val revision = c.getInt(5)
+                val hash = c.getString(6)
+                val created = c.getLong(7)
+                val updated = c.getLong(8)
+                val origin = c.getString(9)
+                val payloadText = c.getString(10)
+                val blobPath = c.getString(11)
+                val dirtyDev = c.getInt(12) != 0
+                val dirtyCloud = c.getInt(13) != 0
+                if (type == "track") {
+                    val version = revision.coerceAtLeast(1)
+                    val revisionId = stableUuid("trev:$uuid:$version")
+                    db.insertWithOnConflict("tracks", null, ContentValues().apply {
+                        put("track_uuid", uuid)
+                        put("local_slot", localKey)
+                        put("name", name)
+                        put("version", version)
+                        put("revision_id", revisionId)
+                        putNull("parent_revision_id")
+                        put("payload", payloadText)
+                        put("content_hash", hash)
+                        put("created_at", created)
+                        put("updated_at", updated)
+                        put("deleted", 0)
+                        put("dirty_device", if (dirtyDev) 1 else 0)
+                        put("dirty_cloud", if (dirtyCloud) 1 else 0)
+                        put("origin", origin)
+                    }, SQLiteDatabase.CONFLICT_IGNORE)
+                    db.insertWithOnConflict("track_revisions", null, ContentValues().apply {
+                        put("track_uuid", uuid)
+                        put("revision_id", revisionId)
+                        put("version", version)
+                        putNull("parent_revision_id")
+                        put("payload", payloadText)
+                        put("content_hash", hash)
+                        put("created_at", created)
+                        put("created_by", origin)
+                    }, SQLiteDatabase.CONFLICT_IGNORE)
+                } else if (type == "session") {
+                    val payload = runCatching { JSONObject(payloadText) }.getOrElse { JSONObject() }
+                    val start = payload.optLong("start", 0L)
+                    val duration = payload.optLong("duration_ms", 0L)
+                    val lapTimes = payload.optJSONArray("lap_times") ?: JSONArray()
+                    val bestMs = (0 until lapTimes.length())
+                        .mapNotNull { idx -> lapTimes.optDouble(idx, 0.0).takeIf { it > 0.0 } }
+                        .minOrNull()?.times(1000.0)?.toLong()
+                    val blob = blobPath?.let { File(it) }
+                    val telemetryHash = blob?.takeIf { it.isFile }?.readBytes()?.let { sha256(it) }
+                    db.insertWithOnConflict("sessions", null, ContentValues().apply {
+                        put("session_uuid", uuid)
+                        put("local_slot", localKey)
+                        if (parentUuid != null) put("track_uuid", parentUuid) else putNull("track_uuid")
+                        put("track_version", payload.optInt("track_version", 0))
+                        put("start_time", start)
+                        put("end_time", payload.optLong("end", start + duration / 1000L))
+                        put("session_type", payload.optString("session_type", "race"))
+                        put("total_laps", payload.optInt("laps", lapTimes.length()))
+                        if (bestMs != null) put("best_lap_ms", bestMs) else putNull("best_lap_ms")
+                        put("metadata", "{}")
+                        put("raw_available", if (blob?.isFile == true) 1 else 0)
+                        put("raw_format", 16)
+                        put("sample_size", 16)
+                        put("payload", payloadText)
+                        put("content_hash", hash)
+                        put("laps_hash", sha256(lapTimes.toString().toByteArray()))
+                        if (telemetryHash != null) put("telemetry_hash", telemetryHash) else putNull("telemetry_hash")
+                        put("imported_at", now)
+                        put("deleted", 0)
+                    }, SQLiteDatabase.CONFLICT_IGNORE)
+                    db.delete("lap_records", "session_uuid=?", arrayOf(uuid))
+                    for (idx in 0 until lapTimes.length()) {
+                        val lapMs = (lapTimes.optDouble(idx, 0.0) * 1000.0).toLong()
+                        if (lapMs <= 0) continue
+                        val lapId = stableUuid("lap:$uuid:${idx + 1}")
+                        db.insertWithOnConflict("lap_records", null, ContentValues().apply {
+                            put("lap_id", lapId)
+                            put("session_uuid", uuid)
+                            put("lap_number", idx + 1)
+                            put("lap_time_ms", lapMs)
+                            put("sector_times_ms", "[]")
+                            put("best_lap", if (bestMs != null && lapMs == bestMs) 1 else 0)
+                            put("telemetry_reference", "{}")
+                            put("content_hash", sha256("$uuid:$lapId:$lapMs".toByteArray()))
+                        }, SQLiteDatabase.CONFLICT_REPLACE)
+                    }
+                    if (blob?.isFile == true) {
+                        val chunkId = stableUuid("chunk:$uuid:0")
+                        val bytes = blob.readBytes()
+                        db.insertWithOnConflict("telemetry_chunks", null, ContentValues().apply {
+                            put("chunk_id", chunkId)
+                            put("session_uuid", uuid)
+                            put("seq", 0)
+                            put("byte_offset", 0)
+                            put("size", bytes.size)
+                            put("sha256", sha256(bytes))
+                            put("local_path", blob.absolutePath)
+                            put("imported_at", now)
+                        }, SQLiteDatabase.CONFLICT_IGNORE)
+                    }
+                }
+            }
+        }
+        setMeta(db, "dirty_device", if (meta(db, "dirty_device") == "1") "1" else "0")
+        setMeta(db, "dirty_cloud", if (meta(db, "dirty_cloud") == "1") "1" else "0")
+    }
+
+    private fun tableExists(db: SQLiteDatabase, name: String): Boolean =
+        db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            arrayOf(name),
+        ).use { it.moveToFirst() }
+
+    private fun columns(db: SQLiteDatabase, table: String): Set<String> {
+        val out = HashSet<String>()
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            while (c.moveToNext()) out += c.getString(1)
+        }
+        return out
     }
 
     companion object {
         fun sha256(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(bytes)
                 .joinToString("") { "%02x".format(it) }
+
+        private fun stableUuid(text: String): String =
+            UUID.nameUUIDFromBytes(text.toByteArray()).toString()
     }
 }

@@ -22,8 +22,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // 每次重新出包必须递增，便于区分设备上旧包/新包。
-        versionCode = 92
-        versionName = "0.9.70"
+        versionCode = 93
+        versionName = "0.9.71"
 
         buildConfigField("String", "AMAP_KEY", "\"$amapKey\"")
         buildConfigField("String", "TIANDITU_KEY", "\"$tiandituKey\"")
@@ -53,6 +53,10 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 kotlin {
@@ -69,4 +73,8 @@ dependencies {
 
     // 高德：导航 + 3D 地图 + 定位 + 搜索，合并包，避免版本冲突
     implementation("com.amap.api:navi-3dmap-location-search:10.1.600_3dmap10.1.600_loc6.5.1_sea9.7.4")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }
