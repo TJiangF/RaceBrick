@@ -603,14 +603,26 @@ bool tstore_load(int slot, track_t *t) {
 
 bool tstore_delete(int slot) {
     tstore_lock();
-    if (slot < 0 || slot >= s_cap) { tstore_unlock(); return false; }
-    memset(&s_rec, 0xFF, sizeof(s_rec));
-    bool ok = write_slot(slot);
-    if (ok && slot_used(slot)) {
-        set_used(slot, false);
-        head_remove_slot(slot);
-        s_count = s_nheads;
+    if (slot < 0 || slot >= s_cap || !read_slot(slot) || !rec_valid()) {
+        tstore_unlock();
+        return false;
     }
+    rb_uuid_t id = s_rec.track_id;
+    bool have_id = s_rec.ver >= 5 && !rb_uuid_is_zero(&id);
+    int erased = 0;
+    for (int i = 0; i < s_cap; i++) {
+        if (!read_slot(i) || !rec_valid()) continue;
+        bool match = (i == slot);
+        if (have_id && s_rec.ver >= 5 && rb_uuid_equal(&s_rec.track_id, &id)) match = true;
+        if (!match) continue;
+        memset(&s_rec, 0xFF, sizeof(s_rec));
+        if (write_slot(i)) {
+            set_used(i, false);
+            head_remove_slot(i);
+            erased++;
+        }
+    }
+    s_count = s_nheads;
     tstore_unlock();
-    return ok;
+    return erased > 0;
 }

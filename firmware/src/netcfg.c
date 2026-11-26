@@ -24,6 +24,7 @@
 #include "gfx.h"
 #include "geo.h"
 #include <math.h>
+#include <time.h>
 
 static const char *TAG = "netcfg";
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -547,6 +548,65 @@ static esp_err_t h_api_status(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
     esp_err_t r = httpd_resp_send(req, b, n);
     ESP_LOGI(TAG, "api status sent (%d): %s", n, esp_err_to_name(r));
+    return r;
+}
+
+static esp_err_t h_api_v2_manifest(httpd_req_t *req) {
+    char *b = (char *)heap_caps_malloc(32768, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom");
+        return ESP_FAIL;
+    }
+    int n = snprintf(b, 32768,
+        "{\"protocol\":2,\"device_id\":\"%s\",\"generated_at\":%lu,\"tracks\":[",
+        cloud_sync_uid(), (unsigned long)time(NULL));
+    int slots[TSTORE_EXT_SLOTS];
+    int nslots = tstore_head_slots(slots, TSTORE_EXT_SLOTS);
+    track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t),
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    bool first = true;
+    if (t) {
+        for (int i = 0; i < nslots && n < 26000; i++) {
+            if (!tstore_load(slots[i], t)) continue;
+            char tid[40], rid[40], pid[40];
+            rb_uuid_format(&t->id, tid, sizeof(tid));
+            rb_uuid_format(&t->rev_id, rid, sizeof(rid));
+            rb_uuid_format(&t->parent_rev_id, pid, sizeof(pid));
+            n += snprintf(b + n, 32768 - n,
+                "%s{\"track_id\":\"%s\",\"local_slot\":%d,\"version\":%u,"
+                "\"revision_id\":\"%s\",\"parent_revision_id\":\"%s\","
+                "\"name\":\"%s\"}",
+                first ? "" : ",", tid, slots[i], (unsigned) t->revision, rid, pid, t->name);
+            first = false;
+        }
+        free(t);
+    }
+    n += snprintf(b + n, 32768 - n, "],\"sessions\":[");
+    first = true;
+    for (int i = 0; i < RACE_SLOTS && n < 30000; i++) {
+        race_hdr_t h;
+        if (!race_store_info(i, &h)) continue;
+        char sid[40], tid[40], rid[40];
+        rb_uuid_format(&h.session_id, sid, sizeof(sid));
+        rb_uuid_format(&h.track_id, tid, sizeof(tid));
+        rb_uuid_format(&h.track_revision_id, rid, sizeof(rid));
+        n += snprintf(b + n, 32768 - n,
+            "%s{\"session_id\":\"%s\",\"local_slot\":%d,\"track_id\":\"%s\","
+            "\"track_revision_id\":\"%s\",\"track_version\":%lu,"
+            "\"track_name\":\"%s\",\"start\":%lu,\"end\":%lu,"
+            "\"duration_ms\":%lu,\"laps\":%u,\"samples\":%lu,"
+            "\"sample_size\":%u,\"telemetry_available\":true}",
+            first ? "" : ",", sid, i, tid, rid, (unsigned long)h.track_revision,
+            h.track_name, (unsigned long)h.start_epoch, (unsigned long)h.end_epoch,
+            (unsigned long)h.duration_ms, h.lap_count,
+            (unsigned long)h.sample_count,
+            (unsigned)(h.sample_size ? h.sample_size : RACE_SAMPLE_SIZE));
+        first = false;
+    }
+    n += snprintf(b + n, 32768 - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t r = httpd_resp_send(req, b, n);
+    free(b);
     return r;
 }
 
@@ -1268,6 +1328,7 @@ static void start_httpd(void) {
     httpd_uri_t u24 = { .uri = "/api/log/rename", .method = HTTP_POST, .handler = h_api_log_rename };
     httpd_uri_t u25 = { .uri = "/api/session/traces", .method = HTTP_GET, .handler = h_api_session_traces };
     httpd_uri_t u26 = { .uri = "/api/track/image", .method = HTTP_POST, .handler = h_api_track_image };
+    httpd_uri_t u27 = { .uri = "/api/v2/manifest", .method = HTTP_GET, .handler = h_api_v2_manifest };
     httpd_register_uri_handler(s_httpd, &u1);
     httpd_register_uri_handler(s_httpd, &u2);
     httpd_register_uri_handler(s_httpd, &u3);
@@ -1294,6 +1355,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u24);
     httpd_register_uri_handler(s_httpd, &u25);
     httpd_register_uri_handler(s_httpd, &u26);
+    httpd_register_uri_handler(s_httpd, &u27);
 }
 
 void netcfg_start_ap(void) {

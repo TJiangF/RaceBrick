@@ -335,5 +335,9 @@ bool race_store_delete_lap(int slot, int lap) {
     if (!read_hdr(slot, &h) || lap < 1 || lap > RACE_LAPS) return false;
     h.lap_deleted_mask |= (uint16_t)(1u << (lap - 1));
     h.lap_time[lap - 1] = 0;
+    h.lap_samples[lap - 1] = 0;
+    rb_uuid_clear(&h.lap_id[lap - 1]);
+    h.lap_sector_count[lap - 1] = 0;
+    for (int i = 0; i < MAX_SECTIONS; i++) h.lap_sector_ms[lap - 1][i] = 0;
     return write_hdr(slot, &h);
 }
