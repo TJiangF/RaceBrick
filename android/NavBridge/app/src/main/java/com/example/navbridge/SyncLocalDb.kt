@@ -537,6 +537,55 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         return true
     }
 
+    fun manifest(): JSONObject {
+        val db = readableDatabase
+        val root = JSONObject()
+            .put("protocol", 2)
+            .put("device_id", meta(db, "device_uid") ?: "")
+            .put("generated_at", System.currentTimeMillis() / 1000L)
+        val tracksOut = JSONArray()
+        for (t in tracks()) {
+            tracksOut.put(JSONObject()
+                .put("track_id", t.uuid)
+                .put("local_slot", t.localKey.toIntOrNull() ?: -1)
+                .put("name", t.name)
+                .put("version", t.payload.optInt("version", 1))
+                .put("revision_id", t.payload.optString("revision_id", ""))
+                .put("parent_revision_id", t.payload.optString("parent_revision_id", ""))
+                .put("content_hash", sha256(t.payload.toString().toByteArray())))
+        }
+        val sessionsOut = JSONArray()
+        for (s in sessions()) {
+            val p = s.payload
+            val sessionUuid = s.uuid
+            val chunk = db.rawQuery(
+                "SELECT size,sha256 FROM telemetry_chunks WHERE session_uuid=? ORDER BY seq LIMIT 1",
+                arrayOf(sessionUuid),
+            ).use { c ->
+                if (c.moveToFirst()) (c.getLong(0) to c.getString(1)) else null
+            }
+            sessionsOut.put(JSONObject()
+                .put("session_id", sessionUuid)
+                .put("local_slot", s.localKey.toIntOrNull() ?: -1)
+                .put("track_id", p.optString("track_uuid", ""))
+                .put("track_revision_id", p.optString("track_revision_id", ""))
+                .put("track_version", p.optInt("track_version", 0))
+                .put("track_name", p.optString("track_name", ""))
+                .put("start", p.optLong("start", 0L))
+                .put("end", p.optLong("end", 0L))
+                .put("laps", p.optInt("laps", 0))
+                .put("samples", p.optLong("samples", 0L))
+                .put("sample_size", p.optInt("sample_size", 16))
+                .put("telemetry", JSONObject()
+                    .put("available", s.blobPath != null)
+                    .put("size_bytes", chunk?.first ?: 0L)
+                    .put("sha256", chunk?.second ?: "")))
+        }
+        root.put("tracks", tracksOut)
+        root.put("sessions", sessionsOut)
+        return root
+    }
+
     fun dirtyTracks(): List<LocalEntity> = tracks().filter { it.dirtyDevice }
 
     fun markTrackDeviceClean(uuid: String) {

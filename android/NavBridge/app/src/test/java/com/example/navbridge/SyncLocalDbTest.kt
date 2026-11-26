@@ -145,5 +145,11 @@ class SyncLocalDbTest {
             "SELECT COUNT(*) FROM telemetry_chunks WHERE session_uuid=?", arrayOf(sessionId),
         ).use { if (it.moveToFirst()) it.getInt(0) else 0 })
         assertTrue(local.summary().updatedAt > 0)
+        val manifest = local.manifest()
+        assertEquals(2, manifest.getInt("protocol"))
+        assertEquals(trackId, manifest.getJSONArray("tracks").getJSONObject(0).getString("track_id"))
+        assertEquals(sessionId, manifest.getJSONArray("sessions").getJSONObject(0).getString("session_id"))
+        assertTrue(manifest.getJSONArray("sessions").getJSONObject(0)
+            .getJSONObject("telemetry").getBoolean("available"))
     }
 }
