@@ -193,10 +193,35 @@ class MainActivity : LocalizedActivity() {
     private var selLng = Double.NaN
     private var selName = ""
 
-    private lateinit var ble: BleClient
+    private val ble get() = BleSession
     private var wifiSetup: WifiSetupDialog? = null
-    private lateinit var capture: MapCapture
+    private var bleReadyHandled = false
+    private var capture: MapCapture? = null
     private lateinit var nav: NavEngine
+
+    private val bleListener = object : BleSession.Listener {
+        override fun onStatus(message: String) {
+            status(message)
+            log(message)
+        }
+
+        override fun onSessionChanged(active: Boolean) {
+            if (active) {
+                setSessionActive(true)
+            } else {
+                bleReadyHandled = false
+                setSessionActive(false)
+            }
+        }
+
+        override fun onReady() {
+            handleBleReady()
+        }
+
+        override fun onLine(line: String) {
+            handleBleLine(line)
+        }
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -271,6 +296,7 @@ class MainActivity : LocalizedActivity() {
         btnGateConnect = findViewById(R.id.btnGateConnect)
         tvGateStatus = findViewById(R.id.tvGateStatus)
         openWifiOnReady = intent.getBooleanExtra(EXTRA_OPEN_WIFI, false)
+        findViewById<Button>(R.id.btnNavBack).setOnClickListener { goHome() }
         findViewById<Button>(R.id.btnGateSkip).setOnClickListener {
             setSessionActive(true)
         }
@@ -290,91 +316,13 @@ class MainActivity : LocalizedActivity() {
 
         log("等待操作")
 
-        requestPermissions()
-        capture = MapCapture(this)
+        runCatching { requestPermissions() }
+            .onFailure { log("权限请求失败：${it.message}") }
+        capture = runCatching { MapCapture(this) }
+            .onFailure { log("地图初始化失败：${it.message}") }
+            .getOrNull()
 
-        ble = BleClient(
-            this,
-            onStatus = { msg -> runOnUiThread {
-                status(msg); log(msg)
-                if (!sessionActive) tvGateStatus.text = msg
-            } },
-            onSessionChanged = { active ->
-                runOnUiThread { setSessionActive(active) }
-            },
-            onReady = {
-                runOnUiThread {
-                    setSessionActive(true)
-                    if (openWifiOnReady) {
-                        openWifiOnReady = false
-                        if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, ble)
-                        wifiSetup?.show()
-                    }
-                    MediaKeepAliveService.start(this)
-                    log("RaceBrick 通过验证，开始同步")
-                    lastSentGen = -1L
-                    lastMediaState = null
-                    lastMediaMeta = null
-                    mediaIdentity = ""
-                    stableTitle = ""
-                    lastRawTitle = ""
-                    lastMediaPositionMs = -1L
-                    lastAlbumKey = null
-                    lastArtIdentity = ""
-                    lastArtSentIdentity = ""
-                    lastArtSrcSig = ""
-                    lastArtSkipSig = ""
-                    cancelArtWatchdog()
-                    lyricKey = ""
-                    lyricSource = "NONE"
-                    lastLyricSourceSent = ""
-                    lyricLines = emptyList()
-                    systemLyric = ""
-                    systemLyricSent = ""
-                    lyricWindowKey = ""
-                    lyricCleared = true
-                    ble.send("M,LYRMODE,$lyricMode")
-                    ble.send("M,LYROFF,$lyricOffsetMs")
-                    sendMediaState()
-                    sendMediaProgress()
-                    sendMediaVolume()
-                    sendMediaMetadata()
-                    sendLyricWindow()
-                    sendPosition()
-                    sendLedProgress()
-                    // If the player had not published its MediaSession yet at
-                    // the instant BLE verified, retry once after it settles.
-                    main.postDelayed({
-                        if (ble.verified && stableTitle.isBlank()) {
-                            mediaIdentity = ""
-                            sendMediaMetadata()
-                            sendLyricWindow()
-                        }
-                    }, 1200)
-                    main.postDelayed({
-                        if (ble.verified) forceCoverRefresh()
-                    }, 900)
-                    if (!sendFrames) {
-                        lastRaster?.let { sendRasterBytes(it) }
-                        lastRoute?.let { sendRouteBytes(it) }
-                    }
-                    if (!lastLat.isNaN()) maybeCapture()
-                }
-            },
-            onLine = { line ->
-                runOnUiThread {
-                    when {
-                        line.startsWith("M,") -> handleMediaCommand(line)
-                        line.startsWith("#G,") -> handleDeviceGps(line)
-                        line.startsWith("#Z,") -> handleDeviceZoom(line)
-                        line.startsWith("#W,") -> wifiSetup?.onLine(line)
-                        line.startsWith("#R,COVER,") -> handleCoverRefreshAck(line)
-                        line == "#R,ART,OK" -> handleArtAck()
-                        else -> log("← $line")
-                    }
-                }
-            },
-        )
+        BleSession.ensure(this)
 
         nav = NavEngine(this, object : NavEngine.Callback {
             override fun onStatus(msg: String) { status(msg); log(msg) }
@@ -493,7 +441,7 @@ class MainActivity : LocalizedActivity() {
                 toast("请先连接 RaceBrick 蓝牙")
                 return@setOnClickListener
             }
-            if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, ble)
+            if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, BleSession.ensure(this))
             wifiSetup?.show()
         }
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
@@ -516,13 +464,97 @@ class MainActivity : LocalizedActivity() {
 
         main.post(framePump)
         main.post(mediaStatePump)
+        setSessionActive(BleSession.connected)
         handleDebugIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        BleSession.bind(bleListener)
+        if (BleSession.verified) handleBleReady()
+    }
+
+    override fun onStop() {
+        BleSession.unbind(bleListener)
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDebugIntent(intent)
+    }
+
+    private fun handleBleLine(line: String) {
+        when {
+            line.startsWith("M,") -> handleMediaCommand(line)
+            line.startsWith("#G,") -> handleDeviceGps(line)
+            line.startsWith("#Z,") -> handleDeviceZoom(line)
+            line.startsWith("#W,") -> wifiSetup?.onLine(line)
+            line.startsWith("#R,COVER,") -> handleCoverRefreshAck(line)
+            line == "#R,ART,OK" -> handleArtAck()
+            else -> log("← $line")
+        }
+    }
+
+    private fun handleBleReady() {
+        if (bleReadyHandled) return
+        bleReadyHandled = true
+        setSessionActive(true)
+        if (openWifiOnReady) {
+            openWifiOnReady = false
+            if (wifiSetup == null) wifiSetup = WifiSetupDialog(this, BleSession.ensure(this))
+            wifiSetup?.show()
+        }
+        MediaKeepAliveService.start(this)
+        log("RaceBrick 通过验证，开始同步")
+        lastSentGen = -1L
+        lastMediaState = null
+        lastMediaMeta = null
+        mediaIdentity = ""
+        stableTitle = ""
+        lastRawTitle = ""
+        lastMediaPositionMs = -1L
+        lastAlbumKey = null
+        lastArtIdentity = ""
+        lastArtSentIdentity = ""
+        lastArtSrcSig = ""
+        lastArtSkipSig = ""
+        cancelArtWatchdog()
+        lyricKey = ""
+        lyricSource = "NONE"
+        lastLyricSourceSent = ""
+        lyricLines = emptyList()
+        systemLyric = ""
+        systemLyricSent = ""
+        lyricWindowKey = ""
+        lyricCleared = true
+        ble.send("M,LYRMODE,$lyricMode")
+        ble.send("M,LYROFF,$lyricOffsetMs")
+        sendMediaState()
+        sendMediaProgress()
+        sendMediaVolume()
+        sendMediaMetadata()
+        sendLyricWindow()
+        sendPosition()
+        sendLedProgress()
+        // If the player had not published its MediaSession yet at
+        // the instant BLE verified, retry once after it settles.
+        main.postDelayed({
+            if (ble.verified && stableTitle.isBlank()) {
+                mediaIdentity = ""
+                sendMediaMetadata()
+                sendLyricWindow()
+            }
+        }, 1200)
+        main.postDelayed({
+            if (ble.verified) forceCoverRefresh()
+        }, 900)
+        if (!sendFrames) {
+            lastRaster?.let { sendRasterBytes(it) }
+            lastRoute?.let { sendRouteBytes(it) }
+        }
+        if (!lastLat.isNaN()) maybeCapture()
     }
 
     private fun handleDebugIntent(intent: Intent?) {
@@ -553,37 +585,53 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun setSessionActive(active: Boolean) {
-        sessionActive = active
-        mainScroll.visibility = if (active) View.VISIBLE else View.GONE
-        connectGate.visibility = if (active) View.GONE else View.VISIBLE
-        floatingStatus.visibility = if (active) View.VISIBLE else View.GONE
-        if (!active) {
+        sessionActive = true
+        mainScroll.visibility = View.VISIBLE
+        connectGate.visibility = View.GONE
+        floatingStatus.visibility = View.VISIBLE
+        if (active) {
+            tvStatus.text = "设备已连接"
+        } else {
             cancelArtWatchdog()
-            tvGateStatus.text = "未连接 RaceBrick"
+            tvStatus.text = if (BleSession.connected) "设备已连接" else "设备未连接 · 本地预览"
         }
     }
 
+    private fun goHome() {
+        startActivity(
+            Intent(this, HomeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
+        finish()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        goHome()
+    }
+
     private fun showDeviceMenu() {
-        if (!sessionActive) return
+        val connected = BleSession.connected
+        val items = if (connected) arrayOf("断开连接", "重新连接") else arrayOf("连接设备")
         AlertDialog.Builder(this)
             .setTitle("RaceBrick 设备")
-            .setItems(arrayOf("断开连接", "重新连接")) { _, which ->
+            .setItems(items) { _, which ->
+                if (!connected) {
+                    log("连接 RaceBrick…")
+                    ble.connect()
+                    return@setItems
+                }
                 when (which) {
                     0 -> {
                         log("主动断开 RaceBrick")
                         ble.disconnect()
                         setSessionActive(false)
-                        tvGateStatus.text = "设备已断开"
                     }
                     1 -> {
                         log("重新连接 RaceBrick…")
                         ble.disconnect()
                         setSessionActive(false)
-                        tvGateStatus.text = "正在重新连接…"
-                        main.postDelayed({
-                            MediaKeepAliveService.start(this)
-                            ble.connect()
-                        }, 700)
+                        main.postDelayed({ ble.connect() }, 700)
                     }
                 }
             }
@@ -661,22 +709,7 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun requestPermissions() {
-        val need = mutableListOf<String>()
-        fun ask(p: String) {
-            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) need.add(p)
-        }
-        ask(Manifest.permission.ACCESS_FINE_LOCATION)
-        ask(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 29) ask(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        if (Build.VERSION.SDK_INT >= 31) {
-            ask(Manifest.permission.BLUETOOTH_SCAN)
-            ask(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            ask(Manifest.permission.POST_NOTIFICATIONS)
-            ask(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
-        if (need.isNotEmpty()) ActivityCompat.requestPermissions(this, need.toTypedArray(), 1)
+        BlePermissions.ensure(this)
     }
 
     private fun startNavigation(simulate: Boolean = false) {
@@ -894,8 +927,15 @@ class MainActivity : LocalizedActivity() {
             return
         }
 
+        val captureView = capture
+        if (captureView == null) {
+            fetching = false
+            nextCaptureAt = System.currentTimeMillis() + 5000
+            log("地图初始化失败，跳过底图")
+            return
+        }
         status("正在取底图…")
-        capture.capture(nw, ne, sw) { shot ->
+        captureView.capture(nw, ne, sw) { shot ->
             if (shot == null) {
                 fetching = false
                 nextCaptureAt = System.currentTimeMillis() + 5000
@@ -1330,14 +1370,14 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun sendLedProgress(remain: Int = remainM) {
-        if (!this::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         val total = routeTotalM.roundToInt()
         if (total <= 0 || remain < 0) return
         ble.send("#P,${remain.coerceIn(0, total)},$total")
     }
 
     private fun clearLedProgress() {
-        if (this::ble.isInitialized && ble.verified) ble.send("#P,-1,0")
+        if (BleSession.initialized && ble.verified) ble.send("#P,-1,0")
     }
 
     private fun formatDistance(m: Int): String {
@@ -1358,7 +1398,12 @@ class MainActivity : LocalizedActivity() {
 
     private fun maybeBackupReminder() {
         val local = SyncLocalDb(this)
-        val summary = local.summary()
+        val summary = runCatching { local.summary() }.getOrElse {
+            log("本地数据库读取失败：${it.message}")
+            local.close()
+            return
+        }
+        local.close()
         if (summary.tracks == 0 && summary.sessions == 0) return
         val token = CloudStore.token(this)
         if (token.isNullOrBlank()) return
@@ -1629,13 +1674,13 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun sendMediaProgress() {
-        if (!::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         val p = MediaControl.progress(this) ?: return
         ble.send("M,POS,${p.positionMs},${p.durationMs}")
     }
 
     private fun sendMediaState() {
-        if (!::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         // Send a heartbeat even when unchanged. If the phone pauses while an
         // older device still shows PLAYING, the next second corrects it.
         val playing = MediaControl.isPlaying(this) ?: false
@@ -1660,7 +1705,7 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun sendMediaMetadata() {
-        if (!::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         val raw = MediaControl.metadata(this)
         val m = raw?.let { normalizeMediaMeta(it) }
         if (m == null) {
@@ -1957,7 +2002,7 @@ class MainActivity : LocalizedActivity() {
         if (lyricMode == 0 && isAllChineseTitle(title)) 2 else lyricMode
 
     private fun sendLyricSource(force: Boolean = false) {
-        if (!::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         val code = lyricSource.ifBlank { "NONE" }
         if (force || code != lastLyricSourceSent) {
             lastLyricSourceSent = code
@@ -1966,7 +2011,7 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun sendLyricWindow() {
-        if (!::ble.isInitialized || !ble.verified) return
+        if (!BleSession.initialized || !ble.verified) return
         sendLyricSource(true)
         if (preferNotificationLyric && systemLyric.isNotEmpty()) {
             if (systemLyric != systemLyricSent) {
@@ -2048,7 +2093,7 @@ class MainActivity : LocalizedActivity() {
     }
 
     private fun sendAlbumArt(bitmap: Bitmap): Boolean {
-        if (!::ble.isInitialized || !ble.verified) return false
+        if (!BleSession.initialized || !ble.verified) return false
         val w = 96
         val h = 96
         val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
@@ -2145,11 +2190,9 @@ class MainActivity : LocalizedActivity() {
         sdkBase = null
         effectBase = null
         currentPreview = null
-        runCatching { capture.close() }
+        runCatching { capture?.close() }
         wifiSetup?.dismiss()
         wifiSetup = null
-        MediaKeepAliveService.stop(this)
-        runCatching { ble.disconnect() }
         runCatching { nav.stop() }
         worker.shutdownNow()
         tdtWorker.shutdownNow()

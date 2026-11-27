@@ -57,7 +57,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="语言 / Language"
+                android:text="语言"
                 android:textColor="#F0F6F4"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -91,7 +91,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="高德 Android Key"
+                android:text="高德 Key"
                 android:textColor="#F0F6F4"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -116,7 +116,7 @@
                 android:layout_marginTop="8dp"
                 android:background="@drawable/btn_primary"
                 android:backgroundTint="@null"
-                android:text="保存 Key 并重启 App"
+                android:text="保存 Key 并重启"
                 android:textColor="#F2FFFB" />
 
             <TextView
@@ -140,7 +140,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Race 数据连接"
+                android:text="比赛数据连接"
                 android:textColor="#F0F6F4"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -205,7 +205,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="首次启动会自动打开系统“通知使用权”设置；开启后 ESP 的 MEDIA 页才能控制手机音乐。"
+                android:text="首次启动会自动打开系统“通知使用权”设置；开启后设备的 MEDIA 页才能控制手机音乐。"
                 android:textColor="#6D817D"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -230,7 +230,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="开始导航后 App 会启动前台服务。为保证切换 App 后仍持续定位/渲染/蓝牙推流，请在应用详情里把定位设为“始终允许”，电池设为“不受限制”。"
+                android:text="开始导航后应用会启动前台服务。为保证切换应用后仍持续定位/渲染/蓝牙推流，请在应用详情里把定位设为“始终允许”，电池设为“不受限制”。"
                 android:textColor="#A9C4BE"
                 android:textSize="12sp" />
 

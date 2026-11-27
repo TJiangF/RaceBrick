@@ -32,7 +32,7 @@ class TrackMapView @JvmOverloads constructor(
     }
     private val satelliteRect = RectF()
     private var satellite: Satellite? = null
-    private var marker: Marker? = null
+    private var markers: List<Marker> = emptyList()
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL_AND_STROKE
         strokeWidth = dp(1.5f)
@@ -97,7 +97,12 @@ class TrackMapView @JvmOverloads constructor(
     }
 
     fun setMarker(value: Marker?) {
-        marker = value
+        markers = if (value == null) emptyList() else listOf(value)
+        invalidate()
+    }
+
+    fun setMarkers(value: List<Marker>) {
+        markers = value
         invalidate()
     }
 
@@ -206,7 +211,7 @@ class TrackMapView @JvmOverloads constructor(
                 startPaint,
             )
         }
-        marker?.let { m ->
+        for (m in markers) {
             val p = map(m.point)
             markerPaint.color = m.color
             canvas.drawCircle(p.x, p.y, dp(5f), markerPaint)

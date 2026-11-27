@@ -35,7 +35,7 @@
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:minHeight="40dp"
-                android:text="BACK"
+                android:text="返回"
                 android:textColor="#D7E7E4" />
 
             <Button
@@ -46,7 +46,7 @@
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:minHeight="40dp"
-                android:text="SYNC"
+                android:text="同步"
                 android:textColor="#D7E7E4" />
 
             <Button

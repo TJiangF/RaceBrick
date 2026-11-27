@@ -447,6 +447,104 @@ object RaceApi {
         )
     }
 
+    fun importTrack(base: String, slot: Int, payload: JSONObject): TrackUpdate {
+        val points = ArrayList<android.graphics.PointF>()
+        val pa = payload.optJSONArray("points") ?: JSONArray()
+        if (pa.length() > 0 && pa.opt(0) is JSONArray) {
+            for (i in 0 until pa.length()) {
+                val q = pa.optJSONArray(i) ?: continue
+                if (q.length() >= 2) points += android.graphics.PointF(
+                    q.optDouble(0).toFloat(), q.optDouble(1).toFloat(),
+                )
+            }
+        } else {
+            var i = 0
+            while (i + 1 < pa.length()) {
+                points += android.graphics.PointF(
+                    pa.optDouble(i).toFloat(), pa.optDouble(i + 1).toFloat(),
+                )
+                i += 2
+            }
+        }
+        if (points.size < 2) throw IllegalArgumentException("Track 没有轨迹点")
+        val target = 360
+        val sampled = if (points.size == target) points else {
+            val out = ArrayList<android.graphics.PointF>(target)
+            for (i in 0 until target) {
+                val f = i.toDouble() * points.size / target
+                val i0 = f.toInt() % points.size
+                val i1 = (i0 + 1) % points.size
+                val t = (f - kotlin.math.floor(f)).toFloat()
+                out += android.graphics.PointF(
+                    points[i0].x + (points[i1].x - points[i0].x) * t,
+                    points[i0].y + (points[i1].y - points[i0].y) * t,
+                )
+            }
+            out
+        }
+        val sections = ArrayList<Float>()
+        payload.optJSONArray("sections")?.let { a ->
+            for (i in 0 until minOf(a.length(), 16)) sections += a.optDouble(i, 0.0).toFloat()
+        }
+        val body = java.nio.ByteBuffer.allocate(target * 2 * 4 + sections.size * 4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (p in sampled) {
+            body.putFloat(p.x)
+            body.putFloat(p.y)
+        }
+        for (v in sections) body.putFloat(v)
+        val name = URLEncoder.encode(payload.optString("name", "RESTORE"), StandardCharsets.UTF_8.name())
+        val geo = payload.optBoolean("geo", false)
+        val path = buildString {
+            append("/api/track/import?id=$slot&name=$name")
+            append("&geo=").append(if (geo) 1 else 0)
+            append("&length_m=").append(String.format(Locale.US, "%.2f", payload.optDouble("length_m", 1.0)))
+            append("&width=").append(String.format(Locale.US, "%.2f", payload.optDouble("width", 5.0)))
+            append("&start_width=").append(String.format(Locale.US, "%.2f", payload.optDouble("start_width", 10.0)))
+            append("&start_f=").append(String.format(Locale.US, "%.5f", payload.optDouble("start_f", 0.0)))
+            append("&offset=").append(String.format(Locale.US, "%.2f", payload.optDouble("start_offset", 0.0)))
+            append("&reverse=").append(if (payload.optBoolean("reverse", false)) 1 else 0)
+            append("&vehicle=").append(payload.optInt("vehicle", 0))
+            append("&revision=").append(payload.optInt("version", 1).coerceAtLeast(1))
+            append("&nsec=").append(sections.size)
+            val uuid = payload.optString("uuid", "")
+            if (uuid.isNotBlank()) append("&uuid=").append(URLEncoder.encode(uuid, StandardCharsets.UTF_8.name()))
+            val rev = payload.optString("revision_id", "")
+            if (rev.isNotBlank()) append("&revision_id=").append(URLEncoder.encode(rev, StandardCharsets.UTF_8.name()))
+            if (geo) {
+                append("&glat0=").append(String.format(Locale.US, "%.9f", payload.optDouble("glat0", 0.0)))
+                append("&glon0=").append(String.format(Locale.US, "%.9f", payload.optDouble("glon0", 0.0)))
+                append("&nscale=").append(String.format(Locale.US, "%.12f", payload.optDouble("nscale", 0.0)))
+                append("&nox=").append(String.format(Locale.US, "%.8f", payload.optDouble("nox", 0.0)))
+                append("&noy=").append(String.format(Locale.US, "%.8f", payload.optDouble("noy", 0.0)))
+            }
+        }
+        val conn = URL(normalizeBase(base) + path).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 20000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/octet-stream")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setFixedLengthStreamingMode(body.array().size)
+            conn.outputStream.use { it.write(body.array()) }
+            val code = conn.responseCode
+            val bytes = drain(conn)
+            if (code !in 200..299) throw IllegalStateException("HTTP $code")
+            val o = JSONObject(bytes.toString(StandardCharsets.UTF_8))
+            if (o.optInt("ok", 0) == 0) throw IllegalStateException("设备未保存 Track")
+            return TrackUpdate(
+                id = o.optInt("id", slot),
+                uuid = o.optString("uuid", ""),
+                revision = o.optInt("version", 0),
+                revisionId = o.optString("revision_id", ""),
+            )
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun uploadTrackImage(
         base: String, trackSlot: Int, pal16: ByteArray,
         x0: Float, y0: Float, x1: Float, y1: Float,

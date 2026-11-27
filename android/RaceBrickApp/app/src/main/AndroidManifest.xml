@@ -43,7 +43,7 @@
             android:value="${AMAP_KEY}" />
 
         <activity
-            android:name=".HomeActivity"
+            android:name=".ConnectActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
@@ -51,6 +51,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".HomeActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <activity
             android:name=".MainActivity"
@@ -61,6 +66,10 @@
 
         <activity
             android:name=".RaceActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".LapAnalysisActivity"
             android:exported="false" />
 
         <activity

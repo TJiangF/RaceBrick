@@ -11,6 +11,10 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.InputFilter
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -47,6 +51,7 @@ class RaceActivity : LocalizedActivity() {
         const val EXTRA_AUTO_SYNC_UID = "auto_sync_uid"
         const val EXTRA_OFFLINE = "offline_cache"
         const val EXTRA_FORCE_LOCAL = "force_local"
+        private const val REQUEST_SESSION_ANALYSIS = 2001
     }
 
     private lateinit var tvStatus: TextView
@@ -94,6 +99,11 @@ class RaceActivity : LocalizedActivity() {
     private var satelliteUploadRunning = false
     private var autoSyncUid: String? = null
     private var forceLocalSync = false
+    private val analysisPalette = intArrayOf(
+        0xFFFF3B30.toInt(), 0xFF2979FF.toInt(), 0xFFFFD60A.toInt(),
+        0xFF34C759.toInt(), 0xFFFF2D95.toInt(), 0xFF32D4FF.toInt(),
+        0xFFFF9F0A.toInt(), 0xFFAF52DE.toInt(),
+    )
     private val hotspotHandler = Handler(Looper.getMainLooper())
     private val hotspotTick = object : Runnable {
         override fun run() {
@@ -191,6 +201,16 @@ class RaceActivity : LocalizedActivity() {
         directPending = true
         status("直连需要定位/附近 WiFi 权限")
         ActivityCompat.requestPermissions(this, needed.toTypedArray(), 101)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_SESSION_ANALYSIS || resultCode != RESULT_OK) return
+        if (localMode || offlineMode) {
+            loadLocalData()
+        } else {
+            loadAll()
+        }
     }
 
     override fun onResume() {
@@ -357,6 +377,11 @@ class RaceActivity : LocalizedActivity() {
                     traceCache.clear()
                     traceCache.putAll(s.second)
                     sessionLapCache.clear()
+                    for (session in s.first) {
+                        sessionLapCache[session.slot] = localLapDetails(
+                            session, s.second[session.slot].orEmpty()
+                        )
+                    }
                     logs = emptyList()
                     filterTrack = null
                     localMode = true
@@ -417,7 +442,56 @@ class RaceActivity : LocalizedActivity() {
         )
     }
 
-    private fun localSessionTraces(e: SyncLocalDb.LocalEntity, track: JSONObject?): Map<Int, TraceData> {
+    private fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val kx = 111320.0 * kotlin.math.cos(Math.toRadians((lat1 + lat2) / 2.0))
+        val dx = (lon2 - lon1) * kx
+        val dy = (lat2 - lat1) * 111320.0
+        return kotlin.math.hypot(dx, dy)
+    }
+
+    private fun correctTraceSpeeds(
+        traces: Map<Int, TraceData>,
+        laps: List<LapDetail>,
+    ): Map<Int, TraceData> {
+        if (traces.isEmpty()) return traces
+        val out = LinkedHashMap<Int, TraceData>(traces.size)
+        for ((lap, data) in traces) {
+            val detail = laps.firstOrNull { it.lap == lap }
+            if (detail == null || detail.distanceM <= 0.0 || detail.time <= 0.0 ||
+                data.speeds.size < 2) {
+                out[lap] = data
+                continue
+            }
+            val rawAvg = data.speeds.sum() / data.speeds.size
+            val actualAvg = detail.distanceM / detail.time * 3.6
+            val ratio = if (rawAvg > 0.0) actualAvg / rawAvg else 0.0
+            out[lap] = if (ratio > 2.5 && ratio < 5.0) {
+                data.copy(speeds = data.speeds.map { it * ratio })
+            } else {
+                data
+            }
+        }
+        return out
+    }
+
+    private fun correctLegacySpeed(speeds: MutableList<Double>, times: List<Long>, distM: Double) {
+        if (speeds.size < 2 || times.size < 2 || distM <= 0.0) return
+        val dt = (times.last() - times.first()) / 1000.0
+        if (dt <= 0.0) return
+        val rawAvg = speeds.sum() / speeds.size
+        if (rawAvg <= 0.0) return
+        val actualAvg = distM / dt * 3.6
+        val ratio = actualAvg / rawAvg
+        if (ratio > 2.5 && ratio < 5.0) {
+            for (i in speeds.indices) speeds[i] = speeds[i] * ratio
+        }
+    }
+
+    private fun localSessionTraces(
+        e: SyncLocalDb.LocalEntity,
+        track: JSONObject?,
+        maxPoints: Int = 360,
+    ): Map<Int, TraceData> {
         val file = e.blobPath?.let { File(it) } ?: return emptyMap()
         if (!file.isFile) return emptyMap()
         val csv = runCatching {
@@ -426,6 +500,8 @@ class RaceActivity : LocalizedActivity() {
         val groups = LinkedHashMap<Int, MutableList<android.graphics.PointF>>()
         val speeds = HashMap<Int, MutableList<Double>>()
         val times = HashMap<Int, MutableList<Long>>()
+        val distances = HashMap<Int, Double>()
+        val prev = HashMap<Int, Pair<Double, Double>>()
         var lat0 = Double.NaN
         var lon0 = 0.0
         for (line in csv.lineSequence()) {
@@ -436,18 +512,76 @@ class RaceActivity : LocalizedActivity() {
             val elapsed = p[3].trim().toDoubleOrNull() ?: continue
             val lat = p[4].trim().toDoubleOrNull() ?: continue
             val lon = p[5].trim().toDoubleOrNull() ?: continue
-            val kmh = p[6].trim().toDoubleOrNull() ?: 0.0
+            val kmh = (p[6].trim().toDoubleOrNull() ?: 0.0) * 3.6
             if (lat == 0.0 && lon == 0.0) continue
             if (lat0.isNaN()) { lat0 = lat; lon0 = lon }
             val q = localGeoNorm(track, lat, lon, lat0, lon0)
+            prev[lap]?.let { (plat, plon) ->
+                distances[lap] = (distances[lap] ?: 0.0) + distanceMeters(plat, plon, lat, lon)
+            }
+            prev[lap] = lat to lon
             groups.getOrPut(lap) { ArrayList() } += q
             speeds.getOrPut(lap) { ArrayList() } += kmh
             times.getOrPut(lap) { ArrayList() } += (elapsed * 1000.0).toLong()
         }
+        for ((lap, sp) in speeds) {
+            correctLegacySpeed(sp, times[lap].orEmpty(), distances[lap] ?: 0.0)
+        }
         val out = LinkedHashMap<Int, TraceData>()
         for ((lap, pts) in groups) {
             if (pts.size < 2) continue
-            val step = (pts.size / 360).coerceAtLeast(1)
+            val step = (pts.size / maxPoints.coerceAtLeast(2)).coerceAtLeast(1)
+            val rp = ArrayList<android.graphics.PointF>()
+            val rs = ArrayList<Double>()
+            val rt = ArrayList<Long>()
+            var i = 0
+            while (i < pts.size) {
+                rp += pts[i]
+                speeds[lap]?.getOrNull(i)?.let { rs += it }
+                times[lap]?.getOrNull(i)?.let { rt += it }
+                i += step
+            }
+            if (rp.size >= 2) out[lap] = TraceData(rp, rs, rt)
+        }
+        return out
+    }
+
+    private fun parseCsvTraces(csv: String, maxPoints: Int = 4000): Map<Int, TraceData> {
+        val groups = LinkedHashMap<Int, MutableList<android.graphics.PointF>>()
+        val speeds = HashMap<Int, MutableList<Double>>()
+        val times = HashMap<Int, MutableList<Long>>()
+        val distances = HashMap<Int, Double>()
+        val prev = HashMap<Int, Pair<Double, Double>>()
+        var lat0 = Double.NaN
+        var lon0 = 0.0
+        for (line in csv.lineSequence()) {
+            val p = line.split(',')
+            if (p.size < 7) continue
+            val lap = p[2].trim().toIntOrNull() ?: continue
+            if (lap <= 0) continue
+            val elapsed = p[3].trim().toDoubleOrNull() ?: continue
+            val lat = p[4].trim().toDoubleOrNull() ?: continue
+            val lon = p[5].trim().toDoubleOrNull() ?: continue
+            val kmh = (p[6].trim().toDoubleOrNull() ?: 0.0) * 3.6
+            if (lat == 0.0 && lon == 0.0) continue
+            if (lat0.isNaN()) { lat0 = lat; lon0 = lon }
+            val x = (lon - lon0) * 111320.0 * kotlin.math.cos(Math.toRadians(lat0))
+            val y = (lat - lat0) * 111320.0
+            prev[lap]?.let { (plat, plon) ->
+                distances[lap] = (distances[lap] ?: 0.0) + distanceMeters(plat, plon, lat, lon)
+            }
+            prev[lap] = lat to lon
+            groups.getOrPut(lap) { ArrayList() } += android.graphics.PointF(x.toFloat(), y.toFloat())
+            speeds.getOrPut(lap) { ArrayList() } += kmh
+            times.getOrPut(lap) { ArrayList() } += (elapsed * 1000.0).toLong()
+        }
+        for ((lap, sp) in speeds) {
+            correctLegacySpeed(sp, times[lap].orEmpty(), distances[lap] ?: 0.0)
+        }
+        val out = LinkedHashMap<Int, TraceData>()
+        for ((lap, pts) in groups) {
+            if (pts.size < 2) continue
+            val step = (pts.size / maxPoints.coerceAtLeast(2)).coerceAtLeast(1)
             val rp = ArrayList<android.graphics.PointF>()
             val rs = ArrayList<Double>()
             val rt = ArrayList<Long>()
@@ -783,16 +917,16 @@ class RaceActivity : LocalizedActivity() {
                 card.addView(meta("已删除圈：${deletedLaps(s)}", warning = true))
             }
             card.addView(
-                if (offlineMode) {
-                    row(button("详情") { showSessionDetail(s) })
-                } else {
+                row(button("分析") { showSessionAnalysis(s) })
+            )
+            if (!offlineMode) {
+                card.addView(
                     row(
-                        button("详情") { showSessionDetail(s) },
                         button("导出 RaceChrono") { exportSession(s) },
                         button("删除", danger = true) { confirmDeleteSession(s) },
                     )
-                }
-            )
+                )
+            }
             llList.addView(card)
         }
     }
@@ -932,10 +1066,394 @@ class RaceActivity : LocalizedActivity() {
             .create()
     }
 
+    private fun analysisColors(selected: Set<Int>): Map<Int, Int> {
+        val order = selected.sorted()
+        val pal = when (order.size) {
+            2 -> intArrayOf(0xFFFF3B30.toInt(), 0xFF2979FF.toInt())
+            3 -> intArrayOf(0xFFFF3B30.toInt(), 0xFFFFD60A.toInt(), 0xFF2979FF.toInt())
+            else -> analysisPalette
+        }
+        return order.mapIndexed { i, lap -> lap to pal[i % pal.size] }.toMap()
+    }
+
+    private fun analysisTextOn(color: Int): Int {
+        val r = Color.red(color) / 255.0
+        val g = Color.green(color) / 255.0
+        val b = Color.blue(color) / 255.0
+        return if (0.299 * r + 0.587 * g + 0.114 * b > 0.62) 0xFF101010.toInt()
+        else 0xFFFFFFFF.toInt()
+    }
+
+    private fun traceDistanceM(data: TraceData): Double {
+        var d = 0.0
+        val n = minOf(data.speeds.size, data.times.size)
+        for (i in 1 until n) {
+            val dt = (data.times[i] - data.times[i - 1]) / 1000.0
+            if (dt <= 0.0 || dt > 10.0) continue
+            d += (data.speeds[i] + data.speeds[i - 1]) * 0.5 / 3.6 * dt
+        }
+        return d
+    }
+
+    private fun localLapDetails(s: RaceSession, traces: Map<Int, TraceData>): List<LapDetail> {
+        val maxLap = maxOf(s.laps, s.lapTimes.size, traces.keys.maxOrNull() ?: 0)
+        if (maxLap <= 0) return emptyList()
+        val out = ArrayList<LapDetail>()
+        for (lap in 1..maxLap) {
+            val data = traces[lap]
+            val samples = data?.speeds?.size?.toLong() ?: 0L
+            val traceTime = data?.times?.let {
+                if (it.size >= 2) (it.last() - it.first()) / 1000.0 else 0.0
+            } ?: 0.0
+            val time = s.lapTimes.getOrNull(lap - 1)?.takeIf { it > 0.0 } ?: traceTime
+            if (time <= 0.0 && data == null) continue
+            val speeds = data?.speeds.orEmpty()
+            val avg = if (speeds.isNotEmpty()) speeds.average() else 0.0
+            val max = if (speeds.isNotEmpty()) speeds.maxOrNull() ?: 0.0 else 0.0
+            val deleted = s.deletedLapMask and (1 shl (lap - 1)) != 0
+            out += LapDetail(
+                lap = lap,
+                time = time,
+                samples = samples,
+                distanceM = data?.let { traceDistanceM(it) } ?: 0.0,
+                avgKmh = avg,
+                maxKmh = max,
+                deleted = deleted,
+            )
+        }
+        return out
+    }
+
+    private fun analysisLapTime(s: RaceSession, laps: List<LapDetail>, lap: Int): Double =
+        laps.firstOrNull { it.lap == lap && it.time > 0.0 }?.time
+            ?: s.lapTimes.getOrNull(lap - 1)
+            ?: 0.0
+
+    private fun chartSeries(
+        lap: Int,
+        color: Int,
+        data: TraceData,
+        lapDetail: LapDetail?,
+        axis: Int,
+    ): LapSpeedChartView.Series? {
+        val n = minOf(data.speeds.size, data.times.size)
+        if (n < 2) return null
+        val x = FloatArray(n)
+        if (axis == LapSpeedChartView.AXIS_TIME) {
+            val t0 = data.times[0]
+            for (i in 0 until n) x[i] = ((data.times[i] - t0).coerceAtLeast(0L)) / 1000f
+            if (x[n - 1] <= 0f) {
+                val lapTime = lapDetail?.time ?: 0.0
+                for (i in 0 until n) x[i] = (lapTime * i / (n - 1)).toFloat()
+            }
+        } else {
+            var dist = 0.0
+            for (i in 1 until n) {
+                val dt = ((data.times[i] - data.times[i - 1]).coerceAtLeast(0L)) / 1000.0
+                if (dt <= 0.0 || dt > 10.0) continue
+                val avg = (data.speeds[i] + data.speeds[i - 1]) * 0.5 / 3.6
+                dist += avg * dt
+                x[i] = dist.toFloat()
+            }
+            if (dist <= 0.0 && data.points.size >= 2) {
+                val m = minOf(data.points.size, n)
+                var d = 0.0
+                for (i in 1 until m) {
+                    val dx = data.points[i].x - data.points[i - 1].x
+                    val dy = data.points[i].y - data.points[i - 1].y
+                    d += kotlin.math.hypot(dx.toDouble(), dy.toDouble())
+                    x[i] = d.toFloat()
+                }
+                for (i in m until n) x[i] = x[m - 1]
+                dist = d
+                val target = lapDetail?.distanceM ?: 0.0
+                if (dist > 0.0 && target > 0.0) {
+                    val scale = target / dist
+                    for (i in 0 until n) x[i] = (x[i] * scale).toFloat()
+                }
+            }
+            if (x[n - 1] <= 0f) return null
+        }
+        var maxIndex = 0
+        var maxSpeed = data.speeds[0]
+        for (i in 1 until n) {
+            if (data.speeds[i] > maxSpeed) {
+                maxSpeed = data.speeds[i]
+                maxIndex = i
+            }
+        }
+        if (maxSpeed <= 0.0) return null
+        return LapSpeedChartView.Series(
+            lap = lap,
+            color = color,
+            x = x,
+            speed = FloatArray(n) { data.speeds[it].toFloat() },
+            maxIndex = maxIndex,
+            maxSpeed = maxSpeed.toFloat(),
+        )
+    }
+
+    private fun localAnalysisTraces(s: RaceSession): Map<Int, TraceData> {
+        val entity = localDb.sessions().firstOrNull { it.localKey == s.slot.toString() }
+            ?: return emptyMap()
+        val track = localDb.tracks().firstOrNull {
+            it.uuid == s.trackUuid || it.localKey == s.trackSlot.toString()
+        }?.payload
+        return localSessionTraces(entity, track, 4000)
+    }
+
+    private fun showSessionAnalysis(s: RaceSession) {
+        status("正在准备速度分析…")
+        val cachedLaps = sessionLapCache[s.slot].orEmpty()
+        val cachedTraces = traceCache[s.slot].orEmpty()
+        val isLocal = localMode || offlineMode
+        worker.execute {
+            runCatching {
+                val laps = when {
+                    cachedLaps.isNotEmpty() -> cachedLaps
+                    isLocal -> s.lapTimes.mapIndexed { i, t ->
+                        LapDetail(i + 1, t, 0, 0.0, 0.0, 0.0, false)
+                    }
+                    else -> RaceApi.sessionLaps(base(), s.slot)
+                }
+                val traces = when {
+                    localMode -> localAnalysisTraces(s).ifEmpty { cachedTraces }
+                    offlineMode -> cachedTraces
+                    else -> {
+                        val csv = runCatching { RaceApi.sessionCsv(base(), s.slot) }.getOrNull()
+                        if (csv != null) parseCsvTraces(String(csv, Charsets.UTF_8)) else cachedTraces
+                    }
+                }
+                val effectiveLaps = laps.ifEmpty { localLapDetails(s, traces) }
+                Triple(effectiveLaps, traces, s)
+            }.onSuccess { (laps, traces, session) ->
+                main.post {
+                    if (isFinishing) return@post
+                    if (traces.isEmpty()) {
+                        fail("没有可用的速度数据")
+                    } else {
+                        LapAnalysisStore.payload = LapAnalysisStore.Payload(
+                            session = session,
+                            laps = laps,
+                            traces = correctTraceSpeeds(traces, laps),
+                            track = trackForSession(session),
+                            satellite = satelliteForSession(session),
+                            base = base(),
+                            localMode = localMode,
+                            offlineMode = offlineMode,
+                        )
+                        startActivityForResult(
+                            Intent(this, LapAnalysisActivity::class.java),
+                            REQUEST_SESSION_ANALYSIS,
+                        )
+                    }
+                }
+            }.onFailure { e -> main.post { fail("分析读取失败：${e.message}") } }
+        }
+    }
+
+    private fun buildAnalysisDialog(
+        s: RaceSession,
+        laps: List<LapDetail>,
+        traces: Map<Int, TraceData>,
+    ): AlertDialog {
+        val usable = traces.filterValues { it.speeds.size >= 2 && it.times.size >= 2 }
+        if (usable.isEmpty()) {
+            return AlertDialog.Builder(this)
+                .setTitle(Lang.tr("速度分析"))
+                .setMessage(Lang.tr("没有可用的速度数据"))
+                .setPositiveButton(Lang.tr("关闭"), null)
+                .create()
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), 0)
+        }
+        content.addView(meta(
+            "${s.trackName.ifBlank { "RaceBrick" }}  ·  ${s.laps} 圈  ·  速度 / 距离"
+        ))
+        val best = laps.filter { !it.deleted && it.time > 0.0 }.minByOrNull { it.time }?.lap
+            ?: s.lapTimes.indices.minByOrNull { s.lapTimes[it] }?.plus(1)
+
+        var axis = LapSpeedChartView.AXIS_DISTANCE
+        val selected = LinkedHashSet(usable.keys.sorted())
+        val colors = HashMap<Int, Int>()
+        val checkViews = LinkedHashMap<Int, CheckBox>()
+        val chart = LapSpeedChartView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(300),
+            ).apply { topMargin = dp(4) }
+        }
+        val cursorInfo = TextView(this).apply {
+            setTextColor(0xFFA9C4BE.toInt())
+            textSize = 12f
+            setPadding(0, dp(6), 0, 0)
+            text = Lang.tr("拖动图表查看各圈速度")
+        }
+        val legend = TextView(this).apply {
+            setTextColor(0xFFA9C4BE.toInt())
+            textSize = 12f
+            setPadding(0, dp(6), 0, dp(4))
+        }
+
+        fun seriesFor(sel: Set<Int>): List<LapSpeedChartView.Series> {
+            val cmap = analysisColors(sel)
+            colors.clear()
+            colors.putAll(cmap)
+            return sel.sorted().mapNotNull { lap ->
+                val data = usable[lap] ?: return@mapNotNull null
+                chartSeries(
+                    lap, cmap[lap] ?: analysisPalette[0], data,
+                    laps.firstOrNull { it.lap == lap }, axis,
+                )
+            }
+        }
+
+        fun updateLegend(series: List<LapSpeedChartView.Series>) {
+            val sb = SpannableStringBuilder()
+            for (seriesItem in series) {
+                val color = colors[seriesItem.lap] ?: analysisPalette[0]
+                val start = sb.length
+                sb.append("L${seriesItem.lap}")
+                sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (seriesItem.lap == best) {
+                    sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                val t = analysisLapTime(s, laps, seriesItem.lap)
+                val timeText = if (t > 0.0) formatLap(t) else "—"
+                val top = usable[seriesItem.lap]?.speeds?.maxOrNull() ?: 0.0
+                sb.append("  $timeText  MAX %.0f km/h\n".format(top))
+            }
+            legend.text = sb
+        }
+
+        fun updateChecks() {
+            for ((lap, cb) in checkViews) {
+                val on = selected.contains(lap)
+                val c = colors[lap] ?: 0xFF62727A.toInt()
+                val fill = if (on) (c and 0x00FFFFFF) or 0x66000000 else 0x332F3A40
+                cb.background = GradientDrawable().apply {
+                    cornerRadius = dp(5).toFloat()
+                    setColor(fill)
+                    if (lap == best) setStroke(dp(2), 0xFF8B5CF6.toInt())
+                }
+                cb.setTextColor(if (on) analysisTextOn(c) else 0xFF8A9A9A.toInt())
+                cb.setTypeface(Typeface.DEFAULT, if (lap == best) Typeface.BOLD else Typeface.NORMAL)
+                cb.buttonTintList = ColorStateList.valueOf(
+                    if (on) analysisTextOn(c) else 0xFF8A9A9A.toInt()
+                )
+                cb.setPadding(dp(8), dp(3), dp(8), dp(3))
+            }
+        }
+
+        fun refreshChart() {
+            val series = seriesFor(selected)
+            chart.setSeries(series, axis)
+            updateChecks()
+            updateLegend(series)
+        }
+
+        chart.onCursor = { cursor ->
+            if (cursor == null) {
+                cursorInfo.text = Lang.tr("拖动图表查看各圈速度")
+            } else {
+                val sb = SpannableStringBuilder()
+                sb.append(chart.formatAxis(cursor.x))
+                for ((lap, speed) in cursor.values) {
+                    sb.append("   ")
+                    val start = sb.length
+                    sb.append("L$lap %.0f km/h".format(speed))
+                    sb.setSpan(
+                        ForegroundColorSpan(colors[lap] ?: analysisPalette[0]),
+                        start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                    )
+                }
+                cursorInfo.text = sb
+            }
+        }
+
+        val axisRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        var updateAxisButtons: () -> Unit = {}
+        val btnDistance = Button(this).apply {
+            text = Lang.tr("距离")
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            setBackgroundResource(R.drawable.btn_secondary)
+            backgroundTintList = null
+            setOnClickListener {
+                axis = LapSpeedChartView.AXIS_DISTANCE
+                refreshChart()
+                updateAxisButtons()
+            }
+        }
+        val btnTime = Button(this).apply {
+            text = Lang.tr("时间")
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            setBackgroundResource(R.drawable.btn_secondary)
+            backgroundTintList = null
+            setOnClickListener {
+                axis = LapSpeedChartView.AXIS_TIME
+                refreshChart()
+                updateAxisButtons()
+            }
+        }
+        updateAxisButtons = {
+            val active = 0xFF66E0D2.toInt()
+            val idle = 0xFF8A9A9A.toInt()
+            btnDistance.setTextColor(if (axis == LapSpeedChartView.AXIS_DISTANCE) active else idle)
+            btnTime.setTextColor(if (axis == LapSpeedChartView.AXIS_TIME) active else idle)
+        }
+        axisRow.addView(btnDistance, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        axisRow.addView(btnTime, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        content.addView(axisRow)
+
+        val checks = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, dp(2))
+        }
+        for (lap in usable.keys.sorted()) {
+            checks.addView(CheckBox(this).apply {
+                text = "L$lap"
+                textSize = 12f
+                isChecked = true
+                checkViews[lap] = this
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) selected.add(lap) else selected.remove(lap)
+                    refreshChart()
+                }
+            })
+        }
+        content.addView(HorizontalScrollView(this).apply { addView(checks) })
+        content.addView(chart)
+        content.addView(cursorInfo)
+        content.addView(legend)
+        content.addView(meta(Lang.tr("拖动图表查看各圈速度，多圈颜色与上方选择一致。")))
+
+        btnDistance.performClick()
+        updateAxisButtons()
+        refreshChart()
+        val scroll = ScrollView(this).apply { addView(content) }
+        return AlertDialog.Builder(this)
+            .setTitle(Lang.tr("速度分析"))
+            .setView(scroll)
+            .setPositiveButton(Lang.tr("关闭"), null)
+            .create()
+    }
+
     private fun showSessionDetail(summary: RaceSession) {
         if (offlineMode || localMode) {
-            val laps = sessionLapCache[summary.slot].orEmpty()
-            val traces = traceCache[summary.slot].orEmpty()
+            val cachedLaps = sessionLapCache[summary.slot].orEmpty()
+            val rawTraces = traceCache[summary.slot].orEmpty()
+            val laps = cachedLaps.ifEmpty { localLapDetails(summary, rawTraces) }
+            val traces = correctTraceSpeeds(rawTraces, laps)
             val dialog = buildDetailDialog(summary, laps, traces)
             dialog.show()
             Lang.localizeDialog(dialog)
@@ -953,7 +1471,9 @@ class RaceActivity : LocalizedActivity() {
             }.onSuccess { (s, laps, traces) ->
                 main.post {
                     if (!isFinishing) {
-                        val dialog = buildDetailDialog(s, laps, traces)
+                        val fixedTraces = correctTraceSpeeds(traces, laps)
+                        val fixedLaps = laps.ifEmpty { localLapDetails(s, fixedTraces) }
+                        val dialog = buildDetailDialog(s, fixedLaps, fixedTraces)
                         dialog.show()
                         Lang.localizeDialog(dialog)
                     }
@@ -1057,14 +1577,8 @@ class RaceActivity : LocalizedActivity() {
         }
         content.addView(meta("${formatTime(s.startEpoch)}  ·  ${formatDuration(s.durationMs)}  ·  ${s.samples} 点"))
         val usable = laps.filter { !it.deleted && it.time > 0 }
-        val positiveDist = usable.map { it.distanceM }.filter { it > 0.0 }.sorted()
-        val typicalDist = if (positiveDist.isNotEmpty()) positiveDist[(positiveDist.size - 1) / 2] else 0.0
-        val complete = usable.filter {
-            typicalDist <= 0.0 || (it.distanceM >= typicalDist * 0.70 && it.distanceM <= typicalDist * 1.30)
-        }
-        val candidates = (if (complete.isNotEmpty()) complete else usable)
-            .filter { traces.isEmpty() || traces.containsKey(it.lap) }
-        val best = (candidates.ifEmpty { complete.ifEmpty { usable } }).minByOrNull { it.time }?.lap
+        val candidates = usable.filter { traces.isEmpty() || traces.containsKey(it.lap) }
+        val best = candidates.ifEmpty { usable }.minByOrNull { it.time }?.lap
         if (traces.isNotEmpty()) {
             val map = TrackMapView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -1196,12 +1710,15 @@ class RaceActivity : LocalizedActivity() {
                         setTypeface(typeface, if (isBest) Typeface.BOLD else Typeface.NORMAL)
                     }
                 )
+                val corrected = traces[l.lap]?.speeds.orEmpty()
+                val avg = if (corrected.isNotEmpty()) corrected.average() else l.avgKmh
+                val max = if (corrected.isNotEmpty()) corrected.maxOrNull() ?: l.maxKmh else l.maxKmh
                 row.addView(
                     TextView(this).apply {
                         text = String.format(
                             Locale.US,
                             "距离 %.0fm  ·  均速 %.1f km/h  ·  最高 %.1f km/h  ·  %d 点",
-                            l.distanceM, l.avgKmh, l.maxKmh, l.samples,
+                            l.distanceM, avg, max, l.samples,
                         )
                         setTextColor(0xFFA9C4BE.toInt())
                         textSize = 12f
@@ -1410,11 +1927,16 @@ class RaceActivity : LocalizedActivity() {
                         if (sat != null && newId != t.id) {
                             satelliteUploadWorker.execute {
                                 runCatching {
-                                    RaceApi.uploadTrackImage(
-                                        b, newId, sat.pal16,
-                                        sat.bounds.left, sat.bounds.top,
-                                        sat.bounds.right, sat.bounds.bottom,
-                                    )
+                                    RaceApi.transferBusy(b, true)
+                                    try {
+                                        RaceApi.uploadTrackImage(
+                                            b, newId, sat.pal16,
+                                            sat.bounds.left, sat.bounds.top,
+                                            sat.bounds.right, sat.bounds.bottom,
+                                        )
+                                    } finally {
+                                        RaceApi.transferBusy(b, false)
+                                    }
                                 }
                             }
                         }
@@ -1526,11 +2048,16 @@ class RaceActivity : LocalizedActivity() {
         status("正在同步卫星图到设备…")
         worker.execute {
             runCatching {
-                RaceApi.uploadTrackImage(
-                    b, t.id, satellite.pal16,
-                    satellite.bounds.left, satellite.bounds.top,
-                    satellite.bounds.right, satellite.bounds.bottom,
-                )
+                RaceApi.transferBusy(b, true)
+                try {
+                    RaceApi.uploadTrackImage(
+                        b, t.id, satellite.pal16,
+                        satellite.bounds.left, satellite.bounds.top,
+                        satellite.bounds.right, satellite.bounds.bottom,
+                    )
+                } finally {
+                    RaceApi.transferBusy(b, false)
+                }
             }.onSuccess {
                 val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: "manual"
                 SatelliteUploadCache.markUploaded(this, uid, t.id, satellite)
@@ -1550,7 +2077,10 @@ class RaceActivity : LocalizedActivity() {
             val b = base()
             showBusy("正在删除赛道", "正在从设备删除「${t.name}」…")
             worker.execute {
-                runCatching { RaceApi.deleteTrack(b, t.id) }
+                runCatching {
+                    RaceApi.transferBusy(b, true)
+                    try { RaceApi.deleteTrack(b, t.id) } finally { RaceApi.transferBusy(b, false) }
+                }
                     .onSuccess {
                         main.post {
                             if (gen != generation) return@post
@@ -1589,10 +2119,12 @@ class RaceActivity : LocalizedActivity() {
             val b = base()
             worker.execute {
                 val failed = ArrayList<String>()
+                RaceApi.transferBusy(b, true)
                 for (s in list) {
                     runCatching { RaceApi.deleteSession(b, s.slot) }
                         .onFailure { failed += "${s.id}: ${it.message}" }
                 }
+                RaceApi.transferBusy(b, false)
                 main.post {
                     val slots = list.map { it.slot }.toSet()
                     for (s in list) localDb.markSessionDeleted(s.uuid)
@@ -1618,7 +2150,10 @@ class RaceActivity : LocalizedActivity() {
         confirm("删除 Race Log", "从设备删除这条 Race Log？只同步删除动作，不修改原始数据。") {
             val b = base()
             worker.execute {
-                runCatching { RaceApi.deleteSession(b, s.slot) }
+                runCatching {
+                    RaceApi.transferBusy(b, true)
+                    try { RaceApi.deleteSession(b, s.slot) } finally { RaceApi.transferBusy(b, false) }
+                }
                     .onSuccess {
                         main.post {
                             localDb.markSessionDeleted(s.uuid)
@@ -2226,8 +2761,10 @@ class RaceActivity : LocalizedActivity() {
         satelliteUploadWorker.execute {
             var done = 0
             var failed = 0
+            runCatching { RaceApi.transferBusy(b, true) }
             for ((t, sat) in jobs) {
                 runCatching {
+                    RaceApi.transferBusy(b, true)
                     RaceApi.uploadTrackImage(
                         b, t.id, sat.pal16,
                         sat.bounds.left, sat.bounds.top,
@@ -2243,6 +2780,7 @@ class RaceActivity : LocalizedActivity() {
                     failed++
                 }
             }
+            runCatching { RaceApi.transferBusy(b, false) }
             main.post {
                 satelliteUploadRunning = false
                 if (manual) {

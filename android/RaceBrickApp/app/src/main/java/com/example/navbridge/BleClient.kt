@@ -89,7 +89,8 @@ class BleClient(
     @SuppressLint("MissingPermission")
     fun connect() {
         if (connected) { onStatus("已经连接"); return }
-        val a = adapter ?: run { onStatus("这台设备没有蓝牙"); return }
+        val a = runCatching { adapter }.getOrNull()
+            ?: run { onStatus("蓝牙不可用，请检查蓝牙权限"); return }
         if (!a.isEnabled) { onStatus("请先打开蓝牙"); return }
         startScan()
     }

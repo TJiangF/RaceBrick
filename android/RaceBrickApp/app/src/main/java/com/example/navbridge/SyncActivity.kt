@@ -54,14 +54,14 @@ class SyncActivity : AppCompatActivity() {
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         header.addView(TextView(this).apply {
-            text = "SYNC"
+            text = "同步"
             setTextColor(0xFF66E0D2.toInt())
             textSize = 22f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         header.addView(Button(this).apply {
-            text = "BACK"
+            text = "返回"
             setOnClickListener { finish() }
         })
         root.addView(header)
@@ -133,6 +133,7 @@ class SyncActivity : AppCompatActivity() {
         })
         content.addView(button("CHECK DEVICE / LOCAL DIFFERENCES") { checkDifferences() })
         content.addView(button("FULL IMPORT RACEBRICK -> LOCAL APP") { loadDevice() })
+        content.addView(button("RESTORE LOCAL -> DEVICE（覆盖设备 Track）") { restoreLocalToDevice() })
         content.addView(button("BACKUP LOCAL -> CLOUD（手动）") { backupLocal() })
         content.addView(button("RESTORE CLOUD -> LOCAL（手动）") { restoreLocal() })
         content.addView(button("CLOUD BACKUP HISTORY") { cloudHistory() })
@@ -366,6 +367,7 @@ class SyncActivity : AppCompatActivity() {
             .setCancelable(false).create().also { it.show() }
         worker.execute {
             try {
+                RaceApi.transferBusy(base, true)
                 val status = RaceApi.status(base)
                 val deviceUid = status.optString("uid", uid ?: "")
                 if (deviceUid.isBlank()) throw IllegalStateException("设备未返回 UID")
@@ -373,6 +375,7 @@ class SyncActivity : AppCompatActivity() {
                     main.post { msg.text = m }
                 }
                 val s = db.importDeviceSnapshot(deviceUid, snapshot.body)
+                RaceApi.transferBusy(base, false)
                 main.post {
                     busy?.dismiss(); busy = null
                     uid = deviceUid
@@ -380,6 +383,7 @@ class SyncActivity : AppCompatActivity() {
                     renderLocal()
                 }
             } catch (e: Exception) {
+                runCatching { RaceApi.transferBusy(base, false) }
                 main.post {
                     busy?.dismiss(); busy = null
                     toast("读取失败：${e.message}")
@@ -412,6 +416,7 @@ class SyncActivity : AppCompatActivity() {
         worker.execute {
             var ok = 0
             val failed = ArrayList<String>()
+            runCatching { RaceApi.transferBusy(base, true) }
             for ((i, e) in tracks.withIndex()) {
                 val p = e.payload
                 try {
@@ -428,10 +433,98 @@ class SyncActivity : AppCompatActivity() {
                 }
                 main.post { msg.text = "推送 ${i + 1}/${tracks.size}" }
             }
+            runCatching { RaceApi.transferBusy(base, false) }
             main.post {
                 busy?.dismiss(); busy = null
                 toast(if (failed.isEmpty()) "已推送 $ok 条 Track" else "成功 $ok，失败 ${failed.size}：${failed.first()}")
                 refresh()
+            }
+        }
+    }
+
+    private fun restoreLocalToDevice() {
+        if (busy != null) return
+        val tracks = db.tracks()
+        if (tracks.isEmpty()) {
+            toast("Local App 没有可恢复的 Track")
+            return
+        }
+        var secondStage = false
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Local -> Device")
+            .setMessage(
+                "将把 Local App 的 ${tracks.size} 条 Track 写入设备。\n\n" +
+                    "先删除设备当前全部 Track，再写入本地 Track；Race Log/RAW 不会上传到设备。"
+            )
+            .setNegativeButton("取消", null)
+            .setPositiveButton("继续", null)
+            .create()
+        dialog.setOnShowListener {
+            val positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positive.setOnClickListener {
+                if (!secondStage) {
+                    secondStage = true
+                    dialog.setTitle(Lang.tr("再次确认：覆盖设备 Track"))
+                    dialog.setMessage(
+                        Lang.tr(
+                            "此操作会清空设备上的全部 Track，并用本地 ${tracks.size} 条覆盖。\n" +
+                                "不可撤销，确定继续吗？"
+                        )
+                    )
+                    positive.text = Lang.tr("确认覆盖")
+                } else {
+                    dialog.dismiss()
+                    main.post { doRestoreLocalToDevice(tracks) }
+                }
+            }
+        }
+        dialog.show()
+        Lang.localizeDialog(dialog)
+    }
+
+    private fun doRestoreLocalToDevice(tracks: List<SyncLocalDb.LocalEntity>) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(16))
+        }
+        val msg = TextView(this).apply {
+            text = "准备覆盖设备 Track…"
+            setTextColor(0xFFA9C4BE.toInt())
+        }
+        box.addView(msg)
+        box.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+        })
+        busy = AlertDialog.Builder(this).setTitle("Local -> Device").setView(box)
+            .setCancelable(false).create().also { it.show() }
+        worker.execute {
+            try {
+                RaceApi.transferBusy(base, true)
+                val deviceTracks = RaceApi.tracks(base)
+                for ((i, t) in deviceTracks.withIndex()) {
+                    main.post { msg.text = "清空设备 Track ${i + 1}/${deviceTracks.size}" }
+                    RaceApi.transferBusy(base, true)
+                    RaceApi.deleteTrack(base, t.id)
+                }
+                for ((i, t) in tracks.withIndex()) {
+                    main.post { msg.text = "写入 Track ${i + 1}/${tracks.size}" }
+                    RaceApi.transferBusy(base, true)
+                    val slot = t.localKey.toIntOrNull() ?: i
+                    RaceApi.importTrack(base, slot, t.payload)
+                    db.markTrackDeviceClean(t.uuid)
+                }
+                RaceApi.transferBusy(base, false)
+                main.post {
+                    busy?.dismiss(); busy = null
+                    toast("Local -> Device 完成：${tracks.size} 条 Track")
+                    refresh()
+                }
+            } catch (e: Exception) {
+                runCatching { RaceApi.transferBusy(base, false) }
+                main.post {
+                    busy?.dismiss(); busy = null
+                    toast("恢复失败：${e.message}")
+                }
             }
         }
     }

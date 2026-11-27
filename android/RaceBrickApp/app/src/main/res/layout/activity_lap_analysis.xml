@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#06090C"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnAnalysisBack"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="返回"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvAnalysisTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="速度分析"
+            android:textColor="#66E0D2"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnAnalysisRotate"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="横屏"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvAnalysisMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="#A9C4BE"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnAxisDistance"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="距离"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnAxisTime"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="时间"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/llAnalysisLaps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp" />
+    </HorizontalScrollView>
+
+    <com.example.navbridge.TrackMapView
+        android:id="@+id/analysisMap"
+        android:layout_width="match_parent"
+        android:layout_height="180dp"
+        android:layout_marginTop="2dp" />
+
+    <com.example.navbridge.LapSpeedChartView
+        android:id="@+id/speedChart"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="2dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/tvAnalysisCursor"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:textColor="#A9C4BE"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:id="@+id/llAnalysisTable"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="visible" />
+
+    <TextView
+        android:id="@+id/tvAnalysisLegend"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="3dp"
+        android:textColor="#A9C4BE"
+        android:textSize="12sp" />
+</LinearLayout>

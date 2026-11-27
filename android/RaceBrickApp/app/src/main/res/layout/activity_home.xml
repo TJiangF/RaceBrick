@@ -38,7 +38,7 @@
             android:layout_marginTop="3dp"
             android:gravity="center"
             android:letterSpacing="0.18"
-            android:text="PHONE APP"
+            android:text="手机应用"
             android:textColor="#6D817D"
             android:textSize="10sp" />
 
@@ -64,7 +64,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="RACE"
+                    android:text="赛道"
                     android:textColor="#F2B95C"
                     android:textSize="22sp"
                     android:textStyle="bold" />
@@ -73,7 +73,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="TIMING · TRACKS · RACE LOG"
+                    android:text="计时 · 赛道 · 赛历"
                     android:textColor="#A9C4BE"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -94,7 +94,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="NAV"
+                    android:text="导航"
                     android:textColor="#66E0D2"
                     android:textSize="22sp"
                     android:textStyle="bold" />
@@ -103,7 +103,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="MAP · ROUTE · PHONE LINK"
+                    android:text="地图 · 路线 · 手机互联"
                     android:textColor="#A9C4BE"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -140,7 +140,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="DEVICE WIFI SETUP"
+                    android:text="设备 WiFi 设置"
                     android:textColor="#A9C4BE"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -161,7 +161,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="SETTINGS"
+                    android:text="设置"
                     android:textColor="#D7E7E4"
                     android:textSize="22sp"
                     android:textStyle="bold" />
@@ -170,7 +170,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="APP · CLOUD · ABOUT"
+                    android:text="应用 · 云端 · 关于"
                     android:textColor="#A9C4BE"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -182,8 +182,27 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
             android:gravity="center"
-            android:text="Local-first · 设备连接可选"
-            android:textColor="#6D817D"
+            android:text="设备未连接 · 本地预览"
+            android:textColor="#A9C4BE"
             android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnHomeConnect"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="连接设备"
+            android:textColor="#D7E7E4" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:text="本地优先 · 设备连接可选"
+            android:textColor="#6D817D"
+            android:textSize="11sp" />
     </LinearLayout>
 </ScrollView>

@@ -38,12 +38,12 @@ class SettingsActivity : LocalizedActivity() {
         val btnLanguage = findViewById<Button>(R.id.btnLanguage)
         fun refreshLanguage() {
             tvLanguage.text = if (Lang.isEnglish) "当前语言：英文" else "当前语言：中文"
-            btnLanguage.text = if (Lang.isEnglish) "English → 中文" else "中文 → English"
+            btnLanguage.text = "切换语言"
         }
         refreshLanguage()
         btnLanguage.setOnClickListener {
             Lang.setEnglish(this, !Lang.isEnglish)
-            val i = Intent(this, MainActivity::class.java)
+            val i = Intent(this, HomeActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             startActivity(i)
         }
@@ -69,7 +69,7 @@ class SettingsActivity : LocalizedActivity() {
                 return@setOnClickListener
             }
             Toast.makeText(this, Lang.tr("已保存，正在重启"), Toast.LENGTH_SHORT).show()
-            val i = Intent(this, MainActivity::class.java)
+            val i = Intent(this, HomeActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(i)
             Runtime.getRuntime().exit(0)
