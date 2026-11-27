@@ -815,7 +815,9 @@ class RaceActivity : LocalizedActivity() {
                 ))
             }
             card.addView(
-                if (offlineMode) {
+                if (t.id < 0) {
+                    row(button("查看地图") { showTrackPreview(t, trackDetailCache[t.id]) })
+                } else if (offlineMode) {
                     row(
                         button("查看地图") { showTrackPreview(t, trackDetailCache[t.id]) },
                         button("Race Log") {
@@ -2742,6 +2744,7 @@ class RaceActivity : LocalizedActivity() {
         val jobs = ArrayList<Pair<RaceTrack, TrackSatellite>>()
         val uid = discoveredDevice?.uid ?: LocalCache.uid(this) ?: "manual"
         for (t in tracks) {
+            if (t.id < 0) continue
             val sat = satelliteCache[t.id] ?: continue
             if (manual || SatelliteUploadCache.needsUpload(this, uid, t.id, sat)) {
                 jobs += t to sat
