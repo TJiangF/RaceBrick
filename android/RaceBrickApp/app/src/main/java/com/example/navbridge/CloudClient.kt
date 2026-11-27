@@ -102,6 +102,34 @@ data class PublicLeaderboardPage(
     val nextCursor: String?,
 )
 
+data class SharingTrack(
+    val trackUuid: String,
+    val localId: Int,
+    val name: String,
+    val isPublic: Boolean,
+    val publicId: String?,
+)
+
+data class SharingSession(
+    val sessionUuid: String,
+    val localSlot: Int,
+    val trackName: String,
+    val lapsPublic: Boolean,
+    val rawPublic: Boolean,
+    val publicId: String?,
+)
+
+data class DeviceSharing(val tracks: List<SharingTrack>, val sessions: List<SharingSession>)
+
+data class PublicRawSession(
+    val sessionPublicId: String,
+    val driver: String,
+    val lapCount: Int,
+    val bestTime: Double?,
+    val rawPublic: Boolean,
+    val updatedAt: Long,
+)
+
 class CloudApi {
     companion object {
         const val BASE_URL = "https://racebrick.tfworks.cn"
@@ -227,6 +255,97 @@ class CloudApi {
             )
         }
         return PublicLeaderboardPage(out, o.optString("next_cursor", "").ifBlank { null })
+    }
+
+    fun deviceSharing(uid: String, token: String): DeviceSharing {
+        val o = request("GET", "/api/platform/devices/${path(uid)}/sharing", token, null)
+        val tracks = ArrayList<SharingTrack>()
+        val ta = o.optJSONArray("tracks") ?: JSONArray()
+        for (i in 0 until ta.length()) {
+            val t = ta.optJSONObject(i) ?: continue
+            tracks += SharingTrack(
+                trackUuid = t.optString("track_uuid", ""),
+                localId = t.optInt("local_id", -1),
+                name = t.optString("name", ""),
+                isPublic = t.optBoolean("is_public", false),
+                publicId = t.optString("public_id", "").ifBlank { null },
+            )
+        }
+        val sessions = ArrayList<SharingSession>()
+        val sa = o.optJSONArray("sessions") ?: JSONArray()
+        for (i in 0 until sa.length()) {
+            val s = sa.optJSONObject(i) ?: continue
+            sessions += SharingSession(
+                sessionUuid = s.optString("session_uuid", ""),
+                localSlot = s.optInt("local_slot", -1),
+                trackName = s.optString("track_name", ""),
+                lapsPublic = s.optBoolean("laps_public", false),
+                rawPublic = s.optBoolean("raw_public", false),
+                publicId = s.optString("public_id", "").ifBlank { null },
+            )
+        }
+        return DeviceSharing(tracks, sessions)
+    }
+
+    fun setTrackSharing(uid: String, trackUuid: String, public: Boolean, token: String) {
+        val body = JSONObject().put("public", public)
+        request("PATCH", "/api/platform/devices/${path(uid)}/tracks/${URLEncoder.encode(trackUuid, "UTF-8")}/sharing",
+            token, body.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun setSessionSharing(
+        uid: String,
+        sessionUuid: String,
+        lapsPublic: Boolean?,
+        rawPublic: Boolean?,
+        token: String,
+    ) {
+        val body = JSONObject()
+        lapsPublic?.let { body.put("laps_public", it) }
+        rawPublic?.let { body.put("raw_public", it) }
+        request("PATCH", "/api/platform/devices/${path(uid)}/sessions/${URLEncoder.encode(sessionUuid, "UTF-8")}/sharing",
+            token, body.toString().toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun publicRawSessions(publicId: String): List<PublicRawSession> {
+        val path = "/api/public/v1/tracks/" + URLEncoder.encode(publicId, "UTF-8") + "/sessions"
+        val o = request("GET", path, null, null)
+        val arr = o.optJSONArray("sessions") ?: JSONArray()
+        val out = ArrayList<PublicRawSession>(arr.length())
+        for (i in 0 until arr.length()) {
+            val s = arr.optJSONObject(i) ?: continue
+            out += PublicRawSession(
+                sessionPublicId = s.optString("session_public_id", ""),
+                driver = s.optString("driver", "匿名车手"),
+                lapCount = s.optInt("lap_count", 0),
+                bestTime = if (s.isNull("best_time")) null else s.optDouble("best_time"),
+                rawPublic = s.optBoolean("raw_public", false),
+                updatedAt = s.optLong("updated_at", 0L),
+            )
+        }
+        return out
+    }
+
+    fun downloadPublicRaw(trackPublicId: String, sessionPublicId: String, token: String): ByteArray {
+        val path = "/api/public/v1/tracks/" + URLEncoder.encode(trackPublicId, "UTF-8") +
+            "/sessions/" + URLEncoder.encode(sessionPublicId, "UTF-8") + "/raw"
+        val conn = URL(BASE_URL + path).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 12_000
+            conn.readTimeout = 120_000
+            conn.useCaches = false
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Accept", "text/csv")
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val detail = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty().take(300)
+                throw IllegalStateException("HTTP $code: $detail")
+            }
+            return conn.inputStream.use { it.readBytes() }
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun path(uid: String): String =

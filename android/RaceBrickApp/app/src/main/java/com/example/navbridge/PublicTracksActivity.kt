@@ -157,14 +157,19 @@ class PublicTracksActivity : AppCompatActivity() {
             runCatching {
                 val track = api.publicTrack(summary.publicId)
                 val board = runCatching { api.publicLeaderboard(summary.publicId) }.getOrNull()
-                track to board
+                val raws = runCatching { api.publicRawSessions(summary.publicId) }.getOrDefault(emptyList())
+                Triple(track, board, raws)
             }
-                .onSuccess { (track, board) -> main.post { showDetail(track, board) } }
+                .onSuccess { (track, board, raws) -> main.post { showDetail(track, board, raws) } }
                 .onFailure { e -> main.post { toast("读取详情失败：${e.message}") } }
         }
     }
 
-    private fun showDetail(track: PublicTrack, board: PublicLeaderboardPage?) {
+    private fun showDetail(
+        track: PublicTrack,
+        board: PublicLeaderboardPage?,
+        raws: List<PublicRawSession>,
+    ) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
@@ -229,6 +234,40 @@ class PublicTracksActivity : AppCompatActivity() {
                 })
             }
         }
+        box.addView(TextView(this).apply {
+            text = "RAW 轨迹（作者授权后可下载）"
+            setTextColor(0xFF66E0D2.toInt())
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(2))
+        })
+        if (raws.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "没有已授权的 RAW"
+                setTextColor(0xFF8A9A9A.toInt())
+                textSize = 12f
+            })
+        } else {
+            for (r in raws) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(4), 0, 0)
+                }
+                row.addView(TextView(this).apply {
+                    text = "${r.driver}  ·  L${r.lapCount}  ${formatLapMs(r.bestTime?.times(1000)?.toLong() ?: 0L)}"
+                    setTextColor(0xFFE8F3F0.toInt())
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                row.addView(Button(this).apply {
+                    text = "下载 RAW"
+                    textSize = 11f
+                    setOnClickListener { downloadRaw(track.publicId, r) }
+                })
+                box.addView(row)
+            }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle("公开赛道")
             .setView(ScrollView(this).apply { addView(box) })
@@ -255,6 +294,30 @@ class PublicTracksActivity : AppCompatActivity() {
         }
         dialog.show()
         Lang.localizeDialog(dialog)
+    }
+
+    private fun downloadRaw(trackPublicId: String, raw: PublicRawSession) {
+        val token = CloudStore.token(this)
+        if (token.isNullOrBlank()) {
+            toast("请先登录云端")
+            return
+        }
+        Toast.makeText(this, "正在下载 RAW…", Toast.LENGTH_SHORT).show()
+        worker.execute {
+            runCatching {
+                val bytes = api.downloadPublicRaw(trackPublicId, raw.sessionPublicId, token)
+                val dir = java.io.File(filesDir, "shared_raw").apply { mkdirs() }
+                val file = java.io.File(dir, "${trackPublicId}_${raw.sessionPublicId}.csv")
+                file.writeBytes(bytes)
+                file
+            }.onSuccess { file ->
+                main.post {
+                    toast("RAW 已保存：${file.name}")
+                }
+            }.onFailure { e ->
+                main.post { toast("RAW 下载失败：${e.message}") }
+            }
+        }
     }
 
     private fun pointsOf(payload: JSONObject): List<android.graphics.PointF> {

@@ -134,6 +134,7 @@ class SyncActivity : AppCompatActivity() {
         content.addView(button("CHECK DEVICE / LOCAL DIFFERENCES") { checkDifferences() })
         content.addView(button("FULL IMPORT RACEBRICK -> LOCAL APP") { loadDevice() })
         content.addView(button("RESTORE LOCAL -> DEVICE（覆盖设备 Track）") { restoreLocalToDevice() })
+        content.addView(button("公开与 RAW 授权") { openSharing() })
         content.addView(button("BACKUP LOCAL -> CLOUD（手动）") { backupLocal() })
         content.addView(button("RESTORE CLOUD -> LOCAL（手动）") { restoreLocal() })
         content.addView(button("CLOUD BACKUP HISTORY") { cloudHistory() })
@@ -440,6 +441,22 @@ class SyncActivity : AppCompatActivity() {
                 refresh()
             }
         }
+    }
+
+    private fun openSharing() {
+        val uidNow = uid?.takeIf { it.isNotBlank() } ?: db.summary().uid
+            ?: LocalCache.uid(this)
+        if (uidNow.isNullOrBlank()) {
+            toast("没有设备 UID，请先绑定设备")
+            return
+        }
+        if (CloudStore.token(this).isNullOrBlank()) {
+            toast("请先登录云端")
+            loginDialog()
+            return
+        }
+        startActivity(android.content.Intent(this, SharingActivity::class.java)
+            .putExtra(SharingActivity.EXTRA_UID, uidNow))
     }
 
     private fun restoreLocalToDevice() {
