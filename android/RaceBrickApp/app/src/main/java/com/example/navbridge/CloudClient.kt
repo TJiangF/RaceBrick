@@ -89,6 +89,19 @@ data class PublicTrack(
     val payload: JSONObject,
 )
 
+data class PublicLeaderboardEntry(
+    val rank: Int,
+    val driver: String,
+    val lapNumber: Int,
+    val lapTimeMs: Long,
+    val updatedAt: Long,
+)
+
+data class PublicLeaderboardPage(
+    val entries: List<PublicLeaderboardEntry>,
+    val nextCursor: String?,
+)
+
 class CloudApi {
     companion object {
         const val BASE_URL = "https://racebrick.tfworks.cn"
@@ -187,6 +200,33 @@ class CloudApi {
             name = t.optString("name", ""),
             payload = payload,
         )
+    }
+
+    fun publicLeaderboard(
+        publicId: String,
+        limit: Int = 20,
+        cursor: String? = null,
+    ): PublicLeaderboardPage {
+        val q = buildString {
+            append("/api/public/v1/tracks/")
+            append(URLEncoder.encode(publicId, "UTF-8"))
+            append("/leaderboard?limit=").append(limit.coerceIn(1, 50))
+            if (!cursor.isNullOrBlank()) append("&cursor=").append(URLEncoder.encode(cursor, "UTF-8"))
+        }
+        val o = request("GET", q, null, null)
+        val arr = o.optJSONArray("entries") ?: JSONArray()
+        val out = ArrayList<PublicLeaderboardEntry>(arr.length())
+        for (i in 0 until arr.length()) {
+            val e = arr.optJSONObject(i) ?: continue
+            out += PublicLeaderboardEntry(
+                rank = e.optInt("rank", i + 1),
+                driver = e.optString("driver", "匿名车手"),
+                lapNumber = e.optInt("lap_number", 0),
+                lapTimeMs = e.optLong("lap_time_ms", 0L),
+                updatedAt = e.optLong("updated_at", 0L),
+            )
+        }
+        return PublicLeaderboardPage(out, o.optString("next_cursor", "").ifBlank { null })
     }
 
     private fun path(uid: String): String =

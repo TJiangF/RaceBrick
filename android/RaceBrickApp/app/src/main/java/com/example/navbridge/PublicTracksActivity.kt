@@ -154,13 +154,17 @@ class PublicTracksActivity : AppCompatActivity() {
 
     private fun openDetail(summary: PublicTrackSummary) {
         worker.execute {
-            runCatching { api.publicTrack(summary.publicId) }
-                .onSuccess { track -> main.post { showDetail(track) } }
+            runCatching {
+                val track = api.publicTrack(summary.publicId)
+                val board = runCatching { api.publicLeaderboard(summary.publicId) }.getOrNull()
+                track to board
+            }
+                .onSuccess { (track, board) -> main.post { showDetail(track, board) } }
                 .onFailure { e -> main.post { toast("读取详情失败：${e.message}") } }
         }
     }
 
-    private fun showDetail(track: PublicTrack) {
+    private fun showDetail(track: PublicTrack, board: PublicLeaderboardPage?) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(8))
@@ -196,6 +200,35 @@ class PublicTracksActivity : AppCompatActivity() {
             textSize = 11f
             setPadding(0, dp(6), 0, 0)
         })
+        box.addView(TextView(this).apply {
+            text = "圈速榜单"
+            setTextColor(0xFF66E0D2.toInt())
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(2))
+        })
+        if (board == null) {
+            box.addView(TextView(this).apply {
+                text = "榜单读取失败"
+                setTextColor(0xFFE0A040.toInt())
+                textSize = 12f
+            })
+        } else if (board.entries.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = "暂无公开圈速"
+                setTextColor(0xFF8A9A9A.toInt())
+                textSize = 12f
+            })
+        } else {
+            for (e in board.entries) {
+                box.addView(TextView(this).apply {
+                    text = "P${e.rank}  ${e.driver}  ·  L${e.lapNumber}  ${formatLapMs(e.lapTimeMs)}"
+                    setTextColor(0xFFE8F3F0.toInt())
+                    textSize = 12f
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle("公开赛道")
             .setView(ScrollView(this).apply { addView(box) })
@@ -244,6 +277,14 @@ class PublicTracksActivity : AppCompatActivity() {
             }
         }
         return out
+    }
+
+    private fun formatLapMs(ms: Long): String {
+        val total = ms.coerceAtLeast(0L)
+        val m = total / 60000
+        val s = (total % 60000) / 1000
+        val millis = total % 1000
+        return String.format(Locale.US, "%d:%02d.%03d", m, s, millis)
     }
 
     private fun fmt(epoch: Long): String =
