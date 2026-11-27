@@ -22,7 +22,7 @@ android {
         minSdk = 26
         targetSdk = 35
         // 每次重新出包必须递增，便于区分设备上旧包/新包。
-        versionCode = 125
+        versionCode = 126
         versionName = "1.0.0"
 
         buildConfigField("String", "AMAP_KEY", "\"$amapKey\"")

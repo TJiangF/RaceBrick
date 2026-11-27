@@ -53,36 +53,6 @@
         android:textColor="#A9C4BE"
         android:textSize="12sp" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btnAxisDistance"
-            android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_weight="1"
-            android:background="@drawable/btn_secondary"
-            android:backgroundTint="@null"
-            android:text="距离"
-            android:textColor="#D7E7E4"
-            android:textSize="12sp" />
-
-        <Button
-            android:id="@+id/btnAxisTime"
-            android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_marginStart="6dp"
-            android:layout_weight="1"
-            android:background="@drawable/btn_secondary"
-            android:backgroundTint="@null"
-            android:text="时间"
-            android:textColor="#D7E7E4"
-            android:textSize="12sp" />
-    </LinearLayout>
-
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -101,7 +71,7 @@
     <com.example.navbridge.TrackMapView
         android:id="@+id/analysisMap"
         android:layout_width="match_parent"
-        android:layout_height="180dp"
+        android:layout_height="240dp"
         android:layout_marginTop="2dp" />
 
     <com.example.navbridge.LapSpeedChartView
@@ -111,27 +81,57 @@
         android:layout_marginTop="2dp"
         android:layout_weight="1" />
 
+    <ScrollView
+        android:id="@+id/analysisTableScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="2dp"
+        android:layout_weight="0.35"
+        android:background="#0E161C">
+
+        <LinearLayout
+            android:id="@+id/llAnalysisTable"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="6dp" />
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnAxisDistance"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="距离"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnAxisTime"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_secondary"
+            android:backgroundTint="@null"
+            android:text="时间"
+            android:textColor="#D7E7E4"
+            android:textSize="12sp" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/tvAnalysisCursor"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingTop="4dp"
-        android:textColor="#A9C4BE"
-        android:textSize="12sp" />
-
-    <LinearLayout
-        android:id="@+id/llAnalysisTable"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:visibility="visible" />
-
-    <TextView
-        android:id="@+id/tvAnalysisLegend"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingTop="3dp"
         android:textColor="#A9C4BE"
         android:textSize="12sp" />
 </LinearLayout>

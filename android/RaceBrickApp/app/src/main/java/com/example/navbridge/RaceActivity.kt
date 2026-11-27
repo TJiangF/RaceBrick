@@ -138,9 +138,6 @@ class RaceActivity : LocalizedActivity() {
         etUrl.setText(RaceApi.baseUrl(this))
 
         findViewById<Button>(R.id.btnRaceNav).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btnRaceSettings).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
         findViewById<Button>(R.id.btnRaceDirect).setOnClickListener { directWithPermission() }
         findViewById<Button>(R.id.btnRaceCloud).setOnClickListener {
             startActivity(Intent(this, SyncActivity::class.java)

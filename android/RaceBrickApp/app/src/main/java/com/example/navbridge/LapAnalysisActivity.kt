@@ -10,12 +10,12 @@ import android.os.Bundle
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
@@ -30,9 +30,9 @@ class LapAnalysisActivity : LocalizedActivity() {
     private lateinit var chart: LapSpeedChartView
     private lateinit var map: TrackMapView
     private lateinit var cursorInfo: TextView
-    private lateinit var legend: TextView
     private lateinit var lapRow: LinearLayout
     private lateinit var table: LinearLayout
+    private lateinit var tableScroll: ScrollView
     private lateinit var btnDistance: Button
     private lateinit var btnTime: Button
     private lateinit var payload: LapAnalysisStore.Payload
@@ -57,9 +57,9 @@ class LapAnalysisActivity : LocalizedActivity() {
         chart = findViewById(R.id.speedChart)
         map = findViewById(R.id.analysisMap)
         cursorInfo = findViewById(R.id.tvAnalysisCursor)
-        legend = findViewById(R.id.tvAnalysisLegend)
         lapRow = findViewById(R.id.llAnalysisLaps)
         table = findViewById(R.id.llAnalysisTable)
+        tableScroll = findViewById(R.id.analysisTableScroll)
         btnDistance = findViewById(R.id.btnAxisDistance)
         btnTime = findViewById(R.id.btnAxisTime)
         findViewById<Button>(R.id.btnAnalysisBack).setOnClickListener { finish() }
@@ -95,8 +95,8 @@ class LapAnalysisActivity : LocalizedActivity() {
             ?: payload.laps.filter { !it.deleted && it.time > 0.0 }.minByOrNull { it.time }?.lap
             ?: usable.keys.minOrNull()
 
-        axis = savedInstanceState?.getInt("axis", LapSpeedChartView.AXIS_DISTANCE)
-            ?: LapSpeedChartView.AXIS_DISTANCE
+        axis = savedInstanceState?.getInt("axis", LapSpeedChartView.AXIS_TIME)
+            ?: LapSpeedChartView.AXIS_TIME
         val saved = savedInstanceState?.getIntArray("selected")
         if (saved != null) {
             selected.addAll(saved.filter { usable.containsKey(it) })
@@ -191,16 +191,15 @@ class LapAnalysisActivity : LocalizedActivity() {
         } else emptyList()
         seriesByLap = series.associateBy { it.lap }
         chart.visibility = if (showChart) View.VISIBLE else View.GONE
-        val mapParams = map.layoutParams as? LinearLayout.LayoutParams
-        if (mapParams != null && mapParams.height == 0) {
-            mapParams.weight = if (showChart) 0.42f else 1f
-            map.layoutParams = mapParams
+        val tableParams = tableScroll.layoutParams as? LinearLayout.LayoutParams
+        if (tableParams != null && tableParams.height == 0) {
+            tableParams.weight = if (showChart) 0.35f else 1f
+            tableScroll.layoutParams = tableParams
         }
-        table.visibility = View.VISIBLE
+        tableScroll.visibility = if (selected.isNotEmpty()) View.VISIBLE else View.GONE
         btnDistance.visibility = if (showChart) View.VISIBLE else View.GONE
         btnTime.visibility = if (showChart) View.VISIBLE else View.GONE
         cursorInfo.visibility = if (showChart) View.VISIBLE else View.GONE
-        legend.visibility = if (showChart) View.VISIBLE else View.GONE
         chart.setSeries(series, axis)
         btnDistance.setTextColor(if (axis == LapSpeedChartView.AXIS_DISTANCE) activeColor() else idleColor())
         btnTime.setTextColor(if (axis == LapSpeedChartView.AXIS_TIME) activeColor() else idleColor())
@@ -229,23 +228,6 @@ class LapAnalysisActivity : LocalizedActivity() {
         map.setLayers(layers)
         map.setMarkers(emptyList())
         buildTable()
-        if (showChart) {
-            val sb = SpannableStringBuilder()
-            for (item in series) {
-                val color = colors[item.lap] ?: palette[0]
-                val start = sb.length
-                sb.append("L${item.lap}")
-                sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                if (item.lap == fastest) {
-                    sb.setSpan(StyleSpan(Typeface.BOLD), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-                val t = payload.laps.firstOrNull { it.lap == item.lap }?.time
-                    ?: payload.session.lapTimes.getOrNull(item.lap - 1) ?: 0.0
-                val timeText = if (t > 0.0) formatLap(t) else "—"
-                sb.append("  $timeText  MAX %.0f km/h\n".format(item.maxSpeed))
-            }
-            legend.text = sb
-        }
         if (cursor != null && showChart) {
             updateMarkers(cursor)
         }
@@ -253,13 +235,15 @@ class LapAnalysisActivity : LocalizedActivity() {
 
     private fun buildTable() {
         table.removeAllViews()
+        val detailed = selected.size >= 3
         table.addView(TextView(this).apply {
-            text = "圈    用时          最高速度"
+            text = if (detailed) "圈    用时          最高速度" else "圈    用时"
             setTextColor(0xFF8FA6AE.toInt())
             textSize = 12f
             setPadding(0, dp(2), 0, dp(2))
         })
-        for (lap in payload.traces.keys.sorted()) {
+        val laps = if (detailed) payload.traces.keys.sorted() else selected.sorted()
+        for (lap in laps) {
             val data = payload.traces[lap]
             val t = payload.laps.firstOrNull { it.lap == lap }?.time
                 ?: payload.session.lapTimes.getOrNull(lap - 1) ?: 0.0
@@ -269,11 +253,16 @@ class LapAnalysisActivity : LocalizedActivity() {
                 setPadding(0, dp(4), 0, dp(4))
             }
             row.addView(View(this).apply {
-                setBackgroundColor(colors[lap] ?: palette[0])
+                setBackgroundColor(colors[lap] ?: 0xFF62727A.toInt())
                 layoutParams = LinearLayout.LayoutParams(dp(4), dp(20))
             })
             row.addView(TextView(this).apply {
-                text = " L$lap   ${if (t > 0.0) formatLap(t) else "—"}   MAX %.0f km/h".format(max)
+                val timeText = if (t > 0.0) formatLap(t) else "—"
+                this.text = if (detailed) {
+                    " L$lap   $timeText   MAX %.0f km/h".format(max)
+                } else {
+                    " L$lap   $timeText"
+                }
                 setTextColor(if (lap == fastest) 0xFFFFD700.toInt() else 0xFFE8F3F0.toInt())
                 textSize = 12f
                 setTypeface(typeface, if (lap == fastest) Typeface.BOLD else Typeface.NORMAL)

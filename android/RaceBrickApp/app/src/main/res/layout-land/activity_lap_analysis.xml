@@ -7,11 +7,18 @@
     android:orientation="horizontal"
     android:padding="8dp">
 
-    <LinearLayout
-        android:layout_width="250dp"
+    <com.example.navbridge.TrackMapView
+        android:id="@+id/analysisMap"
+        android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:paddingEnd="8dp">
+        android:layout_weight="0.42" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="8dp"
+        android:layout_weight="0.58"
+        android:orientation="vertical">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -21,37 +28,35 @@
 
             <Button
                 android:id="@+id/btnAnalysisBack"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_weight="1"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:text="返回"
                 android:textColor="#D7E7E4"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/tvAnalysisTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="速度分析"
+                android:textColor="#66E0D2"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
             <Button
                 android:id="@+id/btnAnalysisRotate"
-                android:layout_width="0dp"
-                android:layout_height="38dp"
-                android:layout_marginStart="5dp"
-                android:layout_weight="1"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
                 android:background="@drawable/btn_secondary"
                 android:backgroundTint="@null"
                 android:text="竖屏"
                 android:textColor="#D7E7E4"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvAnalysisTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:text="速度分析"
-            android:textColor="#66E0D2"
-            android:textSize="15sp"
-            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvAnalysisMeta"
@@ -60,6 +65,33 @@
             android:layout_marginTop="1dp"
             android:textColor="#A9C4BE"
             android:textSize="10sp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/llAnalysisLaps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <ScrollView
+            android:id="@+id/analysisTableScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="0.35"
+            android:background="#0E161C">
+
+            <LinearLayout
+                android:id="@+id/llAnalysisTable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="5dp" />
+        </ScrollView>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -91,17 +123,12 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <HorizontalScrollView
+        <com.example.navbridge.LapSpeedChartView
+            android:id="@+id/speedChart"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/llAnalysisLaps"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
+            android:layout_height="0dp"
+            android:layout_marginTop="2dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/tvAnalysisCursor"
@@ -110,40 +137,5 @@
             android:paddingTop="2dp"
             android:textColor="#A9C4BE"
             android:textSize="10sp" />
-
-        <TextView
-            android:id="@+id/tvAnalysisLegend"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="1dp"
-            android:textColor="#A9C4BE"
-            android:textSize="10sp" />
-
-        <LinearLayout
-            android:id="@+id/llAnalysisTable"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:visibility="visible" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:orientation="vertical">
-
-        <com.example.navbridge.TrackMapView
-            android:id="@+id/analysisMap"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="0.42" />
-
-        <com.example.navbridge.LapSpeedChartView
-            android:id="@+id/speedChart"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
     </LinearLayout>
 </LinearLayout>

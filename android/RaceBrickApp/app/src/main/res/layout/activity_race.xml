@@ -49,16 +49,6 @@
                 android:text="同步"
                 android:textColor="#D7E7E4" />
 
-            <Button
-                android:id="@+id/btnRaceSettings"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/btn_secondary"
-                android:backgroundTint="@null"
-                android:minHeight="40dp"
-                android:text="设置"
-                android:textColor="#D7E7E4" />
         </LinearLayout>
 
         <TextView
