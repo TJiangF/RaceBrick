@@ -9,6 +9,7 @@
 #include "log_store.h"
 #include "race_store.h"
 #include "tstore.h"
+#include "track_img.h"
 #include "esp_flash.h"
 #include "esp_partition.h"
 #include "util.h"
@@ -3338,11 +3339,11 @@ void screens_enter(scid_t id) {
         track_t *t = g.engine.track;
         g.start_f = 0;
         s_edit_field = 0;
-        s_edit_width = TRACK_WIDTH_M;
+        s_edit_width = START_LINE_WIDTH_M;
         s_edit_offset = 0;
         s_edit_reverse = false;
         if (t) {
-            s_edit_width = t->start_width > 0 ? t->start_width : TRACK_WIDTH_M;
+            s_edit_width = t->start_width > 0 ? t->start_width : START_LINE_WIDTH_M;
             s_edit_offset = t->start_offset;
             s_edit_reverse = t->reverse != 0;
         }
@@ -3667,7 +3668,8 @@ static void cb_confirm_fused_track(void) {
 }
 
 static void cb_keep_log_yes(void) {
-    open_vehicle_select(VEH_AFTER_SAVE_NEW);
+    rec_make_log();
+    app_go_home_to(0);
 }
 
 static void cb_keep_log_no(void) {
@@ -4378,6 +4380,7 @@ void screens_handle(const event_t *ev) {
             int slot = tstore_first_free();
             if (slot >= 0) stored = tstore_save(slot, t);
             t->store_slot = stored ? slot : -1;
+            if (stored) track_img_clear(slot);
             if (g.ntracks < MAX_TRACKS) g.tracks[g.ntracks++] = *t;
             app_toast(stored ? "TRACK SAVED" : "SAVED TO RAM ONLY");
             g.sessionTrack_valid = false;

@@ -682,7 +682,7 @@ static esp_err_t h_api_tracks(httpd_req_t *req) {
 }
 
 static int query_int(httpd_req_t *req, const char *name, int defv) {
-    char q[512] = {0}, v[32];
+    char q[1024] = {0}, v[32];
     if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
         httpd_query_key_value(q, name, v, sizeof v) == ESP_OK) {
         return atoi(v);
@@ -691,7 +691,7 @@ static int query_int(httpd_req_t *req, const char *name, int defv) {
 }
 
 static double query_double(httpd_req_t *req, const char *name, double defv) {
-    char q[512] = {0}, v[40];
+    char q[1024] = {0}, v[40];
     if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK &&
         httpd_query_key_value(q, name, v, sizeof v) == ESP_OK) {
         return strtod(v, NULL);
@@ -700,7 +700,7 @@ static double query_double(httpd_req_t *req, const char *name, double defv) {
 }
 
 static bool query_str(httpd_req_t *req, const char *name, char *out, int cap) {
-    char q[512] = {0};
+    char q[1024] = {0};
     if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK) return false;
     if (httpd_query_key_value(q, name, out, cap) != ESP_OK) return false;
     urldecode(out);
@@ -1470,6 +1470,118 @@ static esp_err_t h_api_fb(httpd_req_t *req) {
     return httpd_resp_send(req, (const char *)gfx_fb(), LCD_W * LCD_H * 2);
 }
 
+static esp_err_t h_api_track_import(httpd_req_t *req) {
+    int slot = query_int(req, "id", -1);
+    int len = req->content_len;
+    int nsec = query_int(req, "nsec", 0);
+    if (nsec < 0) nsec = 0;
+    if (nsec > MAX_SECTIONS) nsec = MAX_SECTIONS;
+    const int point_bytes = TRK_N * 2 * (int)sizeof(float);
+    if (slot < 0 || slot >= TSTORE_EXT_SLOTS || len < point_bytes ||
+        len > point_bytes + MAX_SECTIONS * (int)sizeof(float)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid track import");
+        return ESP_FAIL;
+    }
+    uint8_t *body = (uint8_t *)heap_caps_malloc((size_t)len,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!body) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    int got = 0;
+    while (got < len) {
+        int r = httpd_req_recv(req, (char *)body + got, len - got);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r <= 0) break;
+        got += r;
+    }
+    bool ok = got == len;
+    track_t *t = (track_t *)heap_caps_malloc(sizeof(track_t),
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!t) { free(body); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "oom"); return ESP_FAIL; }
+    memset(t, 0, sizeof(*t));
+    t->N = TRK_N;
+    t->lapTarget = 30.0f;
+    t->widthM = (float)query_double(req, "width", TRACK_WIDTH_M);
+    if (t->widthM < 1.0f) t->widthM = 1.0f;
+    if (t->widthM > 50.0f) t->widthM = 50.0f;
+    t->start_width = (float)query_double(req, "start_width", START_LINE_WIDTH_M);
+    if (t->start_width < 1.0f) t->start_width = 1.0f;
+    if (t->start_width > 50.0f) t->start_width = 50.0f;
+    t->start_offset = (float)query_double(req, "offset", 0.0);
+    if (t->start_offset < -50.0f) t->start_offset = -50.0f;
+    if (t->start_offset > 50.0f) t->start_offset = 50.0f;
+    t->geo = query_int(req, "geo", 0) != 0;
+    t->glat0 = query_double(req, "glat0", 0.0);
+    t->glon0 = query_double(req, "glon0", 0.0);
+    t->nscale = (float)query_double(req, "nscale", 0.0);
+    t->nox = (float)query_double(req, "nox", 0.0);
+    t->noy = (float)query_double(req, "noy", 0.0);
+    t->reverse = query_int(req, "reverse", 0) ? 1 : 0;
+    t->vehicle = query_int(req, "vehicle", 0);
+    t->revision = (uint32_t)query_int(req, "revision", 1);
+    if (t->revision == 0) t->revision = 1;
+    t->lengthM = (float)query_double(req, "length_m", 1.0);
+    if (t->lengthM < 1.0f) t->lengthM = 1.0f;
+    char name[64] = {0}, uu[40] = {0}, rv[40] = {0}, parent[40] = {0};
+    query_str(req, "name", name, sizeof(name));
+    if (!name[0]) snprintf(name, sizeof(name), "RESTORE");
+    snprintf(t->name, sizeof(t->name), "%s", name);
+    if (query_str(req, "uuid", uu, sizeof(uu)) && uu[0] &&
+        !rb_uuid_parse(uu, &t->id)) ok = false;
+    if (query_str(req, "revision_id", rv, sizeof(rv)) && rv[0] &&
+        !rb_uuid_parse(rv, &t->rev_id)) ok = false;
+    if (query_str(req, "parent_revision", parent, sizeof(parent)) && parent[0] &&
+        !rb_uuid_parse(parent, &t->parent_rev_id)) ok = false;
+    if (ok) {
+        const float *f = (const float *)body;
+        for (int i = 0; i < TRK_N; i++) {
+            t->points[i].x = f[i * 2];
+            t->points[i].y = f[i * 2 + 1];
+        }
+        if (len >= point_bytes + nsec * (int)sizeof(float)) {
+            const float *sec = (const float *)(body + point_bytes);
+            t->nsec = nsec;
+            for (int i = 0; i < nsec; i++) t->sections[i] = sec[i];
+        }
+        double sf = query_double(req, "start_f", 0.0);
+        sf = fmod(sf, 1.0);
+        if (sf < 0.0) sf += 1.0;
+        pt_t a = track_point_at(t, (float)sf - 0.004f);
+        pt_t b = track_point_at(t, (float)sf + 0.004f);
+        float hdg = atan2f(b.y - a.y, b.x - a.x);
+        if (t->reverse) hdg += (float)M_PI;
+        pt_t q = track_point_at(t, (float)sf);
+        if (t->geo && t->nscale > 1e-9f) {
+            float offn = t->start_offset * t->nscale;
+            q.x += sinf(hdg) * offn;
+            q.y += -cosf(hdg) * offn;
+            geo_ref_t r = { t->glat0, t->glon0 };
+            double lat, lon;
+            geo_from_meters(&r, (q.x - t->nox) / t->nscale,
+                            (q.y - t->noy) / t->nscale, &lat, &lon);
+            t->line_lat = lat;
+            t->line_lon = lon;
+        }
+        t->line_hdg = hdg;
+        t->start_hdg = hdg;
+        t->hasBest = false;
+        track_finalize(t);
+        ok = tstore_save(slot, t);
+        if (ok) track_img_clear(slot);
+    }
+    char resp[256] = "{\"ok\":0}";
+    if (ok) {
+        char idbuf[40], revbuf[40];
+        rb_uuid_format(&t->id, idbuf, sizeof(idbuf));
+        rb_uuid_format(&t->rev_id, revbuf, sizeof(revbuf));
+        snprintf(resp, sizeof(resp),
+                 "{\"ok\":1,\"id\":%d,\"uuid\":\"%s\",\"version\":%u,\"revision_id\":\"%s\"}",
+                 slot, idbuf, (unsigned)t->revision, revbuf);
+    }
+    free(t);
+    free(body);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t h_api_track_image(httpd_req_t *req) {
     int id = query_int(req, "id", -1);
     double x0 = query_double(req, "x0", NAN);
@@ -1536,6 +1648,7 @@ static void start_httpd(void) {
     httpd_uri_t u24 = { .uri = "/api/log/rename", .method = HTTP_POST, .handler = h_api_log_rename };
     httpd_uri_t u25 = { .uri = "/api/session/traces", .method = HTTP_GET, .handler = h_api_session_traces };
     httpd_uri_t u26 = { .uri = "/api/track/image", .method = HTTP_POST, .handler = h_api_track_image };
+    httpd_uri_t u30 = { .uri = "/api/track/import", .method = HTTP_POST, .handler = h_api_track_import };
     httpd_uri_t u27 = { .uri = "/api/v2/manifest", .method = HTTP_GET, .handler = h_api_v2_manifest };
     httpd_uri_t u28 = { .uri = "/api/session/chunk", .method = HTTP_GET, .handler = h_api_session_chunk };
     httpd_uri_t u29 = { .uri = "/api/transfer", .method = HTTP_POST, .handler = h_api_transfer };
@@ -1568,6 +1681,7 @@ static void start_httpd(void) {
     httpd_register_uri_handler(s_httpd, &u27);
     httpd_register_uri_handler(s_httpd, &u28);
     httpd_register_uri_handler(s_httpd, &u29);
+    httpd_register_uri_handler(s_httpd, &u30);
 }
 
 void netcfg_start_ap(void) {

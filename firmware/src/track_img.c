@@ -126,6 +126,23 @@ void track_img_invalidate(void) {
     s_img_slot = -2;
 }
 
+bool track_img_clear(int track_slot) {
+    if (track_slot < 0) return false;
+    int slot = find_slot(track_slot, false);
+    if (slot < 0) return true;
+    const esp_partition_t *p = part();
+    if (!p) return false;
+    esp_err_t e = esp_partition_erase_range(p, slot_off(slot), SAT_SLOT_SIZE);
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "clear track=%d slot=%d failed: %s",
+                 track_slot, slot, esp_err_to_name(e));
+        return false;
+    }
+    if (s_img_slot == track_slot) track_img_invalidate();
+    ESP_LOGI(TAG, "cleared track=%d satellite slot=%d", track_slot, slot);
+    return true;
+}
+
 bool track_img_save(int track_slot, const uint8_t *pal16, int len,
                     float x0, float y0, float x1, float y1) {
     const esp_partition_t *p = part();
