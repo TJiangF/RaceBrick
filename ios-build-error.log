@@ -1,0 +1,12 @@
+run=45966181218
+commit=3fe697a64190cbf116155697579ce547aa8b7ead
+--- simulator build ---
+note: Building targets in dependency order
+note: Target dependency graph (3 targets)
+Foundation.NSLock.lock:2:11: note: 'lock()' declared here
+Foundation.NSLock.unlock:2:11: note: 'unlock()' declared here
+/Users/runner/work/RaceBrick/RaceBrick/ios/RaceBrick/SharedTrackStore.swift:37:37: error: extra arguments at positions #1, #2, #3, #4, #5 in call
+RaceBrickCore.LocalSharedTrack.init:2:8: note: 'init(from:)' declared here
+/Users/runner/work/RaceBrick/RaceBrick/ios/RaceBrick/SharedTrackStore.swift:38:13: error: missing argument for parameter 'from' in call
+RaceBrickCore.LocalSharedTrack.init:2:8: note: 'init(from:)' declared here
+--- device build ---
