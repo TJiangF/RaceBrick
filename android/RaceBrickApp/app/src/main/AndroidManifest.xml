@@ -73,6 +73,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".PublicTracksActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".SyncActivity"
             android:exported="false" />
 

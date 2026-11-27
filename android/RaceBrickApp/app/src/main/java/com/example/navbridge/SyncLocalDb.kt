@@ -394,7 +394,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
             }
 
             if (replace) {
-                markMissing(db, "tracks", "track_uuid", seenTracks, now)
+                markMissing(db, "tracks", "track_uuid", seenTracks, now, preserveOrigin = "shared")
                 markMissing(db, "sessions", "session_uuid", seenSessions, now)
             }
             dedupeTracks(db, now)
@@ -472,7 +472,7 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
     private fun dedupeTracks(db: SQLiteDatabase, now: Long) {
         val rows = db.rawQuery(
             """SELECT track_uuid,local_slot,payload,version,revision_id,updated_at
-               FROM tracks WHERE deleted=0 ORDER BY updated_at DESC""",
+               FROM tracks WHERE deleted=0 AND origin<>'shared' ORDER BY updated_at DESC""",
             null,
         ).use { c ->
             val out = ArrayList<Array<Any>>()
@@ -538,18 +538,24 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         key: String,
         present: Set<String>,
         now: Long,
+        preserveOrigin: String? = null,
     ) {
+        val keep = if (preserveOrigin == null) "" else " AND origin<>?"
         if (present.isEmpty()) {
-            db.execSQL("UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0",
-                arrayOf<Any?>(now))
+            val args = ArrayList<Any?>()
+            args.add(now)
+            if (preserveOrigin != null) args.add(preserveOrigin)
+            db.execSQL("UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0$keep",
+                args.toTypedArray())
             return
         }
         val placeholders = present.joinToString(",") { "?" }
         val args = ArrayList<Any?>()
         args.add(now)
+        if (preserveOrigin != null) args.add(preserveOrigin)
         args.addAll(present)
         db.execSQL(
-            "UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0 AND $key NOT IN ($placeholders)",
+            "UPDATE $table SET deleted=1, updated_at=? WHERE deleted=0$keep AND $key NOT IN ($placeholders)",
             args.toTypedArray(),
         )
     }
@@ -558,6 +564,84 @@ class SyncLocalDb(context: Context) : SQLiteOpenHelper(context, "racebrick_sync.
         if (type == "track") return tracks()
         if (type == "session") return sessions()
         return emptyList()
+    }
+
+    data class SharedImportResult(val status: String, val uuid: String?, val name: String?, val slot: Int)
+
+    fun importSharedTrack(payload: JSONObject): SharedImportResult {
+        val db = writableDatabase
+        val uuid = payload.optString("uuid", "").trim()
+        if (uuid.isBlank()) return SharedImportResult("invalid", null, null, -1)
+        val existing = db.rawQuery(
+            "SELECT local_slot,name FROM tracks WHERE track_uuid=?",
+            arrayOf(uuid),
+        ).use { if (it.moveToFirst()) it.getInt(0) to it.getString(1) else null }
+        if (existing != null) {
+            return SharedImportResult("exists", uuid, existing.second, existing.first)
+        }
+        val baseName = payload.optString("name", "Shared track").trim().ifBlank { "Shared track" }.take(48)
+        var name = baseName
+        var suffix = 0
+        while (db.rawQuery(
+                "SELECT 1 FROM tracks WHERE deleted=0 AND name=? LIMIT 1",
+                arrayOf(name),
+            ).use { it.moveToFirst() }
+        ) {
+            suffix++
+            val tail = if (suffix == 1) " (shared)" else " (shared $suffix)"
+            name = (baseName.take(40) + tail).take(48)
+        }
+        val minSlot = db.rawQuery(
+            "SELECT MIN(local_slot) FROM tracks WHERE origin='shared'",
+            null,
+        ).use { if (it.moveToFirst() && !it.isNull(0)) it.getInt(0) else 0 }
+        val slot = minSlot - 1
+        val now = System.currentTimeMillis() / 1000L
+        val stored = JSONObject(payload.toString()).apply {
+            put("name", name)
+            put("uuid", uuid)
+            put("version", optInt("version", 1).coerceAtLeast(1))
+            put("revision_id", stableUuid("shared:$uuid:1"))
+            put("parent_revision_id", "")
+        }
+        val text = stored.toString()
+        val hash = sha256(text.toByteArray())
+        db.beginTransaction()
+        try {
+            db.insertWithOnConflict("tracks", null, ContentValues().apply {
+                put("track_uuid", uuid)
+                put("local_slot", slot)
+                put("name", name)
+                put("version", stored.optInt("version", 1))
+                put("revision_id", stored.optString("revision_id"))
+                putNull("parent_revision_id")
+                put("payload", text)
+                put("content_hash", hash)
+                put("created_at", now)
+                put("updated_at", now)
+                put("deleted", 0)
+                put("dirty_device", 0)
+                put("dirty_cloud", 0)
+                put("origin", "shared")
+            }, SQLiteDatabase.CONFLICT_ABORT)
+            db.insertWithOnConflict("track_revisions", null, ContentValues().apply {
+                put("track_uuid", uuid)
+                put("revision_id", stored.optString("revision_id"))
+                put("version", stored.optInt("version", 1))
+                putNull("parent_revision_id")
+                put("payload", text)
+                put("content_hash", hash)
+                put("created_at", now)
+                put("created_by", "shared")
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+            setMeta(db, "updated_at", now.toString())
+            setMeta(db, "dataset_revision",
+                ((meta(db, "dataset_revision")?.toIntOrNull() ?: 0) + 1).toString())
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return SharedImportResult("imported", uuid, name, slot)
     }
 
     fun tracks(): List<LocalEntity> {

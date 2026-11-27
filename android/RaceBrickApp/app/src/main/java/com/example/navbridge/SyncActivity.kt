@@ -506,10 +506,19 @@ class SyncActivity : AppCompatActivity() {
                     RaceApi.transferBusy(base, true)
                     RaceApi.deleteTrack(base, t.id)
                 }
+                val usedSlots = tracks.mapNotNull { it.localKey.toIntOrNull()?.takeIf { slot -> slot >= 0 } }
+                    .toHashSet()
+                var sequentialSlot = 0
                 for ((i, t) in tracks.withIndex()) {
                     main.post { msg.text = "写入 Track ${i + 1}/${tracks.size}" }
                     RaceApi.transferBusy(base, true)
-                    val slot = t.localKey.toIntOrNull() ?: i
+                    val preferred = t.localKey.toIntOrNull() ?: -1
+                    val slot = if (preferred >= 0) preferred else {
+                        while (sequentialSlot in usedSlots) sequentialSlot++
+                        val value = sequentialSlot++
+                        usedSlots += value
+                        value
+                    }
                     RaceApi.importTrack(base, slot, t.payload)
                     db.markTrackDeviceClean(t.uuid)
                 }

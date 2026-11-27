@@ -49,6 +49,17 @@
                 android:text="同步"
                 android:textColor="#D7E7E4" />
 
+            <Button
+                android:id="@+id/btnRacePublic"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/btn_secondary"
+                android:backgroundTint="@null"
+                android:minHeight="40dp"
+                android:text="公开"
+                android:textColor="#66E0D2" />
+
         </LinearLayout>
 
         <TextView

@@ -37,6 +37,8 @@ struct MainTabView: View {
                 .tabItem { Label("Race", systemImage: "flag.checkered") }
             BLEView()
                 .tabItem { Label("Link", systemImage: "antenna.radiowaves.left.and.right") }
+            PublicTracksView()
+                .tabItem { Label("Public", systemImage: "globe") }
             MediaView()
                 .tabItem { Label("Media", systemImage: "music.note") }
         }

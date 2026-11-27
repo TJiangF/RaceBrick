@@ -37,7 +37,11 @@ public struct CloudAPI: Sendable {
         body: [String: JSONValue]? = nil
     ) async throws -> Out {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        components.path = path.hasPrefix("/") ? path : "/" + path
+        let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        components.path = String(parts[0]).hasPrefix("/") ? String(parts[0]) : "/" + String(parts[0])
+        if parts.count > 1 {
+            components.percentEncodedQuery = String(parts[1])
+        }
         var req = URLRequest(url: components.url!)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -96,6 +100,20 @@ public struct CloudAPI: Sendable {
     public func updateTrack(uid: String, localId: Int, token: String, fields: [String: JSONValue]) async throws {
         let _: EmptyResponse = try await request(
             "PATCH", "/api/platform/devices/\(uid)/tracks/\(localId)", token: token, body: fields)
+    }
+
+    public func publicTracks(limit: Int = 20, cursor: String? = nil) async throws -> PublicTracksResponse {
+        var path = "/api/public/v1/tracks?limit=\(min(max(limit, 1), 50))"
+        if let cursor, !cursor.isEmpty,
+           let encoded = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "&cursor=\(encoded)"
+        }
+        return try await request("GET", path)
+    }
+
+    public func publicTrack(publicId: String) async throws -> PublicTrackResponse {
+        let encoded = publicId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? publicId
+        return try await request("GET", "/api/public/v1/tracks/\(encoded)")
     }
 
     public func adminUsers(token: String) async throws -> [AdminUser] {

@@ -89,6 +89,43 @@ class SyncLocalDbTest {
     }
 
     @Test
+    fun importsSharedTrackWithoutOverwritingOrDuplicateSlots() {
+        val db = SyncLocalDb(context)
+        val uuid = "99999999-9999-4999-8999-999999999999"
+        val payload = JSONObject()
+            .put("uuid", uuid)
+            .put("name", "Shared Track")
+            .put("geo", false)
+            .put("length_m", 400.0)
+            .put("width", 5.0)
+            .put("start_width", 10.0)
+            .put("start_f", 0.1)
+            .put("points", JSONArray().put(JSONArray().put(0.0).put(0.0))
+                .put(JSONArray().put(1.0).put(0.0))
+                .put(JSONArray().put(1.0).put(1.0)))
+        val first = db.importSharedTrack(payload)
+        assertEquals("imported", first.status)
+        assertEquals(-1, first.slot)
+        val second = db.importSharedTrack(payload)
+        assertEquals("exists", second.status)
+        assertEquals(first.slot, second.slot)
+        assertEquals(1, db.tracks().size)
+
+        val otherUuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        val sameName = JSONObject(payload.toString()).put("uuid", otherUuid)
+        val third = db.importSharedTrack(sameName)
+        assertEquals("imported", third.status)
+        assertEquals(-2, third.slot)
+        assertTrue(third.name!!.contains("shared"))
+        assertEquals(2, db.tracks().size)
+
+        val snapshot = JSONObject().put("tracks", JSONArray()).put("sessions", JSONArray())
+            .put("logs", JSONArray())
+        db.importDeviceSnapshot("esp32s3-test", snapshot, replace = true)
+        assertEquals(2, db.tracks().size)
+    }
+
+    @Test
     fun importsStableTrackAndSessionIdentity() {
         val trackId = "33333333-3333-4333-8333-333333333333"
         val revisionId = "44444444-4444-4444-8444-444444444444"

@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var devices: [CloudDevice] = []
     @Published private(set) var detail: DeviceDetail?
     @Published private(set) var adminUsers: [AdminUser] = []
+    @Published private(set) var sharedTracks: [LocalSharedTrack] = SharedTrackStore.load()
     @Published var selectedDeviceUID: String?
     @Published private(set) var busy = false
     @Published var errorMessage: String?
@@ -99,6 +100,12 @@ final class AppModel: ObservableObject {
     func loadAdminUsers() async {
         guard let t = token else { return }
         await run { self.adminUsers = try await self.api.adminUsers(token: t) }
+    }
+
+    func importPublicTrack(_ payload: TrackPayload) -> (LocalSharedTrack?, Bool) {
+        guard let result = SharedTrackStore.importTrack(payload) else { return (nil, false) }
+        sharedTracks = SharedTrackStore.load()
+        return (result.track, result.isNew)
     }
 
     private func run(_ block: @escaping () async throws -> Void) async {

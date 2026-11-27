@@ -71,6 +71,24 @@ data class CloudDeviceState(
     val history: JSONArray,
 )
 
+data class PublicTrackSummary(
+    val publicId: String,
+    val trackUuid: String,
+    val name: String,
+    val geo: Boolean,
+    val lengthM: Double,
+    val updatedAt: Long,
+)
+
+data class PublicTracksPage(val tracks: List<PublicTrackSummary>, val nextCursor: String?)
+
+data class PublicTrack(
+    val publicId: String,
+    val trackUuid: String,
+    val name: String,
+    val payload: JSONObject,
+)
+
 class CloudApi {
     companion object {
         const val BASE_URL = "https://racebrick.tfworks.cn"
@@ -124,6 +142,52 @@ class CloudApi {
 
     fun historyDetail(uid: String, historyId: Int, token: String): JSONObject =
         request("GET", "/api/platform/devices/${path(uid)}/sync-history/$historyId", token, null)
+
+    fun publicTracks(limit: Int = 20, cursor: String? = null): PublicTracksPage {
+        val q = buildString {
+            append("/api/public/v1/tracks?limit=").append(limit.coerceIn(1, 50))
+            if (!cursor.isNullOrBlank()) append("&cursor=").append(URLEncoder.encode(cursor, "UTF-8"))
+        }
+        val o = request("GET", q, null, null)
+        val arr = o.optJSONArray("tracks") ?: JSONArray()
+        val out = ArrayList<PublicTrackSummary>(arr.length())
+        for (i in 0 until arr.length()) {
+            val t = arr.optJSONObject(i) ?: continue
+            out += PublicTrackSummary(
+                publicId = t.optString("public_id", ""),
+                trackUuid = t.optString("track_uuid", ""),
+                name = t.optString("name", ""),
+                geo = t.optBoolean("geo", false),
+                lengthM = t.optDouble("length_m", 0.0),
+                updatedAt = t.optLong("updated_at", 0L),
+            )
+        }
+        return PublicTracksPage(out, o.optString("next_cursor", "").ifBlank { null })
+    }
+
+    fun publicTrack(publicId: String): PublicTrack {
+        val path = "/api/public/v1/tracks/" + URLEncoder.encode(publicId, "UTF-8")
+        val o = request("GET", path, null, null)
+        val t = o.optJSONObject("track") ?: throw IllegalStateException("公开赛道响应为空")
+        val payload = JSONObject()
+        for (k in arrayOf(
+            "name", "geo", "length_m", "width", "start_width", "start_f",
+            "start_offset", "reverse", "sections", "points", "glat0", "glon0",
+            "nscale", "nox", "noy",
+        )) {
+            if (t.has(k)) payload.put(k, t.opt(k))
+        }
+        val uuid = t.optString("track_uuid", "")
+        payload.put("uuid", uuid)
+        payload.put("id", 0)
+        payload.put("version", 1)
+        return PublicTrack(
+            publicId = t.optString("public_id", publicId),
+            trackUuid = uuid,
+            name = t.optString("name", ""),
+            payload = payload,
+        )
+    }
 
     private fun path(uid: String): String =
         URLEncoder.encode(uid, StandardCharsets.UTF_8.name())

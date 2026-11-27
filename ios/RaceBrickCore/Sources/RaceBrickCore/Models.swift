@@ -52,6 +52,10 @@ public struct TrackPayload: Codable, Sendable {
     public var lineLon: Double?
     public var lineHdg: Double?
     public var start: TrackStart?
+    public var uuid: String?
+    public var publicId: String?
+    public var trackUuid: String?
+    public var sections: [Double]?
 }
 
 public struct TrackStart: Codable, Sendable {
@@ -69,6 +73,17 @@ public struct TrackEnvelope: Codable, Identifiable, Sendable {
     public let updatedAt: Int
     public let deleted: Bool
     public let payload: TrackPayload?
+
+    public init(localId: Int, name: String, hash: String, revision: Int,
+                updatedAt: Int, deleted: Bool, payload: TrackPayload?) {
+        self.localId = localId
+        self.name = name
+        self.hash = hash
+        self.revision = revision
+        self.updatedAt = updatedAt
+        self.deleted = deleted
+        self.payload = payload
+    }
 }
 
 public struct LapSummary: Codable, Identifiable, Sendable {
@@ -135,6 +150,36 @@ public struct PendingCommand: Codable, Sendable {
     public let payload: String?
     public let status: String?
     public let createdAt: Int?
+}
+
+public struct PublicTrackSummary: Codable, Identifiable, Sendable {
+    public var id: String { publicId }
+    public let publicId: String
+    public let trackUuid: String
+    public let name: String
+    public let geo: Bool
+    public let lengthM: Double
+    public let updatedAt: Int
+}
+
+public struct PublicTracksResponse: Codable, Sendable {
+    public let format: String
+    public let tracks: [PublicTrackSummary]
+    public let nextCursor: String?
+}
+
+public struct PublicTrackResponse: Codable, Sendable {
+    public let format: String
+    public let track: TrackPayload
+}
+
+public struct LocalSharedTrack: Codable, Identifiable, Sendable {
+    public var id: String { trackUuid }
+    public let publicId: String
+    public let trackUuid: String
+    public let name: String
+    public let payload: TrackPayload
+    public let importedAt: Int
 }
 
 public enum JSONValue: Codable, Sendable {

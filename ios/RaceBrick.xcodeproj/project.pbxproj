@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		0A6DE420A16FE385A04ED13A /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B40056FB727818F56017FC9 /* DevicesView.swift */; };
 		19A9ED34FCBED4DCD95D391F /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30EAAB7D661D1B85F6E64A82 /* MediaView.swift */; };
+		31C31E1FA00923B7C2E50BC0 /* SharedTrackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423BEBB83713063D54855ED8 /* SharedTrackStore.swift */; };
+		37F35520E6EF641646B8C86F /* PublicTracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9030F62CEF32EA66A7A6BAB /* PublicTracksView.swift */; };
 		4CC03A0207F40DAFA30FCBB6 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0C66AEE395643CD3ACD503 /* BLEManager.swift */; };
 		588BEE3F89DC385355FDC8BD /* DeviceDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD95C63EFD304058942D8B3 /* DeviceDetailView.swift */; };
 		62529D47F3932B227247A2A3 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E954210AF29B8E046CAEECA /* AuthView.swift */; };
@@ -27,6 +29,7 @@
 /* Begin PBXFileReference section */
 		1B0C66AEE395643CD3ACD503 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		30EAAB7D661D1B85F6E64A82 /* MediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaView.swift; sourceTree = "<group>"; };
+		423BEBB83713063D54855ED8 /* SharedTrackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTrackStore.swift; sourceTree = "<group>"; };
 		431F74895BE9CE6BB06175A8 /* BLEView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEView.swift; sourceTree = "<group>"; };
 		65BA7A25C2FF9615B45E0856 /* SatelliteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatelliteService.swift; sourceTree = "<group>"; };
 		68A448F774F80E385B38F262 /* TrackMapCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMapCanvas.swift; sourceTree = "<group>"; };
@@ -38,6 +41,7 @@
 		9E58C089B06A733C275B9D1A /* NavFrameStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavFrameStreamer.swift; sourceTree = "<group>"; };
 		9FD9A139914996566AF74F3A /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		A96765DB11A745EFAF682026 /* RaceBrickCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RaceBrickCore; path = RaceBrickCore; sourceTree = SOURCE_ROOT; };
+		B9030F62CEF32EA66A7A6BAB /* PublicTracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicTracksView.swift; sourceTree = "<group>"; };
 		CDD95C63EFD304058942D8B3 /* DeviceDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailView.swift; sourceTree = "<group>"; };
 		EE67BBFFF0756818205BCE38 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EF9361997368780E4B8F85B5 /* RaceBrickApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceBrickApp.swift; sourceTree = "<group>"; };
@@ -93,9 +97,11 @@
 				9FD9A139914996566AF74F3A /* KeychainStore.swift */,
 				30EAAB7D661D1B85F6E64A82 /* MediaView.swift */,
 				9E58C089B06A733C275B9D1A /* NavFrameStreamer.swift */,
+				B9030F62CEF32EA66A7A6BAB /* PublicTracksView.swift */,
 				EF9361997368780E4B8F85B5 /* RaceBrickApp.swift */,
 				65BA7A25C2FF9615B45E0856 /* SatelliteService.swift */,
 				88C3BC9CED8B53B36D7E1266 /* SessionDetailView.swift */,
+				423BEBB83713063D54855ED8 /* SharedTrackStore.swift */,
 				68A448F774F80E385B38F262 /* TrackMapCanvas.swift */,
 			);
 			path = RaceBrick;
@@ -186,9 +192,11 @@
 				8A6B2525A50F1877E8F6F5CF /* KeychainStore.swift in Sources */,
 				19A9ED34FCBED4DCD95D391F /* MediaView.swift in Sources */,
 				E0EC101FC7E9D8F76ED734A9 /* NavFrameStreamer.swift in Sources */,
+				37F35520E6EF641646B8C86F /* PublicTracksView.swift in Sources */,
 				919721849688662819E750C8 /* RaceBrickApp.swift in Sources */,
 				E18EACE7CDEE5A3729A34FCD /* SatelliteService.swift in Sources */,
 				C3BC6D9D0354EE6B07CA4310 /* SessionDetailView.swift in Sources */,
+				31C31E1FA00923B7C2E50BC0 /* SharedTrackStore.swift in Sources */,
 				D292F4CDF38D03E47A382E32 /* TrackMapCanvas.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

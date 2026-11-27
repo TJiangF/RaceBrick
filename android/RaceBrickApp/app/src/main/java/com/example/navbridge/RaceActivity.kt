@@ -52,6 +52,7 @@ class RaceActivity : LocalizedActivity() {
         const val EXTRA_OFFLINE = "offline_cache"
         const val EXTRA_FORCE_LOCAL = "force_local"
         private const val REQUEST_SESSION_ANALYSIS = 2001
+        private const val REQUEST_PUBLIC_TRACKS = 2002
     }
 
     private lateinit var tvStatus: TextView
@@ -144,6 +145,9 @@ class RaceActivity : LocalizedActivity() {
                 .putExtra(SyncActivity.EXTRA_BASE, discoveredDevice?.baseUrl ?: RaceApi.baseUrl(this))
                 .putExtra(SyncActivity.EXTRA_UID, discoveredDevice?.uid ?: LocalCache.uid(this)))
         }
+        findViewById<Button>(R.id.btnRacePublic).setOnClickListener {
+            startActivityForResult(Intent(this, PublicTracksActivity::class.java), REQUEST_PUBLIC_TRACKS)
+        }
         findViewById<Button>(R.id.btnRaceSat).setOnClickListener { uploadAllSatellites(manual = true) }
         findViewById<Button>(R.id.btnRaceLoad).setOnClickListener { loadAll() }
         findViewById<Button>(R.id.btnRaceTracks).setOnClickListener {
@@ -202,11 +206,10 @@ class RaceActivity : LocalizedActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_SESSION_ANALYSIS || resultCode != RESULT_OK) return
-        if (localMode || offlineMode) {
-            loadLocalData()
-        } else {
-            loadAll()
+        if (resultCode != RESULT_OK) return
+        when (requestCode) {
+            REQUEST_SESSION_ANALYSIS -> if (localMode || offlineMode) loadLocalData() else loadAll()
+            REQUEST_PUBLIC_TRACKS -> loadLocalData()
         }
     }
 
