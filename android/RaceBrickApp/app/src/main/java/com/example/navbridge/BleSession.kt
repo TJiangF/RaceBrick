@@ -19,7 +19,7 @@ object BleSession {
     private val main = Handler(Looper.getMainLooper())
     private var appContext: Context? = null
     private var client: BleClient? = null
-    private var listener: Listener? = null
+    private val listeners = LinkedHashSet<Listener>()
 
     @Volatile private var lastStatus: String = "未连接 RaceBrick"
 
@@ -37,16 +37,20 @@ object BleSession {
             app,
             onStatus = { msg ->
                 lastStatus = msg
-                main.post { listener?.onStatus(msg) }
+                main.post { listeners.toList().forEach { it.onStatus(msg) } }
             },
             onReady = {
-                main.post { listener?.onReady() }
+                main.post {
+                    val ctx = appContext
+                    if (ctx != null) MediaKeepAliveService.start(ctx)
+                    listeners.toList().forEach { it.onReady() }
+                }
             },
             onLine = { line ->
-                main.post { listener?.onLine(line) }
+                main.post { listeners.toList().forEach { it.onLine(line) } }
             },
             onSessionChanged = { active ->
-                main.post { listener?.onSessionChanged(active) }
+                main.post { listeners.toList().forEach { it.onSessionChanged(active) } }
             },
         )
         client = created
@@ -54,13 +58,13 @@ object BleSession {
     }
 
     fun bind(target: Listener) {
-        listener = target
+        listeners += target
         target.onStatus(lastStatus)
         if (verified) target.onSessionChanged(true)
     }
 
     fun unbind(target: Listener) {
-        if (listener === target) listener = null
+        listeners -= target
     }
 
     fun connect() {
@@ -70,7 +74,7 @@ object BleSession {
     fun disconnect() {
         client?.disconnect()
         lastStatus = "未连接 RaceBrick"
-        listener?.onStatus(lastStatus)
+        listeners.toList().forEach { it.onStatus(lastStatus) }
         appContext?.let { MediaKeepAliveService.stop(it) }
     }
 

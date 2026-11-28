@@ -142,7 +142,7 @@ class MainActivity : LocalizedActivity() {
             sendMediaVolume()
             sendMediaMetadata()
             sendLyricWindow()
-            main.postDelayed(this, 1000)
+            main.postDelayed(this, 500)
         }
     }
 
@@ -463,18 +463,22 @@ class MainActivity : LocalizedActivity() {
         maybePromptMediaAccess()
 
         main.post(framePump)
-        main.post(mediaStatePump)
         setSessionActive(BleSession.connected)
         handleDebugIntent(intent)
     }
 
     override fun onStart() {
         super.onStart()
+        MediaBridge.setUiActive(true)
         BleSession.bind(bleListener)
+        main.removeCallbacks(mediaStatePump)
+        main.post(mediaStatePump)
         if (BleSession.verified) handleBleReady()
     }
 
     override fun onStop() {
+        MediaBridge.setUiActive(false)
+        main.removeCallbacks(mediaStatePump)
         BleSession.unbind(bleListener)
         super.onStop()
     }

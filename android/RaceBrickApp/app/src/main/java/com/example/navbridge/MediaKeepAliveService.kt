@@ -9,12 +9,30 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.content.ContextCompat
 
 /** Keeps the process and BLE bridge alive while the UI is in the background,
  *  so hardware volume/media commands still run. */
 class MediaKeepAliveService : Service() {
+    private val main = Handler(Looper.getMainLooper())
+    private val mediaListener = object : BleSession.Listener {
+        override fun onStatus(message: String) = Unit
+        override fun onSessionChanged(active: Boolean) = Unit
+        override fun onReady() = Unit
+        override fun onLine(line: String) {
+            MediaBridge.handleLine(this@MediaKeepAliveService, line)
+        }
+    }
+    private val pump = object : Runnable {
+        override fun run() {
+            MediaBridge.sendState(this@MediaKeepAliveService)
+            main.postDelayed(this, 500L)
+        }
+    }
+
     companion object {
         private const val CHANNEL = "racebrick_media"
         private const val NOTIFICATION_ID = 1002
@@ -42,6 +60,15 @@ class MediaKeepAliveService : Service() {
                 }
             )
         }
+        BleSession.bind(mediaListener)
+        main.removeCallbacks(pump)
+        main.post(pump)
+    }
+
+    override fun onDestroy() {
+        main.removeCallbacks(pump)
+        BleSession.unbind(mediaListener)
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
